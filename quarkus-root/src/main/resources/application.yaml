@@ -1,0 +1,11 @@
+pg-facade:
+  proxy:
+    port: 5433
+    parameter-status-override:
+      "is_superuser" : "off"
+      "in_hot_standby" : "off"
+
+quarkus:
+  log:
+    level: DEBUG
+
