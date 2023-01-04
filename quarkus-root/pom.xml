@@ -18,6 +18,7 @@
     </properties>
 
     <dependencies>
+        <!-- Quarkus -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
@@ -26,13 +27,22 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-config-yaml</artifactId>
         </dependency>
+        <!-- Remote dev not working without resteasy -->
         <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-resteasy</artifactId>
         </dependency>
+
+        <!-- Netty -->
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
+        </dependency>
+
+        <!-- Other -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -42,6 +52,8 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
+
+        <!-- Modules -->
         <dependency>
             <groupId>com.lantromipis</groupId>
             <artifactId>user-management</artifactId>
@@ -63,6 +75,12 @@
         <dependency>
             <groupId>com.lantromipis</groupId>
             <artifactId>connection-pool</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.lantromipis</groupId>
+            <artifactId>postgresql-cluster-management</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>
@@ -137,6 +155,20 @@
             <properties>
                 <skipITs>false</skipITs>
                 <quarkus.package.type>native</quarkus.package.type>
+            </properties>
+        </profile>
+        <profile>
+            <id>mutable-jar</id>
+            <activation>
+                <property>
+                    <name>mutable-jar</name>
+                </property>
+            </activation>
+            <properties>
+                <skipITs>false</skipITs>
+                <quarkus.package.type>mutable-jar</quarkus.package.type>
+                <quarkus.live-reload.password>123</quarkus.live-reload.password>
+                <quarkus.live-reload.url>http://localhost:8083</quarkus.live-reload.url>
             </properties>
         </profile>
     </profiles>

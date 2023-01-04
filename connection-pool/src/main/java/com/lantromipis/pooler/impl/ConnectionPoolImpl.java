@@ -47,7 +47,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.AUTO_READ, false)
                 .handler(new EmptyHandler())
-                .remoteAddress(clusterRuntimeConfiguration.getMasterUrl(), clusterRuntimeConfiguration.getMasterPort());
+                .remoteAddress(clusterRuntimeConfiguration.getMasterHostAddress(), clusterRuntimeConfiguration.getMasterPort());
     }
 
     @Override
