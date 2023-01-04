@@ -1,5 +1,6 @@
 package com.lantromipis;
 
+import com.lantromipis.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.pooler.api.ConnectionPool;
 import com.lantromipis.provider.api.UserAuthInfoProvider;
 import io.quarkus.runtime.StartupEvent;
@@ -22,8 +23,13 @@ public class QuarkusStartup {
     @Inject
     ConnectionPool connectionPool;
 
+    @Inject
+    PostgresOrchestrator postgresOrchestrator;
+
     public void startup(@Observes StartupEvent startupEvent) {
         log.info("PgFacade initialization started!");
+
+        postgresOrchestrator.initialize();
 
         userAuthInfoProvider.initialize();
         connectionPool.initialize();

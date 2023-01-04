@@ -17,17 +17,17 @@ import java.util.Objects;
 import java.util.function.Function;
 
 @Slf4j
-public class ChannelStartupHandler extends AbstractConnectionPoolClientHandler {
+public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler {
 
     private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
     private AuthAdditionalInfo authAdditionalInfo;
     private ConnectionInfo connectionInfo;
     private Function<Boolean, Void> callbackFunction;
 
-    public ChannelStartupHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
-                                 final AuthAdditionalInfo authAdditionalInfo,
-                                 final ConnectionInfo connectionInfo,
-                                 final Function<Boolean, Void> callbackFunction) {
+    public PgChannelStartupHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
+                                   final AuthAdditionalInfo authAdditionalInfo,
+                                   final ConnectionInfo connectionInfo,
+                                   final Function<Boolean, Void> callbackFunction) {
         this.authAdditionalInfo = authAdditionalInfo;
         this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
         this.connectionInfo = connectionInfo;
@@ -57,8 +57,8 @@ public class ChannelStartupHandler extends AbstractConnectionPoolClientHandler {
         AuthenticationRequestMessage authenticationRequestMessage = ServerPostgreSqlProtocolMessageDecoder.decodeAuthRequestMessage(message);
 
         if (!Objects.equals(authenticationRequestMessage.getMethod(), authAdditionalInfo.getExpectedAuthMethod())) {
-            HandlerUtils.closeOnFlush(ctx.channel());
-            //TODO close connection properly
+            log.error("Can not create pooled connection. Expected auth method: " + authAdditionalInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
+            closeConnection(ctx);
             return;
         }
 
@@ -76,8 +76,12 @@ public class ChannelStartupHandler extends AbstractConnectionPoolClientHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        callbackFunction.apply(false);
         log.error(cause.getMessage(), cause);
+        closeConnection(ctx);
+    }
+
+    private void closeConnection(ChannelHandlerContext ctx) {
+        callbackFunction.apply(false);
         HandlerUtils.closeOnFlush(ctx.channel());
     }
 }

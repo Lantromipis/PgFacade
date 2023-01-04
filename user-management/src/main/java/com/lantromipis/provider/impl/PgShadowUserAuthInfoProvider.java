@@ -1,19 +1,16 @@
 package com.lantromipis.provider.impl;
 
-import com.lantromipis.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.provider.api.UserAuthInfoProvider;
 import com.lantromipis.model.AuthenticationMethod;
 import com.lantromipis.model.PgShadowTableRow;
+import com.lantromipis.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.properties.statics.PostgresProperties;
+import com.lantromipis.provider.api.UserAuthInfoProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import java.sql.Connection;
-import java.sql.Date;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,6 +21,9 @@ public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
+    @Inject
+    PostgresProperties postgresProperties;
+
     private Map<String, PgShadowTableRow> pgShadowTableRowsMap = new HashMap<>();
 
     public void initialize() {
@@ -31,16 +31,16 @@ public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
         try {
             String jdbcUrl =
                     "jdbc:postgresql://"
-                            + clusterRuntimeProperties.getMasterUrl()
+                            + clusterRuntimeProperties.getMasterHostAddress()
                             + ":"
                             + clusterRuntimeProperties.getMasterPort()
                             + "/"
-                            + clusterRuntimeProperties.getDefaultDatabase();
+                            + postgresProperties.pgFacadeDatabase();
 
             Connection connection = DriverManager.getConnection(
                     jdbcUrl,
-                    clusterRuntimeProperties.getPgFacadeUsername(),
-                    clusterRuntimeProperties.getPgFacadePassword()
+                    postgresProperties.pgFacadeUser(),
+                    postgresProperties.pgFacadePassword()
             );
 
             String pgShadowSelectSql = "select * from pg_shadow;";

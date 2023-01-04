@@ -1,4 +1,4 @@
-package com.lantromipis.properties.config;
+package com.lantromipis.properties.statics;
 
 import io.smallrye.config.ConfigMapping;
 

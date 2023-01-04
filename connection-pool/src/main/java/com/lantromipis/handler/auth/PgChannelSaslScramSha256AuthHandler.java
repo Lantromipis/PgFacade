@@ -18,7 +18,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
-public class ChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolClientHandler {
+public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolClientHandler {
 
     private enum SaslAuthStatus {
         NOT_STARTED,
@@ -38,7 +38,7 @@ public class ChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolCli
 
     private SaslAuthStatus authStatus = SaslAuthStatus.NOT_STARTED;
 
-    public ChannelSaslScramSha256AuthHandler(ScramAuthInfo scramAuthInfo, ConnectionInfo connectionInfo, Function<Boolean, Void> callbackFunction) {
+    public PgChannelSaslScramSha256AuthHandler(ScramAuthInfo scramAuthInfo, ConnectionInfo connectionInfo, Function<Boolean, Void> callbackFunction) {
         this.clientNonce = UUID.randomUUID().toString();
 
         this.scramAuthInfo = scramAuthInfo;

@@ -1,8 +1,8 @@
 package com.lantromipis;
 
-import com.lantromipis.properties.config.ProxyStaticProperties;
-import com.lantromipis.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.initializer.ProxyChannelInitializer;
+import com.lantromipis.producer.ProxyChannelHandlersProducer;
+import com.lantromipis.properties.statics.ProxyStaticProperties;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;

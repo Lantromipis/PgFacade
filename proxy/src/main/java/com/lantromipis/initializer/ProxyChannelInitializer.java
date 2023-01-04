@@ -18,10 +18,14 @@ public class ProxyChannelInitializer extends ChannelInitializer<Channel> {
     @Override
     protected void initChannel(Channel channel) throws Exception {
         log.debug("Established new connection with client.");
+
         channel.pipeline().addLast(
-                new LoggingHandler(LogLevel.INFO),
                 proxyChannelHandlersProducer.createNewClientStartupHandler()
                 //new ProxyClientHandler()
         );
+
+        if (log.isTraceEnabled()) {
+            channel.pipeline().addLast(new LoggingHandler(LogLevel.TRACE));
+        }
     }
 }
