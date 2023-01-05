@@ -46,7 +46,7 @@
         </dependency>
         <dependency>
             <groupId>com.lantromipis</groupId>
-            <artifactId>postgresql-protocol</artifactId>
+            <artifactId>postgres-protocol</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>
