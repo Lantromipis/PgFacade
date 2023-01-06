@@ -16,4 +16,6 @@ public interface OrchestrationAdapter {
     List<PostgresInstanceInfo> getAvailablePostgresInstancesInfos();
 
     PostgresInstanceInfo getInstanceInfo(UUID instanceId);
+
+    boolean deletePostgresInstance(UUID instanceId);
 }

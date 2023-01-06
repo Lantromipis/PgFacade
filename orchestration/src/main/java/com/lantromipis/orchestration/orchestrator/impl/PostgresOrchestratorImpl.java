@@ -38,26 +38,32 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         if (masterInstanceInfo == null) {
             log.info("Can not find active Postgres master instance. Will create and start new one.");
-            masterInstanceInfo = createStartAndWaitForNewMasterToBeReady();
+            masterInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
         } else if (InstanceStatus.NOT_ACTIVE.equals(masterInstanceInfo.getStatus())) {
             log.info("Found non-active Postgres master instance. Will start it now.");
             boolean masterStarted = orchestrationAdapter.startPostgresInstance(masterInstanceInfo.getInstanceId());
+
             if (!masterStarted) {
-                log.info("Can not start non-active master instance. Will create and start new one.");
-                masterInstanceInfo = createStartAndWaitForNewMasterToBeReady();
+                log.info("Can not start non-active master instance. Will delete it and create and start new one.");
+                orchestrationAdapter.deletePostgresInstance(masterInstanceInfo.getInstanceId());
+                masterInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
+            } else {
+                masterInstanceInfo = waitUntilPostgresInstanceHealthy(masterInstanceInfo.getInstanceId());
             }
         } else if (InstanceStatus.ACTIVE.equals(masterInstanceInfo.getStatus())) {
             log.info("Found active Postgres master. No actions needed.");
         }
 
+        log.info("Master is up and running!");
+
         clusterRuntimeProperties.setMasterHostAddress(masterInstanceInfo.getInstanceAddress());
         clusterRuntimeProperties.setMasterPort(masterInstanceInfo.getInstancePort());
     }
 
-    private PostgresInstanceInfo createStartAndWaitForNewMasterToBeReady() {
+    private PostgresInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean master) {
         UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
                 .builder()
-                .master(true)
+                .master(master)
                 .build()
         );
 
@@ -73,6 +79,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         log.info("Created new instance. Will wait until it is healthy...");
 
+        return waitUntilPostgresInstanceHealthy(instanceId);
+    }
+
+    private PostgresInstanceInfo waitUntilPostgresInstanceHealthy(UUID instanceId) {
         OrchestrationProperties.CommonProperties.PostgresStartupCheckProperties startupCheckProperties = orchestrationProperties.common().postgresStartupCheck();
 
         long endTime = System.currentTimeMillis() + (startupCheckProperties.interval() * startupCheckProperties.retries()) + startupCheckProperties.startPeriod();

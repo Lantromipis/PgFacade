@@ -197,6 +197,24 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
     }
 
+    @Override
+    public boolean deletePostgresInstance(UUID instanceId) {
+        String containerId = instanceIdAndContainerIdMap.get(instanceId);
+
+        if (containerId == null) {
+            return true;
+        }
+
+        try {
+            dockerClient.removeContainerCmd(containerId);
+            return true;
+
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            return false;
+        }
+    }
+
     private UUID rememberContainer(String containerId) {
         UUID instanceId = UUID.randomUUID();
 
