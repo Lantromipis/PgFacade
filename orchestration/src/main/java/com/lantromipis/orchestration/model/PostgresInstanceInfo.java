@@ -13,7 +13,9 @@ import java.util.UUID;
 @AllArgsConstructor
 public class PostgresInstanceInfo {
     private UUID instanceId;
-    private String instanceIpAddress;
+    private String instanceAddress;
+    private int instancePort;
     private InstanceStatus status;
+    private InstanceHealth health;
     private boolean master;
 }

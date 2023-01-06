@@ -5,22 +5,31 @@ pg-facade:
       "is_superuser" : "off"
       "in_hot_standby" : "off"
   orchestration:
+    common:
+      postgres-startup-check:
+        start-period: 2000 #millisecinds
+        interval: 100 #millisecinds
+        retries: 100
+      postgres-dead-check:
+        interval: 100 #millisecinds
+        retries: 3
     adapter: docker
     docker:
       docker-host: unix:///var/run/docker.sock
       postgres-network-name: pg-facade-postgres-network
       postgres-container-name: pg-facade-managed-postgres
       postgres-image-tag: "postgres:latest"
+      postgres-healthcheck:
+        start-period: 1500 #millisecinds
+        interval: 100 #millisecinds
+        timeout: 100 #millisecinds
+        retries: 10
+        cmd-shell-command: pg_isready -U ${pg-facade.postgres.pg-facade-user}
+
   postgres:
     pg-facade-user: postgres
     pg-facade-password: postgres
     pg-facade-database: postgres
-    healthcheck:
-      start-period: 100000000 #nanoseconds
-      interval: 100000000 #nanoseconds
-      timeout: 100000000 #nanoseconds
-      retries: 100
-      command: pg_isready
 
 quarkus:
   http:

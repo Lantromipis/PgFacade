@@ -16,7 +16,7 @@ public class DockerUtils {
     @Inject
     OrchestrationProperties orchestrationProperties;
 
-    public String getContainerIpAddress(InspectContainerResponse inspectContainerResponse) {
+    public String getContainerAddress(InspectContainerResponse inspectContainerResponse) {
         ContainerNetwork containerNetwork = inspectContainerResponse.getNetworkSettings().getNetworks().get(orchestrationProperties.docker().postgresNetworkName());
         if (containerNetwork == null) {
             return null;
@@ -25,7 +25,7 @@ public class DockerUtils {
         return containerNetwork.getIpAddress();
     }
 
-    public String getContainerIpAddress(Container container) {
+    public String getContainerAddress(Container container) {
         return Optional.of(container)
                 .map(Container::getNetworkSettings)
                 .map(ContainerNetworkSettings::getNetworks)
