@@ -6,7 +6,6 @@ import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.HealthCheck;
 import com.github.dockerjava.api.model.HostConfig;
-import com.github.dockerjava.api.model.Network;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
@@ -16,9 +15,6 @@ import com.lantromipis.configuration.statics.OrchestrationProperties;
 import com.lantromipis.configuration.statics.PostgresProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.DockerConstants;
-import com.lantromipis.orchestration.exception.AdapterInitializationException;
-import com.lantromipis.orchestration.exception.PostgresInstanceCreationException;
-import com.lantromipis.orchestration.exception.PostgresInstanceStartException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresInstanceInfo;
@@ -51,7 +47,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     DockerUtils dockerUtils;
 
     private DockerClient dockerClient;
-    private String postgresNetwork;
+
     private ConcurrentHashMap<UUID, String> instanceIdAndContainerIdMap = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, UUID> containerIdAndInstanceIdMap = new ConcurrentHashMap<>();
 
@@ -76,16 +72,14 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
 
-        postgresNetwork = getNetworkIdByName(dockerProperties.postgresNetworkName());
-
         //to pre-load all containers
-        getAvailablePostgresInstances();
+        getAvailablePostgresInstancesInfos();
 
         log.info("Successfully created Docker client for cluster management.");
     }
 
     @Override
-    public PostgresInstanceInfo createNewPostgresInstance(PostgresInstanceCreationRequest request) throws PostgresInstanceCreationException {
+    public UUID createNewPostgresInstance(PostgresInstanceCreationRequest request) {
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
@@ -103,79 +97,41 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                     )
                     .withHealthcheck(
                             new HealthCheck()
-                                    .withInterval(postgresProperties.healthcheck().interval())
-                                    .withRetries(postgresProperties.healthcheck().retries())
-                                    .withStartPeriod(postgresProperties.healthcheck().startPeriod())
-                                    .withTimeout(postgresProperties.healthcheck().timeout())
-                                    .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, postgresProperties.healthcheck().command()))
+                                    .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().interval()))
+                                    .withRetries(dockerProperties.postgresHealthcheck().retries())
+                                    .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().startPeriod()))
+                                    .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().timeout()))
+                                    .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgresHealthcheck().cmdShellCommand()))
                     )
                     .exec();
 
-            String containerId = createResponse.getId();
+            return rememberContainer(createResponse.getId());
 
-            dockerClient.startContainerCmd(containerId).exec();
-
-            var inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
-
-            String containerIpAddress = dockerUtils.getContainerIpAddress(inspectResponse);
-
-            if (containerIpAddress == null) {
-                throw new PostgresInstanceCreationException("Unable to obtain IP address of Docker container.");
-            }
-
-            if (!waitBlockingUntilContainerHealthy(containerId)) {
-                throw new PostgresInstanceCreationException("Health check timeout.");
-            }
-
-            UUID instanceId = rememberContainer(containerId);
-
-            return PostgresInstanceInfo
-                    .builder()
-                    .instanceIpAddress(containerIpAddress)
-                    .instanceId(instanceId)
-                    .status(dockerMapper.from(inspectResponse.getState().getStatus()))
-                    .master(request.isMaster())
-                    .build();
-
-        } catch (PostgresInstanceCreationException postgresInstanceCreationException) {
-            throw postgresInstanceCreationException;
         } catch (Exception e) {
-            throw new PostgresInstanceCreationException("Unable to create Docker container.", e);
+            log.error(e.getMessage(), e);
+            return null;
         }
     }
 
     @Override
-    public PostgresInstanceInfo tryToStartPostgresInstance(UUID instanceId) throws PostgresInstanceStartException {
+    public boolean startPostgresInstance(UUID instanceId) {
         String containerId = instanceIdAndContainerIdMap.get(instanceId);
         if (containerId == null) {
-            throw new PostgresInstanceStartException("Error starting Docker postgres container.");
+            log.error("Error starting Docker postgres container. Instance not found.");
+            return false;
         }
+
         try {
             dockerClient.startContainerCmd(containerId).exec();
-            var inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
-
-            String containerIpAddress = dockerUtils.getContainerIpAddress(inspectResponse);
-
-            if (!waitBlockingUntilContainerHealthy(containerId)) {
-                throw new PostgresInstanceStartException("Health check timeout.");
-            }
-
-            return PostgresInstanceInfo
-                    .builder()
-                    .master(true)//TODO until hot-standby
-                    .instanceIpAddress(containerIpAddress)
-                    .instanceId(instanceId)
-                    .status(dockerMapper.from(inspectResponse.getState().getStatus()))
-                    .build();
-        } catch (PostgresInstanceStartException postgresInstanceStartException) {
-            throw postgresInstanceStartException;
+            return true;
         } catch (Exception e) {
-            throw new PostgresInstanceStartException("Unable to start Docker postgres container with id " + containerId, e);
+            log.error(e.getMessage(), e);
+            return false;
         }
     }
 
     @Override
-    public List<PostgresInstanceInfo> getAvailablePostgresInstances() {
+    public List<PostgresInstanceInfo> getAvailablePostgresInstancesInfos() {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         List<Container> containers = dockerClient.listContainersCmd()
@@ -199,8 +155,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             ret.add(PostgresInstanceInfo
                     .builder()
                     .instanceId(instanceId)
-                    .instanceIpAddress(dockerUtils.getContainerIpAddress(container))
-                    .status(dockerMapper.from(container.getState()))
+                    .instanceAddress(dockerUtils.getContainerAddress(container))
+                    .instancePort(5432) //TODO maybe need to change
+                    .status(dockerMapper.toInstanceStatus(container.getState()))
                     .master(true) //TODO constant until hot-standby!!!
                     .build()
             );
@@ -209,28 +166,35 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         return ret;
     }
 
-    private String getNetworkIdByName(String networkName) {
-        String networkId;
+    @Override
+    public PostgresInstanceInfo getInstanceInfo(UUID instanceId) {
+        String containerId = instanceIdAndContainerIdMap.get(instanceId);
 
-        List<Network> pgFacadePossibleNetworks = dockerClient.listNetworksCmd().withNameFilter(networkName).exec();
+        if (containerId == null) {
+            return null;
+        }
 
-        if (CollectionUtils.isEmpty(pgFacadePossibleNetworks)) {
-            //var createNetworkResponse = dockerClient.createNetworkCmd().withName(dockerProperties.postgresNetworkName()).withCheckDuplicate(true).exec();
-            networkId = null;
-        } else {
-            networkId = pgFacadePossibleNetworks
-                    .stream()
-                    .filter(network -> Objects.equals(network.getName(), networkName))
-                    .findFirst()
-                    .map(Network::getId)
+        try {
+            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
+
+            String healthState = Optional.of(inspectResponse.getState())
+                    .map(InspectContainerResponse.ContainerState::getHealth)
+                    .map(HealthState::getStatus)
                     .orElse(null);
-        }
 
-        if (networkId == null) {
-            throw new AdapterInitializationException("Unable to find Docker network for PgFacade with name '" + networkName + "'. PgFacade will not work!");
+            return PostgresInstanceInfo
+                    .builder()
+                    .instanceId(instanceId)
+                    .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
+                    .instancePort(5432) //TODO maybe need to change
+                    .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
+                    .health(dockerMapper.toInstanceHealth(healthState))
+                    .master(true) //TODO constant until hot-standby!!!
+                    .build();
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            return null;
         }
-
-        return networkId;
     }
 
     private UUID rememberContainer(String containerId) {
@@ -244,51 +208,5 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     private String createEnvValueForRequest(String varName, String value) {
         return varName + "=" + value;
-    }
-
-    private boolean waitBlockingUntilContainerHealthy(String containerId) {
-        long timeoutMilliseconds = TimeUnit.MILLISECONDS.convert(
-                postgresProperties.healthcheck().timeout()
-                        * postgresProperties.healthcheck().retries()
-                        + postgresProperties.healthcheck().startPeriod(),
-                TimeUnit.NANOSECONDS
-        );
-
-        long pollingMilliseconds = TimeUnit.MILLISECONDS.convert(
-                postgresProperties.healthcheck().timeout(),
-                TimeUnit.NANOSECONDS
-        );
-
-        try {
-            long startTime = System.currentTimeMillis();
-            while (true) {
-                var inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
-
-                String healthStatus = Optional.of(inspectResponse)
-                        .map(InspectContainerResponse::getState)
-                        .map(InspectContainerResponse.ContainerState::getHealth)
-                        .map(HealthState::getStatus)
-                        .orElse(null);
-
-                log.info(healthStatus);
-
-                if (DockerConstants.ContainerHealth.HEALTHY.getValue().equals(healthStatus)) {
-                    return true;
-                } else {
-                    log.info(String.valueOf((startTime + timeoutMilliseconds)) + " " + System.currentTimeMillis());
-                    if (startTime + timeoutMilliseconds < System.currentTimeMillis()) {
-                        return false;
-                    }
-                    Thread.sleep(pollingMilliseconds);
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error(e.getMessage(), e);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-        }
-
-        return false;
     }
 }

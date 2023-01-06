@@ -1,7 +1,5 @@
 package com.lantromipis.orchestration.adapter.api;
 
-import com.lantromipis.orchestration.exception.PostgresInstanceCreationException;
-import com.lantromipis.orchestration.exception.PostgresInstanceStartException;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresInstanceInfo;
 
@@ -11,9 +9,11 @@ import java.util.UUID;
 public interface OrchestrationAdapter {
     void initialize();
 
-    PostgresInstanceInfo createNewPostgresInstance(PostgresInstanceCreationRequest request) throws PostgresInstanceCreationException;
+    UUID createNewPostgresInstance(PostgresInstanceCreationRequest request);
 
-    PostgresInstanceInfo tryToStartPostgresInstance(UUID instanceId) throws PostgresInstanceStartException;
+    boolean startPostgresInstance(UUID instanceId);
 
-    List<PostgresInstanceInfo> getAvailablePostgresInstances();
+    List<PostgresInstanceInfo> getAvailablePostgresInstancesInfos();
+
+    PostgresInstanceInfo getInstanceInfo(UUID instanceId);
 }

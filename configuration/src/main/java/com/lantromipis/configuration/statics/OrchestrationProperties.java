@@ -9,6 +9,29 @@ public interface OrchestrationProperties {
 
     DockerProperties docker();
 
+    CommonProperties common();
+
+    interface CommonProperties {
+
+        PostgresStartupCheckProperties postgresStartupCheck();
+
+        PostgresDeadCheckProperties postgresDeadCheck();
+
+        interface PostgresStartupCheckProperties {
+            long startPeriod();
+
+            long interval();
+
+            long retries();
+        }
+
+        interface PostgresDeadCheckProperties {
+            long interval();
+
+            int retries();
+        }
+    }
+
     interface DockerProperties {
         String dockerHost();
 
@@ -17,6 +40,21 @@ public interface OrchestrationProperties {
         String postgresContainerName();
 
         String postgresImageTag();
+
+        HealthCheckProperties postgresHealthcheck();
+
+        interface HealthCheckProperties {
+            long interval();
+
+            long timeout();
+
+            int retries();
+
+            long startPeriod();
+
+            String cmdShellCommand();
+        }
+
     }
 
     enum AdapterType {

@@ -3,6 +3,8 @@ package com.lantromipis.orchestration.constant;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+import java.util.Arrays;
+
 public class DockerConstants {
 
     public static final String POSTGRES_ENV_VAR_USERNAME = "POSTGRES_USER";
@@ -34,6 +36,13 @@ public class DockerConstants {
 
         @Getter
         private final String value;
+
+        public static ContainerHealth fromValue(String value) {
+            return Arrays.stream(ContainerHealth.values())
+                    .filter(enm -> enm.value.equals(value))
+                    .findFirst()
+                    .orElse(null);
+        }
     }
 
     private DockerConstants() {

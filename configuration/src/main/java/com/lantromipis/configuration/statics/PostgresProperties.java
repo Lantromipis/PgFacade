@@ -10,17 +10,7 @@ public interface PostgresProperties {
 
     String pgFacadeDatabase();
 
-    HealthCheckProperties healthcheck();
-
     interface HealthCheckProperties {
-        long interval();
-
-        long timeout();
-
-        int retries();
-
-        long startPeriod();
-
-        String command();
+        int interval();
     }
 }

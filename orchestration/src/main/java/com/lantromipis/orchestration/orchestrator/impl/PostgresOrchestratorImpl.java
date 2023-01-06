@@ -1,7 +1,10 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
 import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.statics.OrchestrationProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
+import com.lantromipis.orchestration.exception.InstanceCreationException;
+import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.InstanceStatus;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresInstanceInfo;
@@ -10,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import java.util.UUID;
 
 @Slf4j
 @ApplicationScoped
@@ -20,21 +24,74 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
+    @Inject
+    OrchestrationProperties orchestrationProperties;
+
     public void initialize() {
         orchestrationAdapter.initialize();
-        PostgresInstanceInfo masterInstanceInfo = orchestrationAdapter.getAvailablePostgresInstances().stream().filter(PostgresInstanceInfo::isMaster).findFirst().orElse(null);
+
+        PostgresInstanceInfo masterInstanceInfo = orchestrationAdapter.getAvailablePostgresInstancesInfos()
+                .stream()
+                .filter(PostgresInstanceInfo::isMaster)
+                .findFirst()
+                .orElse(null);
 
         if (masterInstanceInfo == null) {
-            log.info("Can not find active master. Will create new one.");
-            masterInstanceInfo = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
-                    .builder()
-                    .master(true)//TODO constant until hot-standby!!!
-                    .build()
-            );
+            log.info("Can not find active Postgres master instance. Will create and start new one.");
+            masterInstanceInfo = createStartAndWaitForNewMasterToBeReady();
         } else if (InstanceStatus.NOT_ACTIVE.equals(masterInstanceInfo.getStatus())) {
-            masterInstanceInfo = orchestrationAdapter.tryToStartPostgresInstance(masterInstanceInfo.getInstanceId());
+            log.info("Found non-active Postgres master instance. Will start it now.");
+            boolean masterStarted = orchestrationAdapter.startPostgresInstance(masterInstanceInfo.getInstanceId());
+            if (!masterStarted) {
+                log.info("Can not start non-active master instance. Will create and start new one.");
+                masterInstanceInfo = createStartAndWaitForNewMasterToBeReady();
+            }
+        } else if (InstanceStatus.ACTIVE.equals(masterInstanceInfo.getStatus())) {
+            log.info("Found active Postgres master. No actions needed.");
         }
 
-        clusterRuntimeProperties.setMasterHostAddress(masterInstanceInfo.getInstanceIpAddress());
+        clusterRuntimeProperties.setMasterHostAddress(masterInstanceInfo.getInstanceAddress());
+        clusterRuntimeProperties.setMasterPort(masterInstanceInfo.getInstancePort());
+    }
+
+    private PostgresInstanceInfo createStartAndWaitForNewMasterToBeReady() {
+        UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
+                .builder()
+                .master(true)
+                .build()
+        );
+
+        if (instanceId == null) {
+            throw new InstanceCreationException("Can not create new Postgres instance.");
+        }
+
+        boolean started = orchestrationAdapter.startPostgresInstance(instanceId);
+
+        if (!started) {
+            throw new InstanceCreationException("Can not start new Postgres instance");
+        }
+
+        log.info("Created new instance. Will wait until it is healthy...");
+
+        OrchestrationProperties.CommonProperties.PostgresStartupCheckProperties startupCheckProperties = orchestrationProperties.common().postgresStartupCheck();
+
+        long endTime = System.currentTimeMillis() + (startupCheckProperties.interval() * startupCheckProperties.retries()) + startupCheckProperties.startPeriod();
+        PostgresInstanceInfo instanceInfo = orchestrationAdapter.getInstanceInfo(instanceId);
+
+        try {
+            while (!InstanceHealth.HEALTHY.equals(instanceInfo.getHealth()) && endTime > System.currentTimeMillis()) {
+                instanceInfo = orchestrationAdapter.getInstanceInfo(instanceId);
+                Thread.sleep(startupCheckProperties.interval());
+            }
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            throw new InstanceCreationException("Failed to achieve healthy instance.");
+        }
+
+        if (!InstanceHealth.HEALTHY.equals(instanceInfo.getHealth())) {
+            throw new InstanceCreationException("Failed to achieve healthy instance.");
+        }
+
+        return instanceInfo;
     }
 }
