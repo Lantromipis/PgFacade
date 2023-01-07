@@ -30,7 +30,7 @@ public class QuarkusStartup {
     public void startup(@Observes StartupEvent startupEvent) {
         log.info("PgFacade initialization started!");
 
-        //postgresOrchestrator.initialize(); //TODO uncomment
+        postgresOrchestrator.initialize(); //TODO uncomment
 
         userAuthInfoProvider.initialize();
         connectionPool.initialize();

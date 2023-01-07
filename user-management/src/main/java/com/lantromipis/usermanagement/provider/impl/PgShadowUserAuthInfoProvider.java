@@ -1,7 +1,7 @@
 package com.lantromipis.usermanagement.provider.impl;
 
+import com.lantromipis.configuration.predefined.PostgresProperties;
 import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
-import com.lantromipis.configuration.statics.PostgresProperties;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;

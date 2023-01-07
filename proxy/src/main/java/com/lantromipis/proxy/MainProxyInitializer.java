@@ -1,6 +1,6 @@
 package com.lantromipis.proxy;
 
-import com.lantromipis.configuration.statics.ProxyStaticProperties;
+import com.lantromipis.configuration.predefined.ProxyStaticProperties;
 import com.lantromipis.proxy.initializer.ProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import io.netty.bootstrap.ServerBootstrap;

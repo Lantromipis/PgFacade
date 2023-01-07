@@ -11,8 +11,8 @@ import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
-import com.lantromipis.configuration.statics.OrchestrationProperties;
-import com.lantromipis.configuration.statics.PostgresProperties;
+import com.lantromipis.configuration.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.predefined.PostgresProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.mapper.DockerMapper;
@@ -95,6 +95,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                     createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.pgFacadeDatabase())
                             )
                     )
+                    .withCmd("-c", "shared_buffers=256MB")
                     .withHealthcheck(
                             new HealthCheck()
                                     .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().interval()))

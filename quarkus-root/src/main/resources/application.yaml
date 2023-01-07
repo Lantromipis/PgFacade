@@ -30,6 +30,9 @@ pg-facade:
     pg-facade-user: postgres
     pg-facade-password: postgres
     pg-facade-database: postgres
+    postgresql-conf-override:
+      shared_buffers: 256MB
+
 
 quarkus:
   http:

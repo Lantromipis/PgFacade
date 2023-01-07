@@ -1,7 +1,7 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
+import com.lantromipis.configuration.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
-import com.lantromipis.configuration.statics.OrchestrationProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.exception.InstanceCreationException;
 import com.lantromipis.orchestration.model.InstanceHealth;
