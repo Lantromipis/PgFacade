@@ -24,8 +24,8 @@ public class ProxyChannelInitializer extends ChannelInitializer<Channel> {
                 //new ProxyClientHandler()
         );
 
-        if (log.isTraceEnabled()) {
-            channel.pipeline().addLast(new LoggingHandler(LogLevel.TRACE));
+        if (log.isDebugEnabled()) {
+            channel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
         }
     }
 }
