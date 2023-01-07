@@ -50,5 +50,7 @@ public class MainProxyInitializer {
                 }
         );
         nettyBootstrapThread.start();
+
+        log.info("Postgres proxy listening on port " + proxyProperties.port());
     }
 }
