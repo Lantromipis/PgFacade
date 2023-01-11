@@ -22,10 +22,7 @@ public class MainProxyInitializer {
     @Inject
     ProxyChannelHandlersProducer proxyChannelHandlersProducer;
 
-    public void initialize() {
-        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
-
+    public void initialize(EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
         ServerBootstrap proxyBootstrap = new ServerBootstrap();
 
         Thread nettyBootstrapThread = new Thread(

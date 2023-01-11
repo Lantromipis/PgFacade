@@ -14,6 +14,7 @@ import com.github.dockerjava.transport.DockerHttpClient;
 import com.lantromipis.configuration.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.predefined.PostgresProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
+import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
@@ -22,6 +23,7 @@ import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -95,7 +97,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                     createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.pgFacadeDatabase())
                             )
                     )
-                    .withCmd("-c", "shared_buffers=256MB")
+                    .withCmd(createSettingsCmd(request.getPostgresqlSettings()))
                     .withHealthcheck(
                             new HealthCheck()
                                     .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().interval()))
@@ -214,6 +216,23 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             log.error(e.getMessage(), e);
             return false;
         }
+    }
+
+    private List<String> createSettingsCmd(Map<String, String> settings) {
+        if (MapUtils.isEmpty(settings)) {
+            return Collections.emptyList();
+        }
+
+        List<String> ret = new LinkedList<>();
+
+        ret.add(CommandsConstants.POSTGRES_COMMAND);
+
+        for (var setting : settings.entrySet()) {
+            ret.add(CommandsConstants.POSTGRES_COMMAND_PARAMETER_KEY);
+            ret.add(setting.getKey() + "=" + setting.getValue());
+        }
+
+        return ret;
     }
 
     private UUID rememberContainer(String containerId) {

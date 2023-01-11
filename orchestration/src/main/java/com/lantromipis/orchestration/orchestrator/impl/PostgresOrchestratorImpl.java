@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -64,6 +65,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
                 .builder()
                 .master(master)
+                .postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
                 .build()
         );
 
