@@ -1,6 +1,6 @@
 package com.lantromipis.proxy;
 
-import com.lantromipis.configuration.statics.ProxyStaticProperties;
+import com.lantromipis.configuration.predefined.ProxyStaticProperties;
 import com.lantromipis.proxy.initializer.ProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import io.netty.bootstrap.ServerBootstrap;
@@ -22,10 +22,7 @@ public class MainProxyInitializer {
     @Inject
     ProxyChannelHandlersProducer proxyChannelHandlersProducer;
 
-    public void initialize() {
-        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
-
+    public void initialize(EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
         ServerBootstrap proxyBootstrap = new ServerBootstrap();
 
         Thread nettyBootstrapThread = new Thread(

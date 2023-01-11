@@ -4,7 +4,7 @@ import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.ContainerNetwork;
 import com.github.dockerjava.api.model.ContainerNetworkSettings;
-import com.lantromipis.configuration.statics.OrchestrationProperties;
+import com.lantromipis.configuration.predefined.OrchestrationProperties;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
