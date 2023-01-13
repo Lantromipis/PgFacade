@@ -59,6 +59,15 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         clusterRuntimeProperties.setMasterHostAddress(masterInstanceInfo.getInstanceAddress());
         clusterRuntimeProperties.setMasterPort(masterInstanceInfo.getInstancePort());
+
+        log.info("Creating stand-by");
+
+        UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
+                .builder()
+                .master(false)
+                .postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
+                .build()
+        );
     }
 
     private PostgresInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean master) {

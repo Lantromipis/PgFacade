@@ -13,5 +13,6 @@ import java.util.Map;
 @AllArgsConstructor
 public class PostgresInstanceCreationRequest {
     private boolean master;
+
     Map<String, String> postgresqlSettings;
 }

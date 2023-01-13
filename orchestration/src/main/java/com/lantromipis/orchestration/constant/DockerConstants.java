@@ -13,6 +13,8 @@ public class DockerConstants {
 
     public static final String HEALTHCHECK_CMD_SHELL = "CMD-SHELL";
 
+    public static final String HELP_CONTAINER_BASE_BACKUP_PATH = "/tmp/pg/backup";
+
     @RequiredArgsConstructor
     public enum ContainerState {
         CREATED("created"),

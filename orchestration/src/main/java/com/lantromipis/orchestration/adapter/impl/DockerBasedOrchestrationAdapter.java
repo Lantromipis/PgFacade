@@ -1,14 +1,13 @@
 package com.lantromipis.orchestration.adapter.impl;
 
 import com.github.dockerjava.api.DockerClient;
-import com.github.dockerjava.api.command.HealthState;
-import com.github.dockerjava.api.command.InspectContainerResponse;
-import com.github.dockerjava.api.model.Container;
-import com.github.dockerjava.api.model.HealthCheck;
-import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.async.ResultCallback;
+import com.github.dockerjava.api.command.*;
+import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
+import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
 import com.lantromipis.configuration.predefined.OrchestrationProperties;
@@ -19,6 +18,7 @@ import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresInstanceInfo;
+import com.lantromipis.orchestration.util.PostgresUtils;
 import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +47,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Inject
     DockerUtils dockerUtils;
+
+    @Inject
+    PostgresUtils postgresUtils;
 
     private DockerClient dockerClient;
 
@@ -85,19 +88,19 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
-            var createResponse = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
+            CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
                     .withName(dockerProperties.postgresContainerName() + "-" + UUID.randomUUID())
                     .withHostConfig(
                             HostConfig.newHostConfig()
                                     .withNetworkMode(dockerProperties.postgresNetworkName())
                     )
                     .withEnv(
-                            List.of(createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.pgFacadePassword()),
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.pgFacadeUser()),
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.pgFacadeDatabase())
+                            List.of(
+                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().pgFacade().password()),
+                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().pgFacade().username()),
+                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().pgFacade().database())
                             )
                     )
-                    .withCmd(createSettingsCmd(request.getPostgresqlSettings()))
                     .withHealthcheck(
                             new HealthCheck()
                                     .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().interval()))
@@ -105,8 +108,18 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                     .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().startPeriod()))
                                     .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().timeout()))
                                     .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgresHealthcheck().cmdShellCommand()))
-                    )
-                    .exec();
+                    );
+
+            List<String> postgresqlSettings = createSettingsCmd(request.getPostgresqlSettings());
+
+            if (!request.isMaster()) {
+                String volumeName = createVolumeWithPgBaseBackup();
+                return null;
+            }
+
+            createContainerCmd.withCmd(postgresqlSettings);
+
+            CreateContainerResponse createResponse = createContainerCmd.exec();
 
             return rememberContainer(createResponse.getId());
 
@@ -215,6 +228,54 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         } catch (Exception e) {
             log.error(e.getMessage(), e);
             return false;
+        }
+    }
+
+    private String createVolumeWithPgBaseBackup() {
+        try {
+            CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
+                    .withName(orchestrationProperties.docker().helperObjectName() + "-" + UUID.randomUUID())
+                    .exec();
+
+            CreateContainerResponse createContainerResponse = dockerClient.createContainerCmd(orchestrationProperties.docker().postgresImageTag())
+                    .withHostConfig(
+                            HostConfig.newHostConfig()
+                                    .withBinds(
+                                            new Bind(
+                                                    createVolumeResponse.getName(),
+                                                    new Volume(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
+                                            )
+                                    )
+                    )
+                    //we only need Postgres utils like pg_basebackup and don't want to start DB itself
+                    .withEntrypoint("sleep", "infinity")
+                    .exec();
+
+            dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
+
+            String commandToExecute = postgresUtils.getCommandToCreatePgPassFile() + "; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH);
+
+            ExecCreateCmdResponse execCreateCmdResponse = dockerClient.execCreateCmd(createContainerResponse.getId())
+                    .withCmd("/bin/sh", "-c", commandToExecute)
+                    .exec();
+
+            log.info("Waiting for backup.");
+
+            dockerClient.execStartCmd(execCreateCmdResponse.getId())
+                    .exec(new ResultCallback.Adapter<>())
+                    .awaitCompletion();
+
+            log.info("Finished waiting for backup.");
+
+            dockerClient.stopContainerCmd(createContainerResponse.getId());
+            dockerClient.removeContainerCmd(createContainerResponse.getId());
+
+            return null;
+
+        } catch (Exception e) {
+            log.error("Error while creating volume with backup.", e);
+            Thread.currentThread().interrupt();
+            return null;
         }
     }
 

@@ -35,12 +35,12 @@ public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
                             + ":"
                             + clusterRuntimeProperties.getMasterPort()
                             + "/"
-                            + postgresProperties.pgFacadeDatabase();
+                            + postgresProperties.users().pgFacade().database();
 
             Connection connection = DriverManager.getConnection(
                     jdbcUrl,
-                    postgresProperties.pgFacadeUser(),
-                    postgresProperties.pgFacadePassword()
+                    postgresProperties.users().pgFacade().username(),
+                    postgresProperties.users().pgFacade().password()
             );
 
             String pgShadowSelectSql = "select * from pg_shadow;";

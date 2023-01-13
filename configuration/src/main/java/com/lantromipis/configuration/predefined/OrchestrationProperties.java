@@ -41,6 +41,8 @@ public interface OrchestrationProperties {
 
         String postgresImageTag();
 
+        String helperObjectName();
+
         HealthCheckProperties postgresHealthcheck();
 
         interface HealthCheckProperties {
