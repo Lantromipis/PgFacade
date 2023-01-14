@@ -2,6 +2,7 @@ package com.lantromipis.usermanagement.provider.impl;
 
 import com.lantromipis.configuration.predefined.PostgresProperties;
 import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -24,24 +25,15 @@ public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
     @Inject
     PostgresProperties postgresProperties;
 
+    @Inject
+    DynamicMasterConnectionProvider dynamicMasterConnectionProvider;
+
     private Map<String, PgShadowTableRow> pgShadowTableRowsMap = new HashMap<>();
 
     public void initialize() {
         log.info("Initializing database users auth info using pg_shadow table");
         try {
-            String jdbcUrl =
-                    "jdbc:postgresql://"
-                            + clusterRuntimeProperties.getMasterHostAddress()
-                            + ":"
-                            + clusterRuntimeProperties.getMasterPort()
-                            + "/"
-                            + postgresProperties.users().pgFacade().database();
-
-            Connection connection = DriverManager.getConnection(
-                    jdbcUrl,
-                    postgresProperties.users().pgFacade().username(),
-                    postgresProperties.users().pgFacade().password()
-            );
+            Connection connection = dynamicMasterConnectionProvider.getConnection();
 
             String pgShadowSelectSql = "select * from pg_shadow;";
 

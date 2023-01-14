@@ -1,5 +1,6 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
+import com.lantromipis.configuration.event.MasterReadyEvent;
 import com.lantromipis.configuration.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
@@ -12,6 +13,7 @@ import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.event.Event;
 import javax.inject.Inject;
 import java.util.Map;
 import java.util.UUID;
@@ -27,6 +29,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
     @Inject
     OrchestrationProperties orchestrationProperties;
+
+    @Inject
+    Event<MasterReadyEvent> masterReadyEvent;
 
     public void initialize() {
         orchestrationAdapter.initialize();
@@ -59,6 +64,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         clusterRuntimeProperties.setMasterHostAddress(masterInstanceInfo.getInstanceAddress());
         clusterRuntimeProperties.setMasterPort(masterInstanceInfo.getInstancePort());
+        masterReadyEvent.fire(new MasterReadyEvent());
 
         log.info("Creating stand-by");
 
