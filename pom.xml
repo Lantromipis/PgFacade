@@ -15,6 +15,7 @@
         <module>configuration</module>
         <module>postgres-protocol</module>
         <module>orchestration</module>
+        <module>internal-database-usage</module>
     </modules>
     <properties>
         <compiler-plugin.version>3.8.1</compiler-plugin.version>
@@ -23,9 +24,11 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
-        <quarkus.platform.version>2.13.3.Final</quarkus.platform.version>
         <skipITs>true</skipITs>
         <surefire-plugin.version>3.0.0-M7</surefire-plugin.version>
+
+        <!--dependencies versions-->
+        <quarkus.platform.version>2.13.3.Final</quarkus.platform.version>
         <lombok.version>1.18.24</lombok.version>
         <apache.commons.long3.version>3.12.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
@@ -33,6 +36,7 @@
         <postgresql.driver.version>42.5.0</postgresql.driver.version>
         <docker.client.version>3.2.14</docker.client.version>
         <docker.client.transport.version>3.2.3</docker.client.transport.version>
+        <hikari.pool.version>5.0.1</hikari.pool.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -87,6 +91,11 @@
                 <version>${docker.client.transport.version}</version>
             </dependency>
 
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikari.pool.version}</version>
+            </dependency>
 
         </dependencies>
     </dependencyManagement>
