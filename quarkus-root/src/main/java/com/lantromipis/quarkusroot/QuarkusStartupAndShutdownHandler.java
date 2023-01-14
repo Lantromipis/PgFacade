@@ -1,5 +1,6 @@
 package com.lantromipis.quarkusroot;
 
+import com.lantromipis.configuration.event.MasterReadyEvent;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.proxy.MainProxyInitializer;
@@ -11,9 +12,9 @@ import io.quarkus.runtime.StartupEvent;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.event.Event;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
-import java.util.function.Consumer;
 
 @Slf4j
 @ApplicationScoped
@@ -31,6 +32,9 @@ public class QuarkusStartupAndShutdownHandler {
     @Inject
     PostgresOrchestrator postgresOrchestrator;
 
+    @Inject
+    Event<MasterReadyEvent> masterReadyEvent;
+
     EventLoopGroup bossGroup;
     EventLoopGroup workerGroup;
 
@@ -40,7 +44,9 @@ public class QuarkusStartupAndShutdownHandler {
         bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
 
-        postgresOrchestrator.initialize(); //TODO uncomment
+        //postgresOrchestrator.initialize();
+
+        masterReadyEvent.fire(new MasterReadyEvent());
 
         userAuthInfoProvider.initialize();
         connectionPool.initialize();
