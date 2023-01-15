@@ -1,14 +1,15 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
 import com.lantromipis.configuration.event.MasterReadyEvent;
-import com.lantromipis.configuration.predefined.OrchestrationProperties;
-import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.exception.InstanceCreationException;
 import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.InstanceStatus;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresInstanceInfo;
+import com.lantromipis.orchestration.orchestrator.api.PostgresConfigurator;
 import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,18 +34,20 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     Event<MasterReadyEvent> masterReadyEvent;
 
+    @Inject
+    PostgresConfigurator postgresConfigurator;
+
     public void initialize() {
         orchestrationAdapter.initialize();
 
-        PostgresInstanceInfo masterInstanceInfo = orchestrationAdapter.getAvailablePostgresInstancesInfos()
-                .stream()
-                .filter(PostgresInstanceInfo::isMaster)
-                .findFirst()
-                .orElse(null);
+        PostgresInstanceInfo masterInstanceInfo = orchestrationAdapter.getAvailablePostgresInstancesInfos().stream().filter(PostgresInstanceInfo::isMaster).findFirst().orElse(null);
+
+        boolean isNewDBSetup = false;
 
         if (masterInstanceInfo == null) {
-            log.info("Can not find active Postgres master instance. Will create and start new one.");
+            log.info("Can not find any Postgres master instance. Will create and start new one.");
             masterInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
+            isNewDBSetup = true;
         } else if (InstanceStatus.NOT_ACTIVE.equals(masterInstanceInfo.getStatus())) {
             log.info("Found non-active Postgres master instance. Will start it now.");
             boolean masterStarted = orchestrationAdapter.startPostgresInstance(masterInstanceInfo.getInstanceId());
@@ -53,6 +56,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 log.info("Can not start non-active master instance. Will delete it and create and start new one.");
                 orchestrationAdapter.deletePostgresInstance(masterInstanceInfo.getInstanceId());
                 masterInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
+                isNewDBSetup = true;
             } else {
                 masterInstanceInfo = waitUntilPostgresInstanceHealthy(masterInstanceInfo.getInstanceId());
             }
@@ -64,25 +68,22 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         clusterRuntimeProperties.setMasterHostAddress(masterInstanceInfo.getInstanceAddress());
         clusterRuntimeProperties.setMasterPort(masterInstanceInfo.getInstancePort());
+
+        if (isNewDBSetup) {
+            postgresConfigurator.configureNewlyCreatedMaster();
+        }
+
         masterReadyEvent.fire(new MasterReadyEvent());
 
         log.info("Creating stand-by");
 
-        UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
-                .builder()
-                .master(false)
-                .postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
-                .build()
-        );
+        UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest.builder().master(false).postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
+                .build());
     }
 
     private PostgresInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean master) {
-        UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest
-                .builder()
-                .master(master)
-                .postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
-                .build()
-        );
+        UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest.builder().master(master).postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
+                .build());
 
         if (instanceId == null) {
             throw new InstanceCreationException("Can not create new Postgres instance.");

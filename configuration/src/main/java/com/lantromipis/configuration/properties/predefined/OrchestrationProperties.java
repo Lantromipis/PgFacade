@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.predefined;
+package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
@@ -38,6 +38,8 @@ public interface OrchestrationProperties {
         String postgresNetworkName();
 
         String postgresContainerName();
+
+        String postgresVolumeName();
 
         String postgresImageTag();
 

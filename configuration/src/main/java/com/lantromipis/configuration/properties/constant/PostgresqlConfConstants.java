@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.constant;
+package com.lantromipis.configuration.properties.constant;
 
 public class PostgresqlConfConstants {
 

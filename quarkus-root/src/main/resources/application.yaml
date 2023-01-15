@@ -18,6 +18,7 @@ pg-facade:
       docker-host: unix:///var/run/docker.sock
       postgres-network-name: pg-facade-postgres-network
       postgres-container-name: pg-facade-managed-postgres
+      postgres-volume-name: pg-facade-postgres-volume
       postgres-image-tag: "postgres:latest"
       helper-object-name: "pg-facade-temp"
       postgres-healthcheck:
@@ -28,18 +29,19 @@ pg-facade:
         cmd-shell-command: pg_isready -U ${pg-facade.postgres.users.pg-facade.username}
 
   postgres:
-    ip-placeholder: ip-address
     users:
+      superuser: #used only when creating new database to create other users
+        username: postgres
+        password: postgres
+        database: postgres
       pg-facade:
-        username: postgres
-        password: postgres
-        database: postgres
-        pg-hba-conf-line: host all ${pg-facade.postgres.users.pg-facade.username} ${pg-facade.postgres.ip-placeholder} md5
+        username: pgfacade
+        password: pgfacade
+        database: pgfacade
       replication: #TODO create new user when creating master
-        username: postgres
-        password: postgres
+        username: replicant
+        password: replicant
         database: postgres
-        pg-hba-conf-line: host replication ${pg-facade.postgres.users.replication.username} ${pg-facade.postgres.ip-placeholder} md5
     postgresql-conf-override:
       shared_buffers: 256MB
 

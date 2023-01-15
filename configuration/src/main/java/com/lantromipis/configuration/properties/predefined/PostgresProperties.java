@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.predefined;
+package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
@@ -12,6 +12,8 @@ public interface PostgresProperties {
     UserProperties users();
 
     interface UserProperties {
+        UserCredentialsProperties superuser();
+
         UserCredentialsProperties pgFacade();
 
         UserCredentialsProperties replication();
@@ -22,8 +24,6 @@ public interface PostgresProperties {
             String password();
 
             String database();
-
-            String pgHbaConfLine();
         }
     }
 }

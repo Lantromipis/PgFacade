@@ -44,7 +44,7 @@ public class QuarkusStartupAndShutdownHandler {
         bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
 
-        //postgresOrchestrator.initialize();
+        postgresOrchestrator.initialize();
 
         masterReadyEvent.fire(new MasterReadyEvent());
 

@@ -1,12 +1,11 @@
 package com.lantromipis.proxy;
 
-import com.lantromipis.configuration.predefined.ProxyStaticProperties;
+import com.lantromipis.configuration.properties.predefined.ProxyStaticProperties;
 import com.lantromipis.proxy.initializer.ProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 

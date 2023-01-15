@@ -45,10 +45,15 @@
             <artifactId>lombok</artifactId>
         </dependency>
 
-
         <dependency>
             <groupId>com.lantromipis</groupId>
             <artifactId>configuration</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.lantromipis</groupId>
+            <artifactId>internal-database-usage</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>

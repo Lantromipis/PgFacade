@@ -1,7 +1,7 @@
 package com.lantromipis.usermanagement.provider.impl;
 
-import com.lantromipis.configuration.predefined.PostgresProperties;
-import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
@@ -18,12 +18,6 @@ import java.util.Map;
 @ApplicationScoped
 @Slf4j
 public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
-
-    @Inject
-    ClusterRuntimeProperties clusterRuntimeProperties;
-
-    @Inject
-    PostgresProperties postgresProperties;
 
     @Inject
     DynamicMasterConnectionProvider dynamicMasterConnectionProvider;

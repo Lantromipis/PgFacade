@@ -7,11 +7,10 @@ import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
-import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
-import com.lantromipis.configuration.predefined.OrchestrationProperties;
-import com.lantromipis.configuration.predefined.PostgresProperties;
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
@@ -88,17 +87,19 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
+            String containerNamePostfix = UUID.randomUUID().toString();
+
             CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
-                    .withName(dockerProperties.postgresContainerName() + "-" + UUID.randomUUID())
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgresContainerName(), containerNamePostfix))
                     .withHostConfig(
                             HostConfig.newHostConfig()
                                     .withNetworkMode(dockerProperties.postgresNetworkName())
                     )
                     .withEnv(
                             List.of(
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().pgFacade().password()),
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().pgFacade().username()),
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().pgFacade().database())
+                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().superuser().password()),
+                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().superuser().username()),
+                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
                             )
                     )
                     .withHealthcheck(
@@ -113,7 +114,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             List<String> postgresqlSettings = createSettingsCmd(request.getPostgresqlSettings());
 
             if (!request.isMaster()) {
-                String volumeName = createVolumeWithPgBaseBackup();
+                String volumeName = createVolumeWithPgBaseBackup(containerNamePostfix);
                 return null;
             }
 
@@ -231,13 +232,16 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
     }
 
-    private String createVolumeWithPgBaseBackup() {
+    private String createVolumeWithPgBaseBackup(String containerPostfix) {
         try {
+            OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+
             CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
-                    .withName(orchestrationProperties.docker().helperObjectName() + "-" + UUID.randomUUID())
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgresVolumeName(), containerPostfix))
                     .exec();
 
-            CreateContainerResponse createContainerResponse = dockerClient.createContainerCmd(orchestrationProperties.docker().postgresImageTag())
+            CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
                     .withHostConfig(
                             HostConfig.newHostConfig()
                                     .withBinds(
@@ -246,16 +250,17 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                                     new Volume(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
                                             )
                                     )
+                                    .withNetworkMode(dockerProperties.postgresNetworkName())
                     )
                     //we only need Postgres utils like pg_basebackup and don't want to start DB itself
                     .withEntrypoint("sleep", "infinity")
                     .exec();
 
-            dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
+            dockerClient.startContainerCmd(tempCreateContainerResponse.getId()).exec();
 
-            String commandToExecute = postgresUtils.getCommandToCreatePgPassFile() + "; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH);
+            String commandToExecute = postgresUtils.getCommandToCreatePgPassFile(postgresProperties.users().replication()) + "; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH);
 
-            ExecCreateCmdResponse execCreateCmdResponse = dockerClient.execCreateCmd(createContainerResponse.getId())
+            ExecCreateCmdResponse execCreateCmdResponse = dockerClient.execCreateCmd(tempCreateContainerResponse.getId())
                     .withCmd("/bin/sh", "-c", commandToExecute)
                     .exec();
 
@@ -267,8 +272,8 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
             log.info("Finished waiting for backup.");
 
-            dockerClient.stopContainerCmd(createContainerResponse.getId());
-            dockerClient.removeContainerCmd(createContainerResponse.getId());
+            dockerClient.stopContainerCmd(tempCreateContainerResponse.getId());
+            dockerClient.removeContainerCmd(tempCreateContainerResponse.getId());
 
             return null;
 

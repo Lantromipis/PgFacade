@@ -1,7 +1,7 @@
 package com.lantromipis.orchestration.util;
 
-import com.lantromipis.configuration.predefined.PostgresProperties;
-import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -16,17 +16,17 @@ public class PostgresUtils {
     @Inject
     PostgresProperties postgresProperties;
 
-    public String getPgPassFileContent() {
+    public String getPgPassFileContent(PostgresProperties.UserProperties.UserCredentialsProperties userCredentialsProperties) {
 
         return clusterRuntimeProperties.getMasterHostAddress() + ":" +
                 clusterRuntimeProperties.getMasterPort() + ":" +
-                postgresProperties.users().pgFacade().database() + ":" +
-                postgresProperties.users().pgFacade().username() + ":" +
-                postgresProperties.users().pgFacade().password();
+                userCredentialsProperties.database() + ":" +
+                userCredentialsProperties.username() + ":" +
+                userCredentialsProperties.password();
     }
 
-    public String getCommandToCreatePgPassFile() {
-        return "echo \"" + getPgPassFileContent() + "\" > " + "$HOME/.pgpass ;" + " chmod 600 $HOME/.pgpass";
+    public String getCommandToCreatePgPassFile(PostgresProperties.UserProperties.UserCredentialsProperties userCredentialsProperties) {
+        return "echo \"" + getPgPassFileContent(userCredentialsProperties) + "\" > " + "$HOME/.pgpass ;" + " chmod 600 $HOME/.pgpass";
     }
 
     public String createPgBaseBackupCommand(String backupPath) {
