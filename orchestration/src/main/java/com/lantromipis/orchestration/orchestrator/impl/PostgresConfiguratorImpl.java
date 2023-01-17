@@ -1,8 +1,10 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
+import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
+import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
 import com.lantromipis.orchestration.orchestrator.api.PostgresConfigurator;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +13,7 @@ import org.checkerframework.checker.units.qual.C;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.sql.*;
+import java.util.List;
 
 @Slf4j
 @ApplicationScoped
@@ -25,22 +28,17 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
+    @Inject
+    OrchestrationAdapter orchestrationAdapter;
+
     @Override
     public void configureNewlyCreatedMaster() {
         log.info("Executing required start-up SQL statements on new master.");
         try {
-            String jdbcUrl =
-                    "jdbc:postgresql://"
-                            + clusterRuntimeProperties.getMasterHostAddress()
-                            + ":"
-                            + clusterRuntimeProperties.getMasterPort()
-                            + "/"
-                            + postgresProperties.users().superuser().database();
-
-            Connection connection = DriverManager.getConnection(
-                    jdbcUrl,
+            Connection connection = createJdbcConnection(
                     postgresProperties.users().superuser().username(),
-                    postgresProperties.users().superuser().password()
+                    postgresProperties.users().superuser().password(),
+                    postgresProperties.users().superuser().database()
             );
 
             PostgresProperties.UserProperties.UserCredentialsProperties pgFacadeUserProperties = postgresProperties.users().pgFacade();
@@ -68,10 +66,27 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             //personal database for PgFacade user
             createDatabase(connection, pgFacadeUserProperties.database(), pgFacadeUserProperties.username());
 
-            String pgHbaConfFilePath = getPgHbaConfFilePath(connection);
+            //now we don't need superuser in his database.
+            connection.close();
 
+            //connection to PgFacade user's database.
+            connection = createJdbcConnection(
+                    postgresProperties.users().superuser().username(),
+                    postgresProperties.users().superuser().password(),
+                    postgresProperties.users().pgFacade().database()
+            );
 
-            //now we don't need superuser.
+            //we need access to pg_authid so PgFacade will be able to check credentials automatically
+            connection.createStatement()
+                    .executeUpdate("CREATE VIEW " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME + " AS SELECT * FROM pg_authid WHERE rolcanlogin = true");
+
+            connection.createStatement()
+                    .executeUpdate("GRANT SELECT ON TABLE " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME + " TO " + pgFacadeUserProperties.username());
+
+            //update pg_hba.conf
+            replacePgHbaConf(connection, orchestrationAdapter.getRequiredHbaConfLines());
+            
+            //finished configuration
             connection.close();
 
             log.info("Finished executing required start-up SQL statements on new master.");
@@ -79,6 +94,47 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
         } catch (Exception e) {
             throw new NewMasterConfigurationException("Failed to execute required start-up SQL for newly created master.", e);
         }
+    }
+
+    public void replacePgHbaConf(Connection connection, List<String> newLines) throws SQLException {
+        String pgHbaConfFilePath = getPgHbaConfFilePath(connection);
+
+        connection.createStatement()
+                .executeUpdate("CREATE TEMP TABLE hba_temp (line TEXT)");
+
+        PreparedStatement preparedStatement = connection.prepareStatement("INSERT INTO hba_temp VALUES (?)");
+
+        for (String line : newLines) {
+            preparedStatement.setString(1, line);
+            preparedStatement.addBatch();
+        }
+
+        preparedStatement.executeBatch();
+
+        connection.createStatement()
+                .execute("COPY hba_temp TO '" + pgHbaConfFilePath + "'");
+
+        connection.createStatement()
+                .executeUpdate("DROP TABLE  hba_temp");
+
+        //TODO throw exception is reload unsuccessful
+        connection.createStatement()
+                .execute("SELECT pg_reload_conf()");
+    }
+
+    private Connection createJdbcConnection(String username, String password, String database) throws SQLException {
+        String jdbcUrl = "jdbc:postgresql://"
+                + clusterRuntimeProperties.getMasterHostAddress()
+                + ":"
+                + clusterRuntimeProperties.getMasterPort()
+                + "/"
+                + database;
+
+        return DriverManager.getConnection(
+                jdbcUrl,
+                username,
+                password
+        );
     }
 
     private String getPgHbaConfFilePath(Connection connection) throws SQLException {

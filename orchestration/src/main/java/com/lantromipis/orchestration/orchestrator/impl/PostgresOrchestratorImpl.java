@@ -79,6 +79,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         UUID instanceId = orchestrationAdapter.createNewPostgresInstance(PostgresInstanceCreationRequest.builder().master(false).postgresqlSettings(Map.of("shared_buffers", "256MB")) //TODO constant for test
                 .build());
+        orchestrationAdapter.startPostgresInstance(instanceId);
+
+        log.info("Started stand-by");
     }
 
     private PostgresInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean master) {

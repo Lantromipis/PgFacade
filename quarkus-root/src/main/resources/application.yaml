@@ -20,6 +20,7 @@ pg-facade:
       postgres-container-name: pg-facade-managed-postgres
       postgres-volume-name: pg-facade-postgres-volume
       postgres-image-tag: "postgres:latest"
+      postgres-image-pg-data-dir: "/var/lib/postgresql/data"
       helper-object-name: "pg-facade-temp"
       postgres-healthcheck:
         start-period: 3000 #millisecinds
@@ -38,7 +39,7 @@ pg-facade:
         username: pgfacade
         password: pgfacade
         database: pgfacade
-      replication: #TODO create new user when creating master
+      replication:
         username: replicant
         password: replicant
         database: postgres
