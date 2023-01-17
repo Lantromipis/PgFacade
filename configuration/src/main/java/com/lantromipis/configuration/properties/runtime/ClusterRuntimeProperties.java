@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.runtime;
+package com.lantromipis.configuration.properties.runtime;
 
 import lombok.Getter;
 import lombok.Setter;

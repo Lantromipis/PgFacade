@@ -1,7 +1,8 @@
 package com.lantromipis.usermanagement.provider.impl;
 
-import com.lantromipis.configuration.predefined.PostgresProperties;
-import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
@@ -20,30 +21,24 @@ import java.util.Map;
 public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
 
     @Inject
-    ClusterRuntimeProperties clusterRuntimeProperties;
-
-    @Inject
-    PostgresProperties postgresProperties;
-
-    @Inject
     DynamicMasterConnectionProvider dynamicMasterConnectionProvider;
 
     private Map<String, PgShadowTableRow> pgShadowTableRowsMap = new HashMap<>();
 
     public void initialize() {
-        log.info("Initializing database users auth info using pg_shadow table");
+        log.info("Initializing database users auth info using custom pg_authid table view.");
         try {
             Connection connection = dynamicMasterConnectionProvider.getConnection();
 
-            String pgShadowSelectSql = "select * from pg_shadow;";
+            String pgShadowSelectSql = "select * from " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME;
 
             Statement statement = connection.createStatement();
             ResultSet resultSet = statement.executeQuery(pgShadowSelectSql);
 
             while (resultSet.next()) {
-                String username = resultSet.getString("usename");
-                String password = resultSet.getString("passwd");
-                Date valUntil = resultSet.getDate("valuntil");
+                String username = resultSet.getString("rolname");
+                String password = resultSet.getString("rolpassword");
+                Date valUntil = resultSet.getDate("rolvaliduntil");
 
                 pgShadowTableRowsMap.put(
                         username,

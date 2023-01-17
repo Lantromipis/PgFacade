@@ -18,18 +18,31 @@ pg-facade:
       docker-host: unix:///var/run/docker.sock
       postgres-network-name: pg-facade-postgres-network
       postgres-container-name: pg-facade-managed-postgres
+      postgres-volume-name: pg-facade-postgres-volume
       postgres-image-tag: "postgres:latest"
+      postgres-image-pg-data-dir: "/var/lib/postgresql/data"
+      helper-object-name: "pg-facade-temp"
       postgres-healthcheck:
-        start-period: 1500 #millisecinds
-        interval: 100 #millisecinds
+        start-period: 3000 #millisecinds
+        interval: 5000 #millisecinds
         timeout: 100 #millisecinds
         retries: 10
-        cmd-shell-command: pg_isready -U ${pg-facade.postgres.pg-facade-user}
+        cmd-shell-command: pg_isready -U ${pg-facade.postgres.users.pg-facade.username}
 
   postgres:
-    pg-facade-user: postgres
-    pg-facade-password: postgres
-    pg-facade-database: postgres
+    users:
+      superuser: #used only when creating new database to create other users
+        username: postgres
+        password: postgres
+        database: postgres
+      pg-facade:
+        username: pgfacade
+        password: pgfacade
+        database: pgfacade
+      replication:
+        username: replicant
+        password: replicant
+        database: postgres
     postgresql-conf-override:
       shared_buffers: 256MB
 

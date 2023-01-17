@@ -18,4 +18,6 @@ public interface OrchestrationAdapter {
     PostgresInstanceInfo getInstanceInfo(UUID instanceId);
 
     boolean deletePostgresInstance(UUID instanceId);
+
+    List<String> getRequiredHbaConfLines();
 }

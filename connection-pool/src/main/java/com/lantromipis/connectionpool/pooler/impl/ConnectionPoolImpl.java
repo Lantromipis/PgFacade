@@ -1,6 +1,6 @@
 package com.lantromipis.connectionpool.pooler.impl;
 
-import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.EmptyHandler;
 import com.lantromipis.connectionpool.model.ConnectionInfo;

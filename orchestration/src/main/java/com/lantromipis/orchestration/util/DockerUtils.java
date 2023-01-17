@@ -4,11 +4,12 @@ import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.ContainerNetwork;
 import com.github.dockerjava.api.model.ContainerNetworkSettings;
-import com.lantromipis.configuration.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.util.Optional;
+import java.util.UUID;
 
 @ApplicationScoped
 public class DockerUtils {
@@ -32,5 +33,13 @@ public class DockerUtils {
                 .map(map -> map.get(orchestrationProperties.docker().postgresNetworkName()))
                 .map(ContainerNetwork::getIpAddress)
                 .orElse(null);
+    }
+
+    public String createUniqueObjectName(String start) {
+        return start + "-" + UUID.randomUUID();
+    }
+
+    public String createUniqueObjectName(String start, String uniquePostfix) {
+        return start + "-" + uniquePostfix;
     }
 }

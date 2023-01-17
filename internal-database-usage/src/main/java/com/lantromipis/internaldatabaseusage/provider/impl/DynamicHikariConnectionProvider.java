@@ -1,8 +1,8 @@
 package com.lantromipis.internaldatabaseusage.provider.impl;
 
 import com.lantromipis.configuration.event.MasterReadyEvent;
-import com.lantromipis.configuration.predefined.PostgresProperties;
-import com.lantromipis.configuration.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -49,11 +49,11 @@ public class DynamicHikariConnectionProvider implements DynamicMasterConnectionP
                         + ":"
                         + clusterRuntimeProperties.getMasterPort()
                         + "/"
-                        + postgresProperties.pgFacadeDatabase();
+                        + postgresProperties.users().pgFacade().database();
 
         hikariConfig.setJdbcUrl(jdbcUrl);
-        hikariConfig.setUsername(postgresProperties.pgFacadeUser());
-        hikariConfig.setPassword(postgresProperties.pgFacadePassword());
+        hikariConfig.setUsername(postgresProperties.users().pgFacade().username());
+        hikariConfig.setPassword(postgresProperties.users().pgFacade().password());
         hikariConfig.setMaximumPoolSize(5);
 
         hikariDataSource = new HikariDataSource(hikariConfig);

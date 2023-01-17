@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.predefined;
+package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
@@ -39,7 +39,13 @@ public interface OrchestrationProperties {
 
         String postgresContainerName();
 
+        String postgresVolumeName();
+
         String postgresImageTag();
+
+        String postgresImagePgDataDir();
+
+        String helperObjectName();
 
         HealthCheckProperties postgresHealthcheck();
 
