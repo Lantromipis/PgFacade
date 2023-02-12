@@ -1,7 +1,6 @@
 package com.lantromipis.orchestration.adapter.impl;
 
 import com.github.dockerjava.api.DockerClient;
-import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
@@ -10,8 +9,10 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
+import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
+import com.lantromipis.configuration.properties.stored.api.PersistedProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
@@ -33,6 +34,8 @@ import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -53,6 +56,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Inject
     PostgresUtils postgresUtils;
+
+    @Inject
+    PersistedProperties persistedProperties;
 
     private DockerClient dockerClient;
 
@@ -90,6 +96,8 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Override
     public UUID createNewPostgresInstance(PostgresInstanceCreationRequest request) {
+        //used to delete container if it was created but method failed.
+        String containerId = null;
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
@@ -139,6 +147,20 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             }
 
             CreateContainerResponse createResponse = createContainerCmd.exec();
+            containerId = createResponse.getId();
+
+            UUID instanceId = UUID.randomUUID();
+
+            persistedProperties.savePostgresNodeInfo(
+                    PostgresPersistedNodeInfo
+                            .builder()
+                            .master(request.isMaster())
+                            .instanceId(instanceId)
+                            .adapterIdentifier(containerId)
+                            .build()
+            );
+
+            rememberContainer(containerId, instanceId);
 
             if (request.isMaster()) {
                 log.info("Created container with master. Ready to start it.");
@@ -146,10 +168,17 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                 log.info("Created container with stand-by. Ready to start it.");
             }
 
-            return rememberContainer(createResponse.getId());
+            return instanceId;
 
         } catch (Exception e) {
-            log.error(e.getMessage(), e);
+            log.error("Failed to create new container ", e);
+            try {
+                if (containerId != null) {
+                    dockerClient.removeContainerCmd(containerId);
+                }
+            } catch (Exception e2) {
+                log.error("Error occurred after container was created, but it is impossible to delete it. Container id = {}", containerId, e2);
+            }
             return null;
         }
     }
@@ -163,6 +192,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
 
         try {
+            //TODO check if instance is running?
             dockerClient.startContainerCmd(containerId).exec();
             return true;
         } catch (Exception e) {
@@ -179,6 +209,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                 .withShowAll(true)
                 .withNameFilter(List.of(dockerProperties.postgresContainerName()))
                 .exec();
+        Map<String, PostgresPersistedNodeInfo> adapterIdToPersistedNodeInfoMap = persistedProperties.getPostgresNodeInfos()
+                .stream()
+                .collect(Collectors.toMap(PostgresPersistedNodeInfo::getAdapterIdentifier, Function.identity()));
 
         if (CollectionUtils.isEmpty(containers)) {
             return Collections.emptyList();
@@ -193,13 +226,15 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                 instanceId = rememberContainer(container.getId());
             }
 
+            PostgresPersistedNodeInfo persistedNodeInfo = adapterIdToPersistedNodeInfoMap.get(container.getId());
+
             ret.add(PostgresInstanceInfo
                     .builder()
                     .instanceId(instanceId)
                     .instanceAddress(dockerUtils.getContainerAddress(container))
                     .instancePort(5432) //TODO maybe need to change
                     .status(dockerMapper.toInstanceStatus(container.getState()))
-                    .master(true) //TODO constant until hot-standby!!!
+                    .master(persistedNodeInfo != null && persistedNodeInfo.isMaster()) //TODO maybe need to delete such container because this is not normal
                     .build()
             );
         }
@@ -409,13 +444,15 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         return ret;
     }
 
-    private UUID rememberContainer(String containerId) {
-        UUID instanceId = UUID.randomUUID();
-
+    private UUID rememberContainer(String containerId, UUID instanceId) {
         instanceIdAndContainerIdMap.put(instanceId, containerId);
         containerIdAndInstanceIdMap.put(containerId, instanceId);
 
         return instanceId;
+    }
+
+    private UUID rememberContainer(String containerId) {
+        return rememberContainer(containerId, UUID.randomUUID());
     }
 
     private String createEnvValueForRequest(String varName, String value) {

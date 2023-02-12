@@ -17,5 +17,5 @@ public class PostgresInstanceInfo {
     private int instancePort;
     private InstanceStatus status;
     private InstanceHealth health;
-    private boolean master;
+    private Boolean master;
 }
