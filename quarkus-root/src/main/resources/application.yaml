@@ -4,6 +4,11 @@ pg-facade:
     parameter-status-override:
       "is_superuser": "off"
       "in_hot_standby": "off"
+  storage:
+    adapter: file
+    file:
+      postgres-nodes-info-filename: postgres-nodes-info #wihtout extension
+      directory-path: /var/pgfacade/stored #access should be granted to system user which will run PgFacade app
   orchestration:
     common:
       postgres-startup-check:
@@ -13,6 +18,7 @@ pg-facade:
       postgres-dead-check:
         interval: 100 #millisecinds
         retries: 3
+      stand-by-count: 1
     adapter: docker
     docker:
       docker-host: unix:///var/run/docker.sock
