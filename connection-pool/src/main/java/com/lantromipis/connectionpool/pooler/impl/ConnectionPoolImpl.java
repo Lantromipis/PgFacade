@@ -1,5 +1,7 @@
 package com.lantromipis.connectionpool.pooler.impl;
 
+import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
+import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.EmptyHandler;
@@ -17,7 +19,9 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.event.Observes;
 import javax.inject.Inject;
+import javax.inject.Named;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -34,24 +38,30 @@ public class ConnectionPoolImpl implements ConnectionPool {
     @Inject
     ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
 
-    private Bootstrap poolBootstrap;
+    @Inject
+    @Named("worker")
+    EventLoopGroup workerGroup;
+
+    private Bootstrap poolMasterBootstrap;
     private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> freeConnections = new ConcurrentHashMap<>();
     private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> allConnections = new ConcurrentHashMap<>();
+    private CountDownLatch switchoverLatch = new CountDownLatch(0);
 
     @Override
     public void initialize() {
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
-
-        poolBootstrap = new Bootstrap();
-        poolBootstrap.group(workerGroup)
-                .channel(NioSocketChannel.class)
-                .option(ChannelOption.AUTO_READ, false)
-                .handler(new EmptyHandler())
-                .remoteAddress(clusterRuntimeConfiguration.getMasterHostAddress(), clusterRuntimeConfiguration.getMasterPort());
+        createMasterBootstrap();
     }
 
     @Override
     public Channel getMasterConnection(ConnectionInfo connectionInfo, AuthAdditionalInfo authAdditionalInfo) {
+        if (switchoverLatch.getCount() != 0) {
+            try {
+                switchoverLatch.await();
+            } catch (InterruptedException interruptedException) {
+                log.error("Connection pool can not give connection to master. Error while waiting for switchover.", interruptedException);
+                return null;
+            }
+        }
         ConcurrentLinkedQueue<Channel> pooledChannelsList = freeConnections.get(connectionInfo);
 
         if (pooledChannelsList != null) {
@@ -64,7 +74,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
         log.debug("No connections in pool. Creating a new one...");
 
-        ChannelFuture channelFuture = poolBootstrap.connect();
+        ChannelFuture channelFuture = poolMasterBootstrap.connect();
         channelFuture.awaitUninterruptibly();//TODO add timeout
         Channel newChannel = channelFuture.channel();
 
@@ -90,7 +100,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         );
 
         try {
-            successLatch.await();
+            successLatch.await();//TODO add timeout
 
             if (success.get()) {
                 addConnectionToMap(connectionInfo, newChannel, allConnections);
@@ -102,8 +112,8 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 return null;
             }
 
-        } catch (InterruptedException interruptedException) {
-            log.error(interruptedException.getMessage(), interruptedException);
+        } catch (Exception e) {
+            log.error("Connection pool can not give connection to master. Error while waiting for connection to be ready.", e);
             newChannel.close();
             return null;
         }
@@ -122,6 +132,28 @@ public class ConnectionPoolImpl implements ConnectionPool {
             addConnectionToMap(connectionInfo, connection, freeConnections);
             log.debug("Returned connection to pool.");
         }
+    }
+
+    public void listenToSwitchoverStartedEvent(@Observes SwitchoverStartedEvent switchoverStartedEvent) {
+        switchoverLatch = new CountDownLatch(1);
+    }
+
+    public void listenToSwitchoverStartedEvent(@Observes SwitchoverCompletedEvent switchoverCompletedEvent) {
+        if (switchoverCompletedEvent.isSuccess()) {
+            createMasterBootstrap();
+            allConnections.clear();
+            freeConnections.clear();
+        }
+        switchoverLatch.countDown();
+    }
+
+    private void createMasterBootstrap() {
+        poolMasterBootstrap = new Bootstrap();
+        poolMasterBootstrap.group(workerGroup)
+                .channel(NioSocketChannel.class)
+                .option(ChannelOption.AUTO_READ, false)
+                .handler(new EmptyHandler())
+                .remoteAddress(clusterRuntimeConfiguration.getMasterHostAddress(), clusterRuntimeConfiguration.getMasterPort());
     }
 
     private void addConnectionToMap(ConnectionInfo connectionInfo, Channel connection, ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> map) {

@@ -1,10 +1,13 @@
 package com.lantromipis.orchestration.mapper;
 
+import com.github.dockerjava.api.command.HealthState;
+import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.InstanceStatus;
 
 import javax.enterprise.context.ApplicationScoped;
+import java.util.Optional;
 
 @ApplicationScoped
 public class DockerMapper {
@@ -14,8 +17,12 @@ public class DockerMapper {
                 : InstanceStatus.NOT_ACTIVE;
     }
 
-    public InstanceHealth toInstanceHealth(String dockerHealthState) {
-        DockerConstants.ContainerHealth dockerHealth = DockerConstants.ContainerHealth.fromValue(dockerHealthState);
+    public InstanceHealth toInstanceHealth(InspectContainerResponse inspectContainerResponse) {
+        DockerConstants.ContainerHealth dockerHealth = Optional.of(inspectContainerResponse.getState())
+                .map(InspectContainerResponse.ContainerState::getHealth)
+                .map(HealthState::getStatus)
+                .map(DockerConstants.ContainerHealth::fromValue)
+                .orElse(null);
 
         if (dockerHealth == null) {
             return null;

@@ -1,7 +1,7 @@
 package com.lantromipis.orchestration.adapter.api;
 
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
-import com.lantromipis.orchestration.model.PostgresInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 
 import java.util.List;
 import java.util.UUID;
@@ -13,11 +13,13 @@ public interface OrchestrationAdapter {
 
     boolean startPostgresInstance(UUID instanceId);
 
-    List<PostgresInstanceInfo> getAvailablePostgresInstancesInfos();
+    PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId);
 
-    PostgresInstanceInfo getInstanceInfo(UUID instanceId);
+    List<PostgresAdapterInstanceInfo> getAvailablePostgresInstancesInfos();
 
-    boolean deletePostgresInstance(UUID instanceId);
+    boolean deletePostgresInstance(UUID instanceId, boolean force);
+
+    void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId);
 
     List<String> getRequiredHbaConfLines();
 }

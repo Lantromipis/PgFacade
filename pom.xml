@@ -15,7 +15,6 @@
         <module>configuration</module>
         <module>postgres-protocol</module>
         <module>orchestration</module>
-        <module>internal-database-usage</module>
     </modules>
     <properties>
         <compiler-plugin.version>3.8.1</compiler-plugin.version>
@@ -36,7 +35,6 @@
         <postgresql.driver.version>42.5.0</postgresql.driver.version>
         <docker.client.version>3.2.14</docker.client.version>
         <docker.client.transport.version>3.2.3</docker.client.transport.version>
-        <hikari.pool.version>5.0.1</hikari.pool.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -89,12 +87,6 @@
                 <groupId>com.github.docker-java</groupId>
                 <artifactId>docker-java-transport-httpclient5</artifactId>
                 <version>${docker.client.transport.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.zaxxer</groupId>
-                <artifactId>HikariCP</artifactId>
-                <version>${hikari.pool.version}</version>
             </dependency>
 
         </dependencies>
