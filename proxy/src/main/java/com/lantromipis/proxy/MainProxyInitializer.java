@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import javax.inject.Named;
 
 @ApplicationScoped
 @Slf4j
@@ -21,7 +22,15 @@ public class MainProxyInitializer {
     @Inject
     ProxyChannelHandlersProducer proxyChannelHandlersProducer;
 
-    public void initialize(EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
+    @Inject
+    @Named("worker")
+    EventLoopGroup workerGroup;
+
+    @Inject
+    @Named("boss")
+    EventLoopGroup bossGroup;
+
+    public void initialize() {
         ServerBootstrap proxyBootstrap = new ServerBootstrap();
 
         Thread nettyBootstrapThread = new Thread(
@@ -39,9 +48,6 @@ public class MainProxyInitializer {
                         Thread.currentThread().interrupt();
                     } catch (Exception e) {
                         log.error(e.getMessage(), e);
-                    } finally {
-                        workerGroup.shutdownGracefully();
-                        bossGroup.shutdownGracefully();
                     }
                 }
         );

@@ -1,14 +1,12 @@
-package com.lantromipis.orchestration.orchestrator.impl;
+package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
-import com.lantromipis.orchestration.orchestrator.api.PostgresConfigurator;
+import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import lombok.extern.slf4j.Slf4j;
-import org.checkerframework.checker.units.qual.C;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -18,9 +16,6 @@ import java.util.List;
 @Slf4j
 @ApplicationScoped
 public class PostgresConfiguratorImpl implements PostgresConfigurator {
-
-    @Inject
-    DynamicMasterConnectionProvider dynamicMasterConnectionProvider;
 
     @Inject
     PostgresProperties postgresProperties;

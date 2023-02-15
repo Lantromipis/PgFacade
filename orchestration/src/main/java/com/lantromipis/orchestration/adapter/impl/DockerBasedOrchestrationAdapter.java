@@ -61,11 +61,6 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     private DockerClient dockerClient;
 
-    private String postgresNetworkId;
-
-    private ConcurrentHashMap<UUID, String> instanceIdAndContainerIdMap = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, UUID> containerIdAndInstanceIdMap = new ConcurrentHashMap<>();
-
     public void initialize() {
         log.info("Docker is selected as orchestrator adapter.");
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
@@ -98,6 +93,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     public UUID createNewPostgresInstance(PostgresInstanceCreationRequest request) {
         //used to delete container if it was created but method failed.
         String containerId = null;
+        UUID instanceId = null;
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
@@ -149,7 +145,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             CreateContainerResponse createResponse = createContainerCmd.exec();
             containerId = createResponse.getId();
 
-            UUID instanceId = rememberContainer(containerId);
+            instanceId = UUID.randomUUID();
 
             persistedProperties.savePostgresNodeInfo(
                     PostgresPersistedNodeInfo
@@ -173,7 +169,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             try {
                 if (containerId != null) {
                     dockerClient.removeContainerCmd(containerId);
-                    forgetContainer(containerId);
+                }
+                if (instanceId != null) {
+                    persistedProperties.deletePostgresNodeInfo(instanceId);
                 }
             } catch (Exception e2) {
                 log.error("Error occurred after container was created, but it is impossible to delete it. Container id = {}", containerId, e2);
@@ -184,7 +182,8 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Override
     public boolean startPostgresInstance(UUID instanceId) {
-        String containerId = instanceIdAndContainerIdMap.get(instanceId);
+        String containerId = instanceIdToContainerId(instanceId);
+
         if (containerId == null) {
             log.error("Error starting Docker postgres container. Instance not found.");
             return false;
@@ -202,15 +201,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Override
     public PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId) {
-        String containerId = instanceIdAndContainerIdMap.get(instanceId);
-
-        if (containerId == null) {
-            return null;
-        }
-
         try {
-            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
             PostgresPersistedNodeInfo persistedNodeInfo = persistedProperties.getPostgresNodeInfo(instanceId);
+            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(persistedNodeInfo.getAdapterIdentifier()).exec();
 
             return PostgresAdapterInstanceInfo
                     .builder()
@@ -259,15 +252,15 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Override
     public boolean deletePostgresInstance(UUID instanceId) {
-        String containerId = instanceIdAndContainerIdMap.get(instanceId);
+        String containerId = instanceIdToContainerId(instanceId);
 
         if (containerId == null) {
             return true;
         }
 
         try {
-            forgetContainer(containerId);
-            dockerClient.removeContainerCmd(containerId);
+            dockerClient.removeContainerCmd(containerId).exec();
+            persistedProperties.deletePostgresNodeInfo(instanceId);
             return true;
 
         } catch (Exception e) {
@@ -347,6 +340,12 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         );
 
         return result;
+    }
+
+    private String instanceIdToContainerId(UUID instanceId) {
+        return Optional.ofNullable(persistedProperties.getPostgresNodeInfo(instanceId))
+                .map(PostgresPersistedNodeInfo::getAdapterIdentifier)
+                .orElse(null);
     }
 
     private String createVolumeWithPgBaseBackup(String containerPostfix) {
@@ -435,35 +434,6 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
 
         return ret;
-    }
-
-    private UUID rememberContainer(String containerId) {
-        UUID existingInstanceId = containerIdAndInstanceIdMap.get(containerId);
-        if (existingInstanceId != null) {
-            return existingInstanceId;
-        }
-
-        UUID instanceId = UUID.randomUUID();
-
-        instanceIdAndContainerIdMap.put(instanceId, containerId);
-        containerIdAndInstanceIdMap.put(containerId, instanceId);
-
-        return instanceId;
-    }
-
-    private void forgetContainer(String containerId) {
-        UUID instanceId = containerIdAndInstanceIdMap.remove(containerId);
-        if (instanceId != null) {
-            instanceIdAndContainerIdMap.remove(instanceId);
-        }
-        persistedProperties.deletePostgresNodeInfo(instanceId);
-    }
-
-    private void forgetContainer(UUID instanceId) {
-        String containerId = instanceIdAndContainerIdMap.remove(instanceId);
-        if (containerId != null) {
-            containerIdAndInstanceIdMap.remove(containerId);
-        }
     }
 
     private String createEnvValueForRequest(String varName, String value) {

@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
+import javax.inject.Named;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -37,7 +38,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
     @Inject
     ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
 
-    private EventLoopGroup workerGroup;
+    @Inject
+    @Named("worker")
+    EventLoopGroup workerGroup;
+
     private Bootstrap poolMasterBootstrap;
     private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> freeConnections = new ConcurrentHashMap<>();
     private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> allConnections = new ConcurrentHashMap<>();
@@ -45,7 +49,6 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     @Override
     public void initialize() {
-        workerGroup = new NioEventLoopGroup();
         createMasterBootstrap();
     }
 

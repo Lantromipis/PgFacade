@@ -19,7 +19,13 @@ public interface OrchestrationProperties {
 
         PostgresDeadCheckProperties postgresDeadCheck();
 
-        int standByCount();
+        StandbyProperties standby();
+
+        interface StandbyProperties {
+            int count();
+
+            Duration countCheckInterval();
+        }
 
         interface PostgresStartupCheckProperties {
             long startPeriod();

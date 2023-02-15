@@ -3,7 +3,6 @@ package com.lantromipis.usermanagement.provider.impl;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.internaldatabaseusage.provider.api.DynamicMasterConnectionProvider;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -21,14 +20,28 @@ import java.util.Map;
 public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
 
     @Inject
-    DynamicMasterConnectionProvider dynamicMasterConnectionProvider;
+    ClusterRuntimeProperties clusterRuntimeProperties;
+
+    @Inject
+    PostgresProperties postgresProperties;
 
     private Map<String, PgShadowTableRow> pgShadowTableRowsMap = new HashMap<>();
 
     public void initialize() {
         log.info("Initializing database users auth info using custom pg_authid table view.");
         try {
-            Connection connection = dynamicMasterConnectionProvider.getConnection();
+            String jdbcUrl = "jdbc:postgresql://"
+                    + clusterRuntimeProperties.getMasterHostAddress()
+                    + ":"
+                    + clusterRuntimeProperties.getMasterPort()
+                    + "/"
+                    + postgresProperties.users().pgFacade().database();
+
+            Connection connection = DriverManager.getConnection(
+                    jdbcUrl,
+                    postgresProperties.users().pgFacade().username(),
+                    postgresProperties.users().pgFacade().password()
+            );
 
             String pgShadowSelectSql = "select * from " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME;
 
