@@ -19,7 +19,7 @@ pg-facade:
         interval: PT1S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
         retries: 3
       standby:
-        count: 1
+        count: 2
         count-check-interval: PT1S
     adapter: docker
     docker:

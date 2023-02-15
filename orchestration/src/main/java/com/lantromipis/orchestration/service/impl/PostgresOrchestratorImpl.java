@@ -1,8 +1,6 @@
 package com.lantromipis.orchestration.service.impl;
 
-import com.lantromipis.configuration.event.MasterReadyEvent;
-import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
-import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.event.*;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
@@ -52,6 +50,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     Event<SwitchoverStartedEvent> masterSwitchoverStartedEvent;
 
     @Inject
+    Event<StandbyRemoveStartedEvent> standbyRemoveStartedEvent;
+
+    @Inject
+    Event<StandbyRemoveCompletedEvent> standbyRemoveCompletedEvent;
+
+    @Inject
     PostgresConfigurator postgresConfigurator;
 
     @Inject
@@ -87,7 +91,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             if (!masterStarted) {
                 log.info("Can not start non-active master instance. Will delete it and create and start new one.");
-                orchestrationAdapter.deletePostgresInstance(masterInstanceInfo.getInstanceId());
+                orchestrationAdapter.deletePostgresInstance(masterInstanceInfo.getInstanceId(), true);
                 masterInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
                 isNewDBSetup = true;
             } else {
@@ -253,8 +257,31 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 )
                 .forEach(info -> {
                     log.info("Found unhealthy or inactive standby. Removing it.");
-                    orchestrationAdapter.deletePostgresInstance(info.getInstanceId());
+                    removeStandby(info);
                 });
+    }
+
+    private void removeStandby(PostgresAdapterInstanceInfo instanceInfo) {
+        UUID eventId = UUID.randomUUID();
+
+        standbyRemoveStartedEvent.fire(
+                new StandbyRemoveStartedEvent(
+                        eventId,
+                        instanceInfo.getInstanceId(),
+                        instanceInfo.getInstanceAddress()
+                )
+        );
+
+        StandbyRemoveCompletedEvent completedEvent = new StandbyRemoveCompletedEvent(
+                eventId,
+                instanceInfo.getInstanceId(),
+                instanceInfo.getInstanceAddress(),
+                true
+        );
+
+        completedEvent.setSuccess(orchestrationAdapter.deletePostgresInstance(instanceInfo.getInstanceId(), true));
+
+        standbyRemoveCompletedEvent.fire(completedEvent);
     }
 
     private synchronized boolean switchover(PostgresAdapterInstanceInfo newMasterInstanceInfo) {
@@ -283,6 +310,14 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             orchestrationAdapter.updateInstancesAfterSwitchover(newMasterInstanceInfo.getInstanceId(), masterInstanceId);
 
             masterInstanceId = newMasterInstanceInfo.getInstanceId();
+
+            //remove all standby because of new timeline
+            //TODO it is possible to repair such nodes instead of deleting them. Use recovery_target_timeline = 'latest'
+            log.info("NEW PRIMARY PROMOTED. REMOVING ALL FORMER STANDBY BECAUSE OF NEW TIMELINE.");
+            orchestrationAdapter.getAvailablePostgresInstancesInfos()
+                    .stream()
+                    .filter(info -> Boolean.FALSE.equals(info.getMaster()))
+                    .forEach(this::removeStandby);
 
             masterSwitchoverEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, true));
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");

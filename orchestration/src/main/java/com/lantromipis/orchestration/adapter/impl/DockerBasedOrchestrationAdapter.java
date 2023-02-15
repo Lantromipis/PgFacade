@@ -251,7 +251,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     }
 
     @Override
-    public boolean deletePostgresInstance(UUID instanceId) {
+    public boolean deletePostgresInstance(UUID instanceId, boolean force) {
         String containerId = instanceIdToContainerId(instanceId);
 
         if (containerId == null) {
@@ -259,7 +259,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
 
         try {
-            dockerClient.removeContainerCmd(containerId).exec();
+            dockerClient.removeContainerCmd(containerId).withForce(force).exec();
             persistedProperties.deletePostgresNodeInfo(instanceId);
             return true;
 
@@ -274,7 +274,8 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         PostgresPersistedNodeInfo newMasterPersistedInfo = persistedProperties.getPostgresNodeInfo(newMasterInstanceId);
         newMasterPersistedInfo.setMaster(true);
         persistedProperties.savePostgresNodeInfo(newMasterPersistedInfo);
-        deletePostgresInstance(oldMasterInstanceId);
+        deletePostgresInstance(oldMasterInstanceId, true);
+        log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newMasterPersistedInfo.getAdapterIdentifier());
     }
 
     @Override

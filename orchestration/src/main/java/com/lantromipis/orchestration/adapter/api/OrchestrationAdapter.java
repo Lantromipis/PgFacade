@@ -17,7 +17,7 @@ public interface OrchestrationAdapter {
 
     List<PostgresAdapterInstanceInfo> getAvailablePostgresInstancesInfos();
 
-    boolean deletePostgresInstance(UUID instanceId);
+    boolean deletePostgresInstance(UUID instanceId, boolean force);
 
     void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId);
 
