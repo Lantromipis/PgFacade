@@ -2,6 +2,8 @@ package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
+import java.time.Duration;
+
 @ConfigMapping(prefix = "pg-facade.orchestration")
 public interface OrchestrationProperties {
 
@@ -28,7 +30,7 @@ public interface OrchestrationProperties {
         }
 
         interface PostgresDeadCheckProperties {
-            long interval();
+            Duration interval();
 
             int retries();
         }

@@ -2,6 +2,7 @@ package com.lantromipis.orchestration.adapter.impl;
 
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
+import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
@@ -20,7 +21,7 @@ import com.lantromipis.orchestration.constant.PostgresConstant;
 import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
-import com.lantromipis.orchestration.model.PostgresInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
@@ -34,8 +35,6 @@ import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -89,6 +88,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
 
         //to pre-load all containers
+        //TODO need to sync with docker by calling listContainers?
         getAvailablePostgresInstancesInfos();
 
         log.info("Successfully created Docker client for cluster management.");
@@ -149,7 +149,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             CreateContainerResponse createResponse = createContainerCmd.exec();
             containerId = createResponse.getId();
 
-            UUID instanceId = UUID.randomUUID();
+            UUID instanceId = rememberContainer(containerId);
 
             persistedProperties.savePostgresNodeInfo(
                     PostgresPersistedNodeInfo
@@ -159,8 +159,6 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                             .adapterIdentifier(containerId)
                             .build()
             );
-
-            rememberContainer(containerId, instanceId);
 
             if (request.isMaster()) {
                 log.info("Created container with master. Ready to start it.");
@@ -175,6 +173,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             try {
                 if (containerId != null) {
                     dockerClient.removeContainerCmd(containerId);
+                    forgetContainer(containerId);
                 }
             } catch (Exception e2) {
                 log.error("Error occurred after container was created, but it is impossible to delete it. Container id = {}", containerId, e2);
@@ -202,48 +201,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     }
 
     @Override
-    public List<PostgresInstanceInfo> getAvailablePostgresInstancesInfos() {
-        OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
-
-        List<Container> containers = dockerClient.listContainersCmd()
-                .withShowAll(true)
-                .withNameFilter(List.of(dockerProperties.postgresContainerName()))
-                .exec();
-        Map<String, PostgresPersistedNodeInfo> adapterIdToPersistedNodeInfoMap = persistedProperties.getPostgresNodeInfos()
-                .stream()
-                .collect(Collectors.toMap(PostgresPersistedNodeInfo::getAdapterIdentifier, Function.identity()));
-
-        if (CollectionUtils.isEmpty(containers)) {
-            return Collections.emptyList();
-        }
-
-        List<PostgresInstanceInfo> ret = new ArrayList<>();
-
-        for (Container container : containers) {
-            UUID instanceId = containerIdAndInstanceIdMap.get(container.getId());
-
-            if (instanceId == null) {
-                instanceId = rememberContainer(container.getId());
-            }
-
-            PostgresPersistedNodeInfo persistedNodeInfo = adapterIdToPersistedNodeInfoMap.get(container.getId());
-
-            ret.add(PostgresInstanceInfo
-                    .builder()
-                    .instanceId(instanceId)
-                    .instanceAddress(dockerUtils.getContainerAddress(container))
-                    .instancePort(5432) //TODO maybe need to change
-                    .status(dockerMapper.toInstanceStatus(container.getState()))
-                    .master(persistedNodeInfo != null && persistedNodeInfo.isMaster()) //TODO maybe need to delete such container because this is not normal
-                    .build()
-            );
-        }
-
-        return ret;
-    }
-
-    @Override
-    public PostgresInstanceInfo getInstanceInfo(UUID instanceId) {
+    public PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId) {
         String containerId = instanceIdAndContainerIdMap.get(instanceId);
 
         if (containerId == null) {
@@ -252,25 +210,51 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
         try {
             InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
+            PostgresPersistedNodeInfo persistedNodeInfo = persistedProperties.getPostgresNodeInfo(instanceId);
 
-            String healthState = Optional.of(inspectResponse.getState())
-                    .map(InspectContainerResponse.ContainerState::getHealth)
-                    .map(HealthState::getStatus)
-                    .orElse(null);
-
-            return PostgresInstanceInfo
+            return PostgresAdapterInstanceInfo
                     .builder()
                     .instanceId(instanceId)
                     .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
                     .instancePort(5432) //TODO maybe need to change
                     .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
-                    .health(dockerMapper.toInstanceHealth(healthState))
-                    .master(true) //TODO constant until hot-standby!!!
+                    .health(dockerMapper.toInstanceHealth(inspectResponse))
+                    .master(persistedNodeInfo.isMaster())
                     .build();
         } catch (Exception e) {
             log.error(e.getMessage(), e);
             return null;
         }
+    }
+
+    @Override
+    public List<PostgresAdapterInstanceInfo> getAvailablePostgresInstancesInfos() {
+        //method almost duplicates getInstanceInfo(UUID) for performance, because here we get persisted info in one call
+        List<PostgresAdapterInstanceInfo> ret = new ArrayList<>();
+
+        for (PostgresPersistedNodeInfo persistedNodeInfo : persistedProperties.getPostgresNodeInfos()) {
+            try {
+                InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(persistedNodeInfo.getAdapterIdentifier()).exec();
+
+                ret.add(
+                        PostgresAdapterInstanceInfo
+                                .builder()
+                                .instanceId(persistedNodeInfo.getInstanceId())
+                                .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
+                                .instancePort(5432)
+                                .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
+                                .health(dockerMapper.toInstanceHealth(inspectResponse))
+                                .master(persistedNodeInfo.isMaster())
+                                .build()
+                );
+            } catch (NotFoundException e) {
+                persistedProperties.deletePostgresNodeInfo(persistedNodeInfo.getInstanceId());
+            } catch (Exception e) {
+                log.error(e.getMessage(), e);
+            }
+        }
+
+        return ret;
     }
 
     @Override
@@ -282,6 +266,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
 
         try {
+            forgetContainer(containerId);
             dockerClient.removeContainerCmd(containerId);
             return true;
 
@@ -289,6 +274,14 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             log.error(e.getMessage(), e);
             return false;
         }
+    }
+
+    @Override
+    public void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId) {
+        PostgresPersistedNodeInfo newMasterPersistedInfo = persistedProperties.getPostgresNodeInfo(newMasterInstanceId);
+        newMasterPersistedInfo.setMaster(true);
+        persistedProperties.savePostgresNodeInfo(newMasterPersistedInfo);
+        deletePostgresInstance(oldMasterInstanceId);
     }
 
     @Override
@@ -444,15 +437,33 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         return ret;
     }
 
-    private UUID rememberContainer(String containerId, UUID instanceId) {
+    private UUID rememberContainer(String containerId) {
+        UUID existingInstanceId = containerIdAndInstanceIdMap.get(containerId);
+        if (existingInstanceId != null) {
+            return existingInstanceId;
+        }
+
+        UUID instanceId = UUID.randomUUID();
+
         instanceIdAndContainerIdMap.put(instanceId, containerId);
         containerIdAndInstanceIdMap.put(containerId, instanceId);
 
         return instanceId;
     }
 
-    private UUID rememberContainer(String containerId) {
-        return rememberContainer(containerId, UUID.randomUUID());
+    private void forgetContainer(String containerId) {
+        UUID instanceId = containerIdAndInstanceIdMap.remove(containerId);
+        if (instanceId != null) {
+            instanceIdAndContainerIdMap.remove(instanceId);
+        }
+        persistedProperties.deletePostgresNodeInfo(instanceId);
+    }
+
+    private void forgetContainer(UUID instanceId) {
+        String containerId = instanceIdAndContainerIdMap.remove(instanceId);
+        if (containerId != null) {
+            containerIdAndInstanceIdMap.remove(containerId);
+        }
     }
 
     private String createEnvValueForRequest(String varName, String value) {

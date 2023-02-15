@@ -35,7 +35,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     public void configureNewlyCreatedMaster() {
         log.info("Executing required start-up SQL statements on new master.");
         try {
-            Connection connection = createJdbcConnection(
+            Connection superuserConnectionInSuperDB = createJdbcConnection(
                     postgresProperties.users().superuser().username(),
                     postgresProperties.users().superuser().password(),
                     postgresProperties.users().superuser().database()
@@ -44,50 +44,64 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             PostgresProperties.UserProperties.UserCredentialsProperties pgFacadeUserProperties = postgresProperties.users().pgFacade();
 
             //create PgFacade user
-            connection.createStatement()
+            superuserConnectionInSuperDB.createStatement()
                     .executeUpdate("CREATE USER " + pgFacadeUserProperties.username()
                             + " WITH ENCRYPTED PASSWORD '" + pgFacadeUserProperties.password() + "'");
 
             //create replication user
-            connection.createStatement()
+            superuserConnectionInSuperDB.createStatement()
                     .executeUpdate("CREATE ROLE " + postgresProperties.users().replication().username()
                             + " WITH REPLICATION LOGIN ENCRYPTED PASSWORD '" + postgresProperties.users().replication().password() + "'");
 
             //grant default roles to PgFacade user, so it will be possible to change pg_hba.conf
-            grantRoleToUser(connection, "pg_read_server_files", pgFacadeUserProperties.username());
-            grantRoleToUser(connection, "pg_write_server_files", pgFacadeUserProperties.username());
+            grantRoleToUser(superuserConnectionInSuperDB, "pg_read_server_files", pgFacadeUserProperties.username());
+            grantRoleToUser(superuserConnectionInSuperDB, "pg_write_server_files", pgFacadeUserProperties.username());
 
             //grant execute on pg_reload_conf() to be able to reload config
-            grantExecuteOnFunction(connection, "pg_reload_conf()", pgFacadeUserProperties.username());
+            grantExecuteOnFunction(superuserConnectionInSuperDB, "pg_reload_conf()", pgFacadeUserProperties.username());
 
-            connection.createStatement()
+            superuserConnectionInSuperDB.createStatement()
                     .executeUpdate("GRANT SELECT ON TABLE pg_shadow TO " + pgFacadeUserProperties.username());
 
             //personal database for PgFacade user
-            createDatabase(connection, pgFacadeUserProperties.database(), pgFacadeUserProperties.username());
+            createDatabase(superuserConnectionInSuperDB, pgFacadeUserProperties.database(), pgFacadeUserProperties.username());
 
             //now we don't need superuser in his database.
-            connection.close();
+            superuserConnectionInSuperDB.close();
+
+            //changing database for superuser because we need to execute "GRANT EXECUTE ON pg_promote ..." in PgFacade's user database.
+            //Otherwise, PgFacade user won't be able to call pg_promote from its database.
+            Connection superuserConnectionInPgFacadeDB = createJdbcConnection(
+                    postgresProperties.users().superuser().username(),
+                    postgresProperties.users().superuser().password(),
+                    postgresProperties.users().pgFacade().database()
+            );
+
+            //grant execute on pg_promote() to be able to promote standby
+            grantExecuteOnFunction(superuserConnectionInPgFacadeDB, "pg_promote", pgFacadeUserProperties.username());
+
+            //now we don't need superuser in PgFacade database.
+            superuserConnectionInPgFacadeDB.close();
 
             //connection to PgFacade user's database.
-            connection = createJdbcConnection(
+            Connection pgfacadeUserConnection = createJdbcConnection(
                     postgresProperties.users().superuser().username(),
                     postgresProperties.users().superuser().password(),
                     postgresProperties.users().pgFacade().database()
             );
 
             //we need access to pg_authid so PgFacade will be able to check credentials automatically
-            connection.createStatement()
+            pgfacadeUserConnection.createStatement()
                     .executeUpdate("CREATE VIEW " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME + " AS SELECT * FROM pg_authid WHERE rolcanlogin = true");
 
-            connection.createStatement()
+            pgfacadeUserConnection.createStatement()
                     .executeUpdate("GRANT SELECT ON TABLE " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME + " TO " + pgFacadeUserProperties.username());
 
             //update pg_hba.conf
-            replacePgHbaConf(connection, orchestrationAdapter.getRequiredHbaConfLines());
-            
+            replacePgHbaConf(pgfacadeUserConnection, orchestrationAdapter.getRequiredHbaConfLines());
+
             //finished configuration
-            connection.close();
+            pgfacadeUserConnection.close();
 
             log.info("Finished executing required start-up SQL statements on new master.");
 

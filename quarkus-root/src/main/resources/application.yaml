@@ -16,7 +16,7 @@ pg-facade:
         interval: 100 #millisecinds
         retries: 100
       postgres-dead-check:
-        interval: 100 #millisecinds
+        interval: PT0.100S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
         retries: 3
       stand-by-count: 1
     adapter: docker

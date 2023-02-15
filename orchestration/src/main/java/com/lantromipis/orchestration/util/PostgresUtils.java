@@ -8,6 +8,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
 @ApplicationScoped
 public class PostgresUtils {
@@ -17,6 +20,21 @@ public class PostgresUtils {
 
     @Inject
     PostgresProperties postgresProperties;
+
+    public Connection getConnectionForPgFacadeUser(String address, int port) throws SQLException {
+        String jdbcUrl = "jdbc:postgresql://"
+                + address
+                + ":"
+                + port
+                + "/"
+                + postgresProperties.users().pgFacade().database();
+
+        return DriverManager.getConnection(
+                jdbcUrl,
+                postgresProperties.users().pgFacade().username(),
+                postgresProperties.users().pgFacade().password()
+        );
+    }
 
     public String getPgPassFileContent(PostgresProperties.UserProperties.UserCredentialsProperties userCredentialsProperties) {
 
