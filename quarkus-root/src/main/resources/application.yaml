@@ -26,7 +26,7 @@ pg-facade:
       standby:
         count: 1
         count-check-interval: PT1S
-    adapter: no_adapter
+    adapter: docker
     docker:
       docker-host: unix:///var/run/docker.sock
       postgres-network-name: pg-facade-postgres-network
