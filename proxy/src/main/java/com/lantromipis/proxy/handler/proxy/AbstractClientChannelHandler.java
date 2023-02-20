@@ -4,6 +4,7 @@ import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageE
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,12 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     @Setter
     private ChannelHandlerContext initialChannelHandlerContext;
     private long lastTimeAccessed = 0;
+    /**
+     * True if handler is working, false when not. For example, after handleInactivityPeriodEnded() called, this variable must become false.
+     */
+    @Getter
+    @Setter(AccessLevel.PROTECTED)
+    private boolean active;
 
     public AbstractClientChannelHandler() {
         equalsAndHashcodeId = UUID.randomUUID();
@@ -50,6 +57,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      */
     public void handleInactivityPeriodEnded() {
         rejectRequest(initialChannelHandlerContext);
+        active = false;
     }
 
     /**
@@ -106,6 +114,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
 
     private void initialize(ChannelHandlerContext ctx) {
         initialChannelHandlerContext = ctx;
+        active = true;
     }
 
     @Override

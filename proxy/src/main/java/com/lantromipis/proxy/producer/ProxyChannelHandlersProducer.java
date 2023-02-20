@@ -6,7 +6,7 @@ import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
-import com.lantromipis.proxy.handler.proxy.client.SessionPooledDataProxyClientChannelHandler;
+import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
 import com.lantromipis.proxy.handler.proxy.database.SimpleDatabaseMasterConnectionClientChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsRegistry;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -37,9 +37,15 @@ public class ProxyChannelHandlersProducer {
         return new SaslScramSha256AuthClientChannelHandler(startupMessage, userAuthInfoProvider, this, protocolUtils);
     }
 
-    public SessionPooledDataProxyClientChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo) {
-        SessionPooledDataProxyClientChannelHandler ret = new SessionPooledDataProxyClientChannelHandler(connectionPool, startupMessage, authAdditionalInfo, this);
-        clientConnectionsRegistry.registerNewProxyClientHandler(ret);
+    public SessionPooledSwitchoverClosingDataProxyChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo) {
+        SessionPooledSwitchoverClosingDataProxyChannelHandler ret = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
+                connectionPool,
+                startupMessage,
+                authAdditionalInfo,
+                this,
+                clientConnectionsRegistry
+        );
+        clientConnectionsRegistry.registerNewClientChannelHandler(ret);
         return ret;
     }
 

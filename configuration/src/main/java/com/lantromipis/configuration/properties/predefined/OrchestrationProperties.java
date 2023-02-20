@@ -74,6 +74,13 @@ public interface OrchestrationProperties {
     }
 
     enum AdapterType {
+        /**
+         * Use when there is no need in orchestration. If active, PgFacade will work like proxy + connection pool without any HA features.
+         */
+        NO_ADAPTER,
+        /**
+         * Use when PgFacade will work in docker
+         */
         DOCKER
     }
 }
