@@ -8,31 +8,30 @@ import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageE
 import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
-import com.lantromipis.proxy.handler.common.AbstractProxyClientHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
-import com.lantromipis.proxy.service.api.InactiveClientConnectionsReaper;
+import com.lantromipis.proxy.service.api.ClientConnectionsRegistry;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 
-public class SessionPooledProxyClientHandler extends AbstractProxyClientHandler {
+public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
-    private final InactiveClientConnectionsReaper inactiveClientConnectionsReaper;
+    private final ClientConnectionsRegistry clientConnectionsRegistry;
 
     private Channel masterConnection;
 
     private final ConnectionInfo connectionInfo;
     private final ConnectionPool connectionPool;
-    private final StartupMessage startupMessage;
     private final AuthAdditionalInfo authAdditionalInfo;
 
-    public SessionPooledProxyClientHandler(final ConnectionPool connectionPool,
-                                           final StartupMessage startupMessage,
-                                           final AuthAdditionalInfo authAdditionalInfo,
-                                           final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
-                                           final InactiveClientConnectionsReaper inactiveClientConnectionsReaper) {
+    public SessionPooledSwitchoverClosingDataProxyChannelHandler(final ConnectionPool connectionPool,
+                                                                 final StartupMessage startupMessage,
+                                                                 final AuthAdditionalInfo authAdditionalInfo,
+                                                                 final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
+                                                                 final ClientConnectionsRegistry clientConnectionsRegistry) {
+        super();
         this.connectionInfo =
                 ConnectionInfo
                         .builder()
@@ -40,11 +39,10 @@ public class SessionPooledProxyClientHandler extends AbstractProxyClientHandler 
                         .database(startupMessage.getParameters().get(PostgreSQLProtocolGeneralConstants.STARTUP_PARAMETER_DATABASE))
                         .parameters(startupMessage.getParameters())
                         .build();
-        this.startupMessage = startupMessage;
         this.authAdditionalInfo = authAdditionalInfo;
         this.connectionPool = connectionPool;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
-        this.inactiveClientConnectionsReaper = inactiveClientConnectionsReaper;
+        this.clientConnectionsRegistry = clientConnectionsRegistry;
     }
 
     @Override
@@ -58,12 +56,11 @@ public class SessionPooledProxyClientHandler extends AbstractProxyClientHandler 
         masterConnection.pipeline().addLast(
                 proxyChannelHandlersProducer.createNewSimpleDatabaseMasterConnectionHandler(ctx.channel())
         );
+        super.handlerAdded(ctx);
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        super.channelRead(ctx, msg);
-
         ByteBuf message = (ByteBuf) msg;
         if (ProtocolUtils.checkIfMessageIsTermination(message)) {
             closeClientConnectionSilently(ctx);
@@ -79,6 +76,7 @@ public class SessionPooledProxyClientHandler extends AbstractProxyClientHandler 
                 }
             });
         }
+        super.channelRead(ctx, msg);
     }
 
     private void closeClientConnectionExceptionally(ChannelHandlerContext ctx) {
@@ -86,11 +84,30 @@ public class SessionPooledProxyClientHandler extends AbstractProxyClientHandler 
         HandlerUtils.closeOnFlush(ctx.channel());
 
         connectionPool.returnConnectionToPool(connectionInfo, masterConnection);
+        clientConnectionsRegistry.unregisterClientChannelHandler(this);
+        setActive(false);
     }
 
     private void closeClientConnectionSilently(ChannelHandlerContext ctx) {
         ctx.channel().close();
 
         connectionPool.returnConnectionToPool(connectionInfo, masterConnection);
+        clientConnectionsRegistry.unregisterClientChannelHandler(this);
+        setActive(false);
+    }
+
+    @Override
+    public void handleInactivityPeriodEnded() {
+        closeClientConnectionExceptionally(getInitialChannelHandlerContext());
+    }
+
+    @Override
+    public void handleSwitchoverStarted() {
+        closeClientConnectionExceptionally(getInitialChannelHandlerContext());
+    }
+
+    @Override
+    public void handleSwitchoverCompleted(boolean success) {
+        //do nothing. Connection with client already closed.
     }
 }

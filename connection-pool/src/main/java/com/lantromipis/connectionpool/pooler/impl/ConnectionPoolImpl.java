@@ -2,6 +2,7 @@ package com.lantromipis.connectionpool.pooler.impl;
 
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.EmptyHandler;
@@ -43,6 +44,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     EventLoopGroup workerGroup;
 
     private Bootstrap poolMasterBootstrap;
+    //TODO capacity?
     private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> freeConnections = new ConcurrentHashMap<>();
     private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> allConnections = new ConcurrentHashMap<>();
     private CountDownLatch switchoverLatch = new CountDownLatch(0);
@@ -53,6 +55,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     @Override
+    //TODO retry 1 time for switchover?
     public Channel getMasterConnection(ConnectionInfo connectionInfo, AuthAdditionalInfo authAdditionalInfo) {
         if (switchoverLatch.getCount() != 0) {
             try {

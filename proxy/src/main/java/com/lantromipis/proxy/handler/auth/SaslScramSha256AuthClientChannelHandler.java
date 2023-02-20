@@ -10,7 +10,7 @@ import com.lantromipis.postgresprotocol.model.SaslResponse;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
-import com.lantromipis.proxy.handler.common.AbstractHandler;
+import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.buffer.ByteBuf;
@@ -27,7 +27,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
-public class SaslScramSha256AuthHandler extends AbstractHandler {
+public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChannelHandler {
     private enum SaslAuthStatus {
         NOT_STARTED,
         FIRST_CLIENT_MESSAGE_RECEIVED,
@@ -53,7 +53,7 @@ public class SaslScramSha256AuthHandler extends AbstractHandler {
     private SaslAuthStatus saslAuthStatus = SaslAuthStatus.NOT_STARTED;
     private final StartupMessage startupMessage;
 
-    public SaslScramSha256AuthHandler(StartupMessage startupMessage, UserAuthInfoProvider userAuthInfoProvider, ProxyChannelHandlersProducer proxyChannelHandlersProducer, ProtocolUtils protocolUtils) {
+    public SaslScramSha256AuthClientChannelHandler(StartupMessage startupMessage, UserAuthInfoProvider userAuthInfoProvider, ProxyChannelHandlersProducer proxyChannelHandlersProducer, ProtocolUtils protocolUtils) {
         this.startupMessage = startupMessage;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.protocolUtils = protocolUtils;

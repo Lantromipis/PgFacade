@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @ApplicationScoped
-@LookupIfProperty(name = "pg-facade.pg-cluster-management.adapter", stringValue = "docker")
+@LookupIfProperty(name = "pg-facade.orchestration.adapter", stringValue = "docker")
 public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
     @Inject

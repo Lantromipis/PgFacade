@@ -1,21 +1,16 @@
 package com.lantromipis.proxy.handler.proxy.database;
 
-import com.lantromipis.proxy.handler.common.AbstractHandler;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 
-public class SimpleDatabaseMasterConnectionHandler extends AbstractHandler {
+public class SimpleDatabaseMasterConnectionClientChannelHandler extends ChannelInboundHandlerAdapter {
 
     private Channel clientConnection;
 
-    public SimpleDatabaseMasterConnectionHandler(Channel clientConnection) {
+    public SimpleDatabaseMasterConnectionClientChannelHandler(Channel clientConnection) {
         this.clientConnection = clientConnection;
-    }
-
-    @Override
-    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        ctx.channel().read();
     }
 
     @Override
