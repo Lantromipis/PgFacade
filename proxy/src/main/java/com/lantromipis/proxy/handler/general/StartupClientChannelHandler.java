@@ -1,11 +1,11 @@
-package com.lantromipis.proxy.handler;
+package com.lantromipis.proxy.handler.general;
 
 import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
-import com.lantromipis.proxy.handler.common.AbstractHandler;
+import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.buffer.ByteBuf;
@@ -14,13 +14,13 @@ import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class StartupHandler extends AbstractHandler {
+public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     private final UserAuthInfoProvider userAuthInfoProvider;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
 
 
-    public StartupHandler(final UserAuthInfoProvider userAuthInfoProvider, final ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
+    public StartupClientChannelHandler(final UserAuthInfoProvider userAuthInfoProvider, final ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
         this.userAuthInfoProvider = userAuthInfoProvider;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
     }
@@ -67,9 +67,11 @@ public class StartupHandler extends AbstractHandler {
 
             switch (authenticationMethod) {
                 case PLAIN_TEXT -> {
+                    //TODO done
                     break;
                 }
                 case MD5 -> {
+                    //TODO done
                     break;
                 }
                 case SCRAM_SHA256 -> {

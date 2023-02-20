@@ -1,6 +1,11 @@
 pg-facade:
   proxy:
     port: 5433
+    max-connections: 100
+    inactive-clients:
+      disconnect: true
+      inactive-connection-timeout: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      check-interval: PT1S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
     parameter-status-override:
       "is_superuser": "off"
       "in_hot_standby": "off"
@@ -59,7 +64,7 @@ quarkus:
   http:
     port: 8080
   log:
-    level: INFO
+    level: DEBUG
     console:
       format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-50.50c{3.}] [%-20.20M] - %s%e%n"
   banner:

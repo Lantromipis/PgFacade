@@ -12,6 +12,7 @@ public class ProxyChannelInitializer extends ChannelInitializer<Channel> {
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
 
     public ProxyChannelInitializer(ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
+        log.info("CREATED LOOOL");
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
     }
 

@@ -4,11 +4,11 @@ import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
-import com.lantromipis.proxy.handler.StartupHandler;
-import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthHandler;
-import com.lantromipis.proxy.handler.proxy.client.SessionPooledProxyClientHandler;
-import com.lantromipis.proxy.handler.proxy.database.SimpleDatabaseMasterConnectionHandler;
-import com.lantromipis.proxy.service.api.InactiveClientConnectionsReaper;
+import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
+import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
+import com.lantromipis.proxy.handler.proxy.client.SessionPooledDataProxyClientChannelHandler;
+import com.lantromipis.proxy.handler.proxy.database.SimpleDatabaseMasterConnectionClientChannelHandler;
+import com.lantromipis.proxy.service.api.ClientConnectionsRegistry;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.Channel;
 
@@ -27,21 +27,23 @@ public class ProxyChannelHandlersProducer {
     ProtocolUtils protocolUtils;
 
     @Inject
-    InactiveClientConnectionsReaper inactiveClientConnectionsReaper;
+    ClientConnectionsRegistry clientConnectionsRegistry;
 
-    public StartupHandler createNewClientStartupHandler() {
-        return new StartupHandler(userAuthInfoProvider, this);
+    public StartupClientChannelHandler createNewClientStartupHandler() {
+        return new StartupClientChannelHandler(userAuthInfoProvider, this);
     }
 
-    public SaslScramSha256AuthHandler createNewSaslScramSha256AuthHandler(StartupMessage startupMessage) {
-        return new SaslScramSha256AuthHandler(startupMessage, userAuthInfoProvider, this, protocolUtils);
+    public SaslScramSha256AuthClientChannelHandler createNewSaslScramSha256AuthHandler(StartupMessage startupMessage) {
+        return new SaslScramSha256AuthClientChannelHandler(startupMessage, userAuthInfoProvider, this, protocolUtils);
     }
 
-    public SessionPooledProxyClientHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo) {
-        return new SessionPooledProxyClientHandler(connectionPool, startupMessage, authAdditionalInfo, this, inactiveClientConnectionsReaper);
+    public SessionPooledDataProxyClientChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo) {
+        SessionPooledDataProxyClientChannelHandler ret = new SessionPooledDataProxyClientChannelHandler(connectionPool, startupMessage, authAdditionalInfo, this);
+        clientConnectionsRegistry.registerNewProxyClientHandler(ret);
+        return ret;
     }
 
-    public SimpleDatabaseMasterConnectionHandler createNewSimpleDatabaseMasterConnectionHandler(Channel clientConnection) {
-        return new SimpleDatabaseMasterConnectionHandler(clientConnection);
+    public SimpleDatabaseMasterConnectionClientChannelHandler createNewSimpleDatabaseMasterConnectionHandler(Channel clientConnection) {
+        return new SimpleDatabaseMasterConnectionClientChannelHandler(clientConnection);
     }
 }

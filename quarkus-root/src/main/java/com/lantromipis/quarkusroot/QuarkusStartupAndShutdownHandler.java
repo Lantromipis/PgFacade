@@ -41,7 +41,7 @@ public class QuarkusStartupAndShutdownHandler {
     public void startup(@Observes StartupEvent startupEvent) {
         log.info("PgFacade initialization started!");
 
-        postgresOrchestrator.initialize();
+        //postgresOrchestrator.initialize();
 
         userAuthInfoProvider.initialize();
         connectionPool.initialize();
