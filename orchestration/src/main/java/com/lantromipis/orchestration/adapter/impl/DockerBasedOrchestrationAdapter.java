@@ -3,6 +3,7 @@ package com.lantromipis.orchestration.adapter.impl;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
@@ -33,7 +34,6 @@ import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -87,6 +87,14 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         getAvailablePostgresInstancesInfos();
 
         log.info("Successfully created Docker client for cluster management.");
+    }
+
+    @Override
+    public void shutdown() {
+        try {
+            dockerClient.close();
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -200,6 +208,23 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     }
 
     @Override
+    public boolean stopPostgresInstance(UUID instanceId) {
+        String containerId = instanceIdToContainerId(instanceId);
+
+        if (containerId == null) {
+            return true;
+        }
+
+        try {
+            dockerClient.stopContainerCmd(containerId).exec();
+            return true;
+        } catch (Exception e) {
+            log.error("Error stopping Postgres instance", e);
+            return false;
+        }
+    }
+
+    @Override
     public PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId) {
         try {
             PostgresPersistedNodeInfo persistedNodeInfo = persistedProperties.getPostgresNodeInfo(instanceId);
@@ -259,7 +284,16 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         }
 
         try {
-            dockerClient.removeContainerCmd(containerId).withForce(force).exec();
+            if (force) {
+                dockerClient.removeContainerCmd(containerId).withForce(true).exec();
+            } else {
+                try {
+                    dockerClient.stopContainerCmd(containerId).exec();
+                } catch (NotModifiedException ignored) {
+                }
+
+                dockerClient.removeContainerCmd(containerId).exec();
+            }
             persistedProperties.deletePostgresNodeInfo(instanceId);
             return true;
 

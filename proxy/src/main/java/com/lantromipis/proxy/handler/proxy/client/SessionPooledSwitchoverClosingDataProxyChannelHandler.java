@@ -9,7 +9,7 @@ import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
-import com.lantromipis.proxy.service.api.ClientConnectionsRegistry;
+import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
@@ -18,7 +18,7 @@ import io.netty.channel.ChannelHandlerContext;
 public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
-    private final ClientConnectionsRegistry clientConnectionsRegistry;
+    private final ClientConnectionsManagementService clientConnectionsManagementService;
 
     private Channel masterConnection;
 
@@ -30,7 +30,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
                                                                  final StartupMessage startupMessage,
                                                                  final AuthAdditionalInfo authAdditionalInfo,
                                                                  final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
-                                                                 final ClientConnectionsRegistry clientConnectionsRegistry) {
+                                                                 final ClientConnectionsManagementService clientConnectionsManagementService) {
         super();
         this.connectionInfo =
                 ConnectionInfo
@@ -42,7 +42,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         this.authAdditionalInfo = authAdditionalInfo;
         this.connectionPool = connectionPool;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
-        this.clientConnectionsRegistry = clientConnectionsRegistry;
+        this.clientConnectionsManagementService = clientConnectionsManagementService;
     }
 
     @Override
@@ -50,7 +50,8 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         masterConnection = connectionPool.getMasterConnection(connectionInfo, authAdditionalInfo);
 
         if (masterConnection == null) {
-            rejectRequest(ctx);
+            forceCloseConnectionWithError(ctx);
+            return;
         }
 
         masterConnection.pipeline().addLast(
@@ -84,7 +85,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         HandlerUtils.closeOnFlush(ctx.channel());
 
         connectionPool.returnConnectionToPool(connectionInfo, masterConnection);
-        clientConnectionsRegistry.unregisterClientChannelHandler(this);
+        clientConnectionsManagementService.unregisterClientChannelHandler(this);
         setActive(false);
     }
 
@@ -92,12 +93,12 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         ctx.channel().close();
 
         connectionPool.returnConnectionToPool(connectionInfo, masterConnection);
-        clientConnectionsRegistry.unregisterClientChannelHandler(this);
+        clientConnectionsManagementService.unregisterClientChannelHandler(this);
         setActive(false);
     }
 
     @Override
-    public void handleInactivityPeriodEnded() {
+    public void forceDisconnect() {
         closeClientConnectionExceptionally(getInitialChannelHandlerContext());
     }
 

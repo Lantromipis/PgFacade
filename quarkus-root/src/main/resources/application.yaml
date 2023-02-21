@@ -1,11 +1,14 @@
 pg-facade:
+  shutdown:
+    await-clients: true
+    wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   proxy:
     port: 5433
     max-connections: 100
     inactive-clients:
       disconnect: true
-      inactive-connection-timeout: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
-      check-interval: PT1S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      inactive-connection-timeout: PT5M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      check-interval: PT10S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
     parameter-status-override:
       "is_superuser": "off"
       "in_hot_standby": "off"

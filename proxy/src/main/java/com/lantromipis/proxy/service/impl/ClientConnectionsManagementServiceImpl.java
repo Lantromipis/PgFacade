@@ -6,22 +6,20 @@ import com.lantromipis.configuration.properties.predefined.ProxyStaticProperties
 import com.lantromipis.proxy.exception.ConnectionLimitReachedException;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.AbstractDataProxyClientChannelHandler;
-import com.lantromipis.proxy.service.api.ClientConnectionsRegistry;
+import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Event;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 
 @Slf4j
 @ApplicationScoped
-public class ClientConnectionsRegistryImpl implements ClientConnectionsRegistry {
+public class ClientConnectionsManagementServiceImpl implements ClientConnectionsManagementService {
 
     @Inject
     ProxyStaticProperties proxyStaticProperties;
@@ -50,11 +48,24 @@ public class ClientConnectionsRegistryImpl implements ClientConnectionsRegistry 
     }
 
     @Override
+    public void forceDisconnectAll() {
+        for (AbstractClientChannelHandler client : activeChannelsHandlers) {
+            client.forceDisconnect();
+            unregisterClientChannelHandler(client);
+        }
+    }
+
+    @Override
+    public int getActiveClientsCount() {
+        return activeChannelsHandlers.size();
+    }
+
+    @Override
     public boolean connectionsLimitReached() {
         return activeChannelsHandlers.size() > proxyStaticProperties.maxConnections();
     }
 
-    @Scheduled(every = "${pg-facade.proxy.inactive-clients.check-interval}")
+    @Scheduled(every = "${pg-facade.proxy.inactive-clients.check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkInactiveClients() {
         if (!proxyStaticProperties.inactiveClients().disconnect()) {
             return;
@@ -68,7 +79,7 @@ public class ClientConnectionsRegistryImpl implements ClientConnectionsRegistry 
                 continue;
             }
             if (client.getLastActiveTimeMilliseconds() > 0 && client.getLastActiveTimeMilliseconds() < endTime) {
-                client.handleInactivityPeriodEnded();
+                client.forceDisconnect();
                 unregisterClientChannelHandler(client);
                 inactiveCount++;
             }

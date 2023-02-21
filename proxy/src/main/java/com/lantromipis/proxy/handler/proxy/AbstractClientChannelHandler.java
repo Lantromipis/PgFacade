@@ -31,12 +31,14 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     @Setter
     private ChannelHandlerContext initialChannelHandlerContext;
     private long lastTimeAccessed = 0;
+
     /**
-     * True if handler is working, false when not. For example, after handleInactivityPeriodEnded() called, this variable must become false.
+     * True if handler is working, false when not. For example, after forceDisconnect() called, this field must become false.
+     * It is important to set this field to false when connection with client is closed, because special reaper-scheduler uses it.
      */
     @Getter
     @Setter(AccessLevel.PROTECTED)
-    private boolean active;
+    private boolean active = true;
 
     public AbstractClientChannelHandler() {
         equalsAndHashcodeId = UUID.randomUUID();
@@ -52,11 +54,12 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     }
 
     /**
-     * This method might be called when client was inactive for too long.
-     * If this method is called, handler must close connection with client properly.
+     * This method will be called when PgFacade needs the underlying client to be disconnected.
+     * If this method is called, handler must close connection with client.
+     * For example, this method is called when PgFacade is shutting down, or when client was inactive for too long.
      */
-    public void handleInactivityPeriodEnded() {
-        rejectRequest(initialChannelHandlerContext);
+    public void forceDisconnect() {
+        forceCloseConnectionWithError(initialChannelHandlerContext);
         active = false;
     }
 
@@ -88,14 +91,20 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log.error("Exception in client connection handler. Connection will be closed ", cause);
-        rejectRequest(ctx);
+        forceCloseConnectionWithError(ctx);
     }
 
-    protected void rejectRequest(ChannelHandlerContext ctx) {
+    /**
+     * Default method to call when connection must be closed. Closes connection with error.
+     *
+     * @param ctx ChannelHandlerContext of connection that will be closed.
+     */
+    protected void forceCloseConnectionWithError(ChannelHandlerContext ctx) {
         ctx.channel().writeAndFlush(
                 ServerPostgreSqlProtocolMessageEncoder.createEmptyErrorMessage()
         );
         HandlerUtils.closeOnFlush(ctx.channel());
+        active = false;
     }
 
     @Override

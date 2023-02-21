@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -120,15 +121,40 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         masterReadyEvent.fire(new MasterReadyEvent());
 
         //standby section
-        List<PostgresAdapterInstanceInfo> standbyInfos = orchestrationAdapter.get().getAvailablePostgresInstancesInfos().stream().filter(info -> Boolean.FALSE.equals(info.getMaster())).toList();
+        List<PostgresAdapterInstanceInfo> standbyInfos = orchestrationAdapter.get().getAvailablePostgresInstancesInfos()
+                .stream()
+                .filter(info -> Boolean.FALSE.equals(info.getMaster()))
+                .toList();
 
         log.info("Checking standby count.");
 
-        checkAndFixStandbyCount(standbyInfos);
+        if (standbyInfos.stream().allMatch(info -> InstanceStatus.NOT_ACTIVE.equals(info.getStatus()))) {
+            log.info("All standby inactive. Will start required amount.");
+            // All standby inactive which means that PgFacade is starting up after full shutdown. Start required count.
+            for (int i = 0; i < Math.min(standbyInfos.size(), orchestrationProperties.common().standby().count()); i++) {
+                PostgresAdapterInstanceInfo standbyInfo = standbyInfos.get(i);
+                boolean standbyStarted = orchestrationAdapter.get().startPostgresInstance(standbyInfo.getInstanceId());
+                if (standbyStarted) {
+                    waitUntilPostgresInstanceHealthy(standbyInfo.getInstanceId());
+                }
+            }
+        }
 
         log.info("Orchestrator initialization completed!");
 
         orchestratorReady.set(true);
+    }
+
+    @Override
+    public void shutdown() {
+        orchestratorReady.set(false);
+        while (livelinessCheckInProgress.get() || switchoverInProgress.get() || standbyCountCheckInProgress.get()) {
+            //waiting for all operations to complete.
+        }
+        orchestrationAdapter.get().getAvailablePostgresInstancesInfos().forEach(info ->
+                orchestrationAdapter.get().stopPostgresInstance(info.getInstanceId())
+        );
+        orchestrationAdapter.get().shutdown();
     }
 
     @Override
@@ -219,20 +245,20 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void checkAndFixStandbyCount(List<PostgresAdapterInstanceInfo> availableInstances) {
-        long healthyOrStartingStandbyCount = availableInstances
+        List<PostgresAdapterInstanceInfo> healthyOrStartingInstances = availableInstances
                 .stream()
                 .filter(info -> Boolean.FALSE.equals(info.getMaster()))
                 .filter(info ->
                         InstanceHealth.HEALTHY.equals(info.getHealth())
                                 || InstanceHealth.STARTING.equals(info.getHealth())
                 )
-                .count();
+                .toList();
 
-        long countDiff = orchestrationProperties.common().standby().count() - healthyOrStartingStandbyCount;
+        long countDiff = orchestrationProperties.common().standby().count() - healthyOrStartingInstances.size();
 
-        if (healthyOrStartingStandbyCount < orchestrationProperties.common().standby().count()) {
+        if (healthyOrStartingInstances.size() < orchestrationProperties.common().standby().count()) {
             log.warn("Found {} starting or healthy standby while it is required to have {}. Need to start {} more.",
-                    healthyOrStartingStandbyCount,
+                    healthyOrStartingInstances.size(),
                     orchestrationProperties.common().standby().count(),
                     countDiff
             );
@@ -252,10 +278,22 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             } catch (Exception e) {
                 log.error("Error while scaling standby count", e);
             }
+        } else if (healthyOrStartingInstances.size() > orchestrationProperties.common().standby().count()) {
+            log.warn("Found {} starting or healthy standby while it is required to have {}. Will stop {} instance(s).",
+                    healthyOrStartingInstances.size(),
+                    orchestrationProperties.common().standby().count(),
+                    Math.abs(countDiff)
+            );
+
+            for (int i = 0; i < Math.abs(countDiff); i++) {
+                orchestrationAdapter.get().deletePostgresInstance(
+                        healthyOrStartingInstances.get(i).getInstanceId(),
+                        false
+                );
+            }
         }
 
         //remove unhealthy or inactive standby
-        //TODO it is possible to repair such nodes instead of deleting them
         availableInstances
                 .stream()
                 .filter(info -> Boolean.FALSE.equals(info.getMaster()))
