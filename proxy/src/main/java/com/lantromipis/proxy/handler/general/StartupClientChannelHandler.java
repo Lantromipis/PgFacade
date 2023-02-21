@@ -43,13 +43,13 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
             if (startupMessage == null) {
                 log.error("Error decoding client startup message. Closing connection.");
-                rejectRequest(ctx);
+                forceCloseConnectionWithError(ctx);
                 return;
             }
 
             if (startupMessage.getMajorVersion() != 3 && startupMessage.getMinorVersion() != 0) {
                 log.error("Client attempted to connect with wrong protocol version: major=" + startupMessage.getMajorVersion() + "; minor=" + startupMessage.getMinorVersion() + ". Closing connection.");
-                rejectRequest(ctx);
+                forceCloseConnectionWithError(ctx);
                 return;
             }
 
@@ -59,7 +59,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
             if (authenticationMethod == null) {
                 log.error("User not found or has unknown authMethod. Closing connection.");
-                rejectRequest(ctx);
+                forceCloseConnectionWithError(ctx);
                 return;
             }
 
@@ -78,13 +78,15 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                     ctx.channel().pipeline().addLast(
                             proxyChannelHandlersProducer.createNewSaslScramSha256AuthHandler(startupMessage)
                     );
-                    ctx.channel().pipeline().remove(this);
                 }
                 default -> {
-                    rejectRequest(ctx);
+                    forceCloseConnectionWithError(ctx);
                     return;
                 }
             }
+
+            ctx.channel().pipeline().remove(this);
+            setActive(false);
 
             ctx.channel().writeAndFlush(authRequestMessage);
             ctx.channel().read();

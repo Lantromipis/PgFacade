@@ -9,9 +9,13 @@ import java.util.UUID;
 public interface OrchestrationAdapter {
     void initialize();
 
+    void shutdown();
+
     UUID createNewPostgresInstance(PostgresInstanceCreationRequest request);
 
     boolean startPostgresInstance(UUID instanceId);
+
+    boolean stopPostgresInstance(UUID instanceId);
 
     PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId);
 
