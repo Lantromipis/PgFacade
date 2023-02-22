@@ -83,7 +83,10 @@ ENV LANGUAGE='en_US:en'
 COPY target/lib/* /deployments/lib/
 COPY target/*-runner.jar /deployments/quarkus-run.jar
 
-EXPOSE 8080
+USER 0
+RUN ["mkdir", "/var/pgfacade"]
+RUN ["chown", "185", "/var/pgfacade"]
+
 USER 185
 ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
