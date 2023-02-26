@@ -15,6 +15,7 @@
         <module>configuration</module>
         <module>postgres-protocol</module>
         <module>orchestration</module>
+        <module>rest-server</module>
     </modules>
     <properties>
         <compiler-plugin.version>3.8.1</compiler-plugin.version>

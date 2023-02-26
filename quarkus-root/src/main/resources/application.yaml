@@ -61,8 +61,6 @@ pg-facade:
         database: postgres
     postgresql-conf-override:
       shared_buffers: 256MB
-
-
 quarkus:
   http:
     port: 8080

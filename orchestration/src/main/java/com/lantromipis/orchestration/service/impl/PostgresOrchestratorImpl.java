@@ -2,9 +2,12 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.event.*;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.exception.InstanceCreationException;
+import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
+import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
 import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.InstanceStatus;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
@@ -14,6 +17,7 @@ import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -22,13 +26,9 @@ import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.sql.Connection;
 import java.sql.ResultSet;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -66,10 +66,14 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     PostgresUtils postgresUtils;
 
+    @Inject
+    PostgresProperties postgresProperties;
+
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean clusterRestartInProgress = new AtomicBoolean(false);
     private int healthcheckFailedCount = 0;
 
     private UUID masterInstanceId;
@@ -128,7 +132,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         log.info("Checking standby count.");
 
-        if (standbyInfos.stream().allMatch(info -> InstanceStatus.NOT_ACTIVE.equals(info.getStatus()))) {
+        if (CollectionUtils.isNotEmpty(standbyInfos) && standbyInfos.stream().allMatch(info -> InstanceStatus.NOT_ACTIVE.equals(info.getStatus()))) {
             log.info("All standby inactive. Will start required amount.");
             // All standby inactive which means that PgFacade is starting up after full shutdown. Start required count.
             for (int i = 0; i < Math.min(standbyInfos.size(), orchestrationProperties.common().standby().count()); i++) {
@@ -139,6 +143,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 }
             }
         }
+
+        postgresConfigurator.initialize();
 
         log.info("Orchestrator initialization completed!");
 
@@ -161,6 +167,26 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     public void switchover(UUID newMasterInstanceId) {
         if (orchestratorReady.get()) {
             switchover(orchestrationAdapter.get().getInstanceInfo(newMasterInstanceId));
+        }
+    }
+
+    @Override
+    public void changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationChangeException {
+        if (orchestratorReady.get() && clusterRestartInProgress.compareAndSet(false, true)) {
+            try {
+                //TODO persist values
+                boolean restartRequired = postgresConfigurator.changePostgresSettings(null, newSettingNamesAndValuesMap);
+            } catch (Exception e) {
+                throw e;
+            } finally {
+                clusterRestartInProgress.set(false);
+            }
+
+            clusterRestartInProgress.set(false);
+        } else if (clusterRestartInProgress.get()) {
+            throw new PostgresConfigurationChangeException("Currently restarting cluster due to settings changes. Try again later.");
+        } else {
+            throw new OrchestratorNotReadyException("Orchestrator not ready. Its initialization is still in progress or PgFacade is configured to work just like proxy.");
         }
     }
 
@@ -245,6 +271,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void checkAndFixStandbyCount(List<PostgresAdapterInstanceInfo> availableInstances) {
+        if (clusterRestartInProgress.get()) {
+            return;
+        }
+
         List<PostgresAdapterInstanceInfo> healthyOrStartingInstances = availableInstances
                 .stream()
                 .filter(info -> Boolean.FALSE.equals(info.getMaster()))
@@ -366,6 +396,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     .forEach(this::removeStandby);
 
             masterSwitchoverEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, true));
+            clusterRestartInProgress.set(false);
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");
             return true;
         } catch (Exception e) {
@@ -378,8 +409,15 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private PostgresAdapterInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean master) {
-        UUID instanceId = orchestrationAdapter.get().createNewPostgresInstance(PostgresInstanceCreationRequest.builder().master(master).postgresqlSettings(Map.of("shared_buffers", "256MB") //TODO constant for test
-        ).build());
+        UUID instanceId = orchestrationAdapter.get().createNewPostgresInstance(
+                PostgresInstanceCreationRequest
+                        .builder()
+                        .master(master)
+                        .postgresqlSettings(
+                                postgresProperties.postgresqlConfOverride()
+                        )
+                        .build()
+        );
 
         if (instanceId == null) {
             throw new InstanceCreationException("Can not create new Postgres instance.");

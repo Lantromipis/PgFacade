@@ -3,14 +3,14 @@ package com.lantromipis.orchestration.util;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
-import com.lantromipis.orchestration.constant.PostgresConstant;
-import org.apache.commons.lang3.StringUtils;
+import com.lantromipis.orchestration.constant.PostgresConstants;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.UUID;
 
 @ApplicationScoped
 public class PostgresUtils {
@@ -21,18 +21,45 @@ public class PostgresUtils {
     @Inject
     PostgresProperties postgresProperties;
 
+    public Connection getConnectionForPgFacadeUserToCurrentPrimary() throws SQLException {
+        return getConnectionForPgFacadeUser(
+                clusterRuntimeProperties.getMasterHostAddress(),
+                clusterRuntimeProperties.getMasterPort()
+        );
+    }
+
+    public Connection getConnectionToCurrentPrimary(String database, String username, String password) throws SQLException {
+        return getConnectionToDatabase(
+                clusterRuntimeProperties.getMasterHostAddress(),
+                clusterRuntimeProperties.getMasterPort(),
+                database,
+                username,
+                password
+        );
+    }
+
     public Connection getConnectionForPgFacadeUser(String address, int port) throws SQLException {
+        return getConnectionToDatabase(
+                address,
+                port,
+                postgresProperties.users().pgFacade().database(),
+                postgresProperties.users().pgFacade().username(),
+                postgresProperties.users().pgFacade().password()
+        );
+    }
+
+    public Connection getConnectionToDatabase(String address, int port, String database, String username, String password) throws SQLException {
         String jdbcUrl = "jdbc:postgresql://"
                 + address
                 + ":"
                 + port
                 + "/"
-                + postgresProperties.users().pgFacade().database();
+                + database;
 
         return DriverManager.getConnection(
                 jdbcUrl,
-                postgresProperties.users().pgFacade().username(),
-                postgresProperties.users().pgFacade().password()
+                username,
+                password
         );
     }
 
@@ -65,8 +92,12 @@ public class PostgresUtils {
                 CommandsConstants.PG_BASE_BACKUP_COMMAND_PASSWORD_KEY;
     }
 
-    public String generatePgHbaConfLine(PostgresConstant.PgHbaConfHost hostType, String database, String user, String address, PostgresConstant.PgHbaConfAuthMethod authMethod) {
-        String realAddress = PostgresConstant.PgHbaConfHost.LOCAL.equals(hostType) ? "" : address + " ";
+    public String createRandomTableName(String prefix) {
+        return prefix + Math.abs(UUID.randomUUID().getMostSignificantBits());
+    }
+
+    public String generatePgHbaConfLine(PostgresConstants.PgHbaConfHost hostType, String database, String user, String address, PostgresConstants.PgHbaConfAuthMethod authMethod) {
+        String realAddress = PostgresConstants.PgHbaConfHost.LOCAL.equals(hostType) ? "" : address + " ";
 
         return hostType.getValue() + " "
                 + database + " "

@@ -17,7 +17,7 @@ import java.util.Map;
 
 @ApplicationScoped
 @Slf4j
-public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
+public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
 
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
@@ -43,7 +43,7 @@ public class PgShadowUserAuthInfoProvider implements UserAuthInfoProvider {
                     postgresProperties.users().pgFacade().password()
             );
 
-            String pgShadowSelectSql = "select * from " + PostgresqlConfConstants.PG_AUTHID_VIEW_NAME;
+            String pgShadowSelectSql = "SELECT * FROM pg_authid WHERE rolcanlogin = true";
 
             Statement statement = connection.createStatement();
             ResultSet resultSet = statement.executeQuery(pgShadowSelectSql);

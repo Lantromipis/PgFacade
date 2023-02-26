@@ -18,7 +18,7 @@ import com.lantromipis.configuration.properties.stored.api.PersistedProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
-import com.lantromipis.orchestration.constant.PostgresConstant;
+import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
@@ -143,7 +143,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                 )
                         );
                 Map<String, String> standBySettings = new HashMap<>(request.getPostgresqlSettings());
-                standBySettings.put(PostgresConstant.PRIMARY_CONN_INFO_SETTING, postgresUtils.getPrimaryConnInfoSetting());
+                standBySettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
 
                 createContainerCmd.withCmd(createSettingsCmd(standBySettings));
             } else {
@@ -331,46 +331,46 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
         List<String> result = new ArrayList<>();
 
-        result.add(PostgresConstant.PG_HBA_CONF_START_LINE);
+        result.add(PostgresConstants.PG_HBA_CONF_START_LINE);
 
         //for superuser. For security reasons, default is local
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.LOCAL,
-                        PostgresConstant.PG_HBA_CONF_ALL,
+                        PostgresConstants.PgHbaConfHost.LOCAL,
+                        PostgresConstants.PG_HBA_CONF_ALL,
                         postgresProperties.users().superuser().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
         //for PgFacade user
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.HOST,
+                        PostgresConstants.PgHbaConfHost.HOST,
                         postgresProperties.users().pgFacade().database(),
                         postgresProperties.users().pgFacade().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
         //for healthcheck user
         //TODO add healthcheck user
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.LOCAL,
+                        PostgresConstants.PgHbaConfHost.LOCAL,
                         postgresProperties.users().pgFacade().database(),
                         postgresProperties.users().pgFacade().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
         //for replication user
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.HOST,
-                        PostgresConstant.PG_HBA_CONF_REPLICATION_DB,
+                        PostgresConstants.PgHbaConfHost.HOST,
+                        PostgresConstants.PG_HBA_CONF_REPLICATION_DB,
                         postgresProperties.users().replication().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
