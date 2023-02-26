@@ -1,13 +1,14 @@
-package com.lantromipis.configuration.properties.stored.impl;
+package com.lantromipis.configuration.properties.stored.impl.file;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.exception.ConfigurationInitializationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
-import com.lantromipis.configuration.exception.PropertyModifyException;
+import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
+import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
 import com.lantromipis.configuration.properties.predefined.StorageProperties;
-import com.lantromipis.configuration.properties.stored.api.PersistedProperties;
+import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 
@@ -19,11 +20,13 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
 @LookupIfProperty(name = "pg-facade.storage.adapter", stringValue = "file")
-public class FileBasedPersistedProperties implements PersistedProperties {
+public class PostgresFileBasedPersistedProperties implements PostgresPersistedProperties {
 
     @Inject
     StorageProperties storageProperties;
@@ -33,10 +36,13 @@ public class FileBasedPersistedProperties implements PersistedProperties {
     private final static String JSON_EXTENSION = ".json";
 
     private File postgresNodeInfoFile;
+    private File postgresSettingInfoFile;
     private ReentrantLock postgresNodeInfoFileModificationLock = new ReentrantLock();
+    private ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
 
     // @formatter:off
     private final static TypeReference<Map<UUID, PostgresPersistedNodeInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
+    private final static TypeReference<Map<String, PostgresPersistedSettingInfo>> POSTGRES_SETTING_INFO_TYPE_REF = new TypeReference<>() {};
     // @formatter:on
 
     @PostConstruct
@@ -46,6 +52,12 @@ public class FileBasedPersistedProperties implements PersistedProperties {
                 storageProperties.file().directoryPath()
                         + "/"
                         + storageProperties.file().postgresNodesInfoFilename() + JSON_EXTENSION
+        );
+
+        postgresNodeInfoFile = createConfigFileIfNeeded(
+                storageProperties.file().directoryPath()
+                        + "/"
+                        + storageProperties.file().postgresSettingsInfoFilename() + JSON_EXTENSION
         );
     }
 
@@ -75,7 +87,7 @@ public class FileBasedPersistedProperties implements PersistedProperties {
     }
 
     @Override
-    public void savePostgresNodeInfo(PostgresPersistedNodeInfo postgresPersistedNodeInfo) throws PropertyModifyException {
+    public void savePostgresNodeInfo(PostgresPersistedNodeInfo postgresPersistedNodeInfo) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
             Map<UUID, PostgresPersistedNodeInfo> savedMap;
@@ -89,14 +101,14 @@ public class FileBasedPersistedProperties implements PersistedProperties {
             savedMap.put(postgresPersistedNodeInfo.getInstanceId(), postgresPersistedNodeInfo);
             objectMapper.writeValue(postgresNodeInfoFile, savedMap);
         } catch (Exception e) {
-            throw new PropertyModifyException("Error while saving nodes info to file", e);
+            throw new PropertyModificationException("Error while saving nodes info to file", e);
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
         }
     }
 
     @Override
-    public PostgresPersistedNodeInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModifyException {
+    public PostgresPersistedNodeInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
             Map<UUID, PostgresPersistedNodeInfo> savedMap;
@@ -114,9 +126,67 @@ public class FileBasedPersistedProperties implements PersistedProperties {
 
             return ret;
         } catch (Exception e) {
-            throw new PropertyModifyException("Error while saving nodes info to file", e);
+            throw new PropertyModificationException("Error while saving nodes info to file", e);
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public List<PostgresPersistedSettingInfo> getPostgresSettingInfos() throws PropertyReadException {
+        try {
+            postgresSettingInfoFileModificationLock.lock();
+            if (postgresSettingInfoFile.length() > 0) {
+                return new ArrayList<>(objectMapper.readValue(postgresSettingInfoFile, POSTGRES_SETTING_INFO_TYPE_REF).values());
+            } else {
+                return Collections.emptyList();
+            }
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading settings info from file", e);
+        } finally {
+            postgresSettingInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public void savePostgresSettingsInfos(List<PostgresPersistedSettingInfo> persistedSettingsInfos) throws PropertyModificationException {
+        try {
+            postgresSettingInfoFileModificationLock.lock();
+            Map<String, PostgresPersistedSettingInfo> savedMap;
+
+            if (postgresSettingInfoFile.length() > 0) {
+                savedMap = objectMapper.readValue(postgresSettingInfoFile, POSTGRES_SETTING_INFO_TYPE_REF);
+            } else {
+                savedMap = new HashMap<>();
+            }
+
+            savedMap.putAll(persistedSettingsInfos.stream().collect(Collectors.toMap(PostgresPersistedSettingInfo::getName, Function.identity())));
+            objectMapper.writeValue(postgresSettingInfoFile, savedMap);
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading settings info from file", e);
+        } finally {
+            postgresSettingInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public void deletePostgresSettingsInfos(List<String> settingsNames) throws PropertyModificationException {
+        try {
+            postgresSettingInfoFileModificationLock.lock();
+            Map<String, PostgresPersistedSettingInfo> savedMap;
+
+            if (postgresSettingInfoFile.length() > 0) {
+                savedMap = objectMapper.readValue(postgresSettingInfoFile, POSTGRES_SETTING_INFO_TYPE_REF);
+            } else {
+                savedMap = new HashMap<>();
+            }
+
+            settingsNames.forEach(savedMap::remove);
+            objectMapper.writeValue(postgresSettingInfoFile, savedMap);
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading settings info from file", e);
+        } finally {
+            postgresSettingInfoFileModificationLock.unlock();
         }
     }
 
@@ -134,6 +204,8 @@ public class FileBasedPersistedProperties implements PersistedProperties {
             }
 
             return file;
+        } catch (ConfigurationInitializationException configurationInitializationException) {
+            throw configurationInitializationException;
         } catch (Exception e) {
             throw new ConfigurationInitializationException("Can not initialize persisted properties for FILE adapter", e);
         }

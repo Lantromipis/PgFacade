@@ -14,7 +14,7 @@ import com.github.dockerjava.transport.DockerHttpClient;
 import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.configuration.properties.stored.api.PersistedProperties;
+import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
@@ -57,8 +57,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     PostgresUtils postgresUtils;
 
     @Inject
-    PersistedProperties persistedProperties;
+    PostgresPersistedProperties persistedProperties;
 
+    //TODO add timeouts for client
     private DockerClient dockerClient;
 
     public void initialize() {
@@ -220,6 +221,23 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             return true;
         } catch (Exception e) {
             log.error("Error stopping Postgres instance", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean restartPostgresInstance(UUID instanceId) {
+        String containerId = instanceIdToContainerId(instanceId);
+
+        if (containerId == null) {
+            return false;
+        }
+
+        try {
+            dockerClient.restartContainerCmd(containerId).exec();
+            return true;
+        } catch (Exception e) {
+            log.error("Error restarting Postgres instance", e);
             return false;
         }
     }

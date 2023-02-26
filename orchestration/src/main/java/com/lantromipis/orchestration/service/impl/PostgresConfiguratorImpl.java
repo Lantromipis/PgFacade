@@ -1,5 +1,6 @@
 package com.lantromipis.orchestration.service.impl;
 
+import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -7,6 +8,8 @@ import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
+import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
+import com.lantromipis.orchestration.model.PgSettingsTableRow;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +20,6 @@ import javax.inject.Inject;
 import java.sql.*;
 import java.util.*;
 import java.util.regex.Matcher;
-import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -35,27 +37,26 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
-    private Map<String, String> settingNameAndContextMap = new HashMap<>();
+    @Inject
+    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
     @Override
     public void initialize() {
         try {
-            Connection connection = postgresUtils.getConnectionForPgFacadeUserToCurrentPrimary();
+            Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary();
             ResultSet pgSettingsResultSet = connection.createStatement().executeQuery("SELECT name, setting, context FROM pg_settings");
 
+            //setting connection limit
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
-                settingNameAndContextMap.put(
-                        settingName,
-                        pgSettingsResultSet.getString("context")
-                );
-
                 if (PostgresConstants.MAX_CONNECTIONS_SETTING_NAME.equals(settingName)) {
                     clusterRuntimeProperties.setMaxPostgresConnections(
                             Integer.parseInt(pgSettingsResultSet.getString("setting")) - PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT
                     );
+                    break;
                 }
             }
+            connection.close();
         } catch (Exception e) {
             log.error("Error during configurator initialization.", e);
         }
@@ -161,39 +162,64 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     @Override
-    public boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationChangeException {
-        //checking if trying to change forbidden settings
-        for (String forbiddenSettingName : PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES) {
-            if (newSettingNamesAndValuesMap.containsKey(forbiddenSettingName)) {
-                throw new PostgresConfigurationChangeException("Unable to change setting '" + forbiddenSettingName + "' because it is managed by PgFacade.");
-            }
-        }
+    public boolean validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck) throws PostgresConfigurationCheckException {
+        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
 
-        // checking if max_connections is lower than needed
-        if (newSettingNamesAndValuesMap.containsKey(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME)) {
-            int maxConnectionsSettingValue = Integer.parseInt(newSettingNamesAndValuesMap.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME));
-            if (maxConnectionsSettingValue <= PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT) {
-                throw new PostgresConfigurationChangeException("'max_connections' settings must be greater than " + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT + " due to builtin configuration value.");
+            //check for nulls
+            for (var entry : settingsToCheck.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    throw new PostgresConfigurationCheckException("Nor key or value of setting can be null.");
+                }
             }
-        }
 
-        boolean restartRequired = false;
+            //checking if trying to change forbidden settings
+            for (String forbiddenSettingName : PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES) {
+                if (settingsToCheck.containsKey(forbiddenSettingName)) {
+                    throw new PostgresConfigurationChangeException("Unable to change setting '" + forbiddenSettingName + "' because it is managed by PgFacade.");
+                }
+            }
 
-        for (String settingName : newSettingNamesAndValuesMap.keySet()) {
-            String settingContext = settingNameAndContextMap.get(settingName);
-            if (settingContext == null) {
-                throw new PostgresConfigurationChangeException("Unknown setting '" + settingName + "' provided. Can not find it in pg_settings table.");
+            // checking if max_connections is lower than needed
+            if (settingsToCheck.containsKey(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME)) {
+                int maxConnectionsSettingValue = Integer.parseInt(settingsToCheck.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME));
+                if (maxConnectionsSettingValue <= PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT) {
+                    throw new PostgresConfigurationChangeException("'max_connections' settings must be greater than " + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT + " due to builtin configuration value.");
+                }
             }
-            if (PostgresConstants.UNMODIFIABLE_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
-                throw new PostgresConfigurationChangeException("Unable to change setting '" + settingName + "'. This setting is immutable.");
-            }
-            if (PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
-                restartRequired = true;
-            }
-        }
 
-        try (Connection connection = postgresUtils.getConnectionForPgFacadeUserToCurrentPrimary()) {
+            boolean restartRequired = false;
+
             //TODO add check for types using vartype and enumvals columns
+            Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
+
+            for (String settingName : settingsToCheck.keySet()) {
+                String settingContext = Optional.ofNullable(settingNameAndContextMap.get(settingName)).map(PgSettingsTableRow::getContext).orElse(null);
+                if (settingContext == null) {
+                    throw new PostgresConfigurationChangeException("Unknown setting '" + settingName + "' provided. Can not find it in pg_settings table.");
+                }
+                if (PostgresConstants.UNMODIFIABLE_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
+                    throw new PostgresConfigurationChangeException("Unable to change setting '" + settingName + "'. This setting is immutable.");
+                }
+                if (PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
+                    restartRequired = true;
+                }
+            }
+
+            return restartRequired;
+
+        } catch (PostgresConfigurationCheckException postgresConfigurationCheckException) {
+            throw postgresConfigurationCheckException;
+        } catch (Exception e) {
+            throw new PostgresConfigurationCheckException("Unexpected error occurred while trying to check new Postgres settings. ", e);
+        }
+    }
+
+    @Override
+    public boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
+        boolean restartRequired = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
+
+        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+            Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
 
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
 
@@ -202,7 +228,9 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             Map<String, String> newConfSettingsMap = new HashMap<>();
             for (String settingLine : oldConfLines) {
                 Matcher settingLineMatcher = PostgresConstants.CONF_FILE_LINE_PATTERN.matcher(settingLine.replaceAll("\\s+", ""));
-                settingLineMatcher.matches();
+                if (!settingLineMatcher.matches()) {
+                    throw new PostgresConfigurationChangeException("Corrupted config file.");
+                }
                 newConfSettingsMap.put(settingLineMatcher.group(1), settingLineMatcher.group(2));
             }
 
@@ -226,7 +254,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             List<String> errors = new ArrayList<>();
 
             while (checkSettingResultSet.next()) {
-                String settingsContext = settingNameAndContextMap.get(checkSettingResultSet.getString("name"));
+                String settingsContext = Optional.ofNullable(settingNameAndContextMap.get(checkSettingResultSet.getString("name")))
+                        .map(PgSettingsTableRow::getContext)
+                        .orElse(null);
+
                 if (settingsContext == null) {
                     errors.add("Can not identify error. Check parameters names.");
                 }
@@ -261,6 +292,28 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
         } catch (Exception e) {
             throw new PostgresConfigurationChangeException("Unexpected error occurred while trying to apply new Postgres settings. ", e);
         }
+    }
+
+    private Map<String, PgSettingsTableRow> getPgSettingsMap(Connection connection) throws SQLException {
+        ResultSet resultSet = connection.createStatement().executeQuery("SELECT * FROM pg_settings");
+
+        Map<String, PgSettingsTableRow> ret = new HashMap<>();
+        while (resultSet.next()) {
+            ret.put(
+                    resultSet.getString("name"),
+                    PgSettingsTableRow
+                            .builder()
+                            .name(resultSet.getString("name"))
+                            .value(resultSet.getString("setting"))
+                            .unit(resultSet.getString("unit"))
+                            .vartype(resultSet.getString("vartype"))
+                            .enumvals(resultSet.getString("enumvals"))
+                            .context(resultSet.getString("context"))
+                            .build()
+            );
+        }
+
+        return ret;
     }
 
     private void reloadConf(Connection connection) throws SQLException {

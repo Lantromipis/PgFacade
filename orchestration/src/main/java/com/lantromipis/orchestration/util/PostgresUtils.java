@@ -21,17 +21,10 @@ public class PostgresUtils {
     @Inject
     PostgresProperties postgresProperties;
 
-    public Connection getConnectionForPgFacadeUserToCurrentPrimary() throws SQLException {
-        return getConnectionForPgFacadeUser(
-                clusterRuntimeProperties.getMasterHostAddress(),
-                clusterRuntimeProperties.getMasterPort()
-        );
-    }
-
     public Connection getConnectionToCurrentPrimary(String database, String username, String password) throws SQLException {
         return getConnectionToDatabase(
-                clusterRuntimeProperties.getMasterHostAddress(),
-                clusterRuntimeProperties.getMasterPort(),
+                clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress(),
+                clusterRuntimeProperties.getPrimaryInstanceInfo().getPort(),
                 database,
                 username,
                 password
@@ -72,8 +65,9 @@ public class PostgresUtils {
             database = "*";
         }
 
-        return clusterRuntimeProperties.getMasterHostAddress() + ":" +
-                clusterRuntimeProperties.getMasterPort() + ":" +
+        //TODO use subnet!!!
+        return clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress() + ":" +
+                clusterRuntimeProperties.getPrimaryInstanceInfo().getPort() + ":" +
                 database + ":" +
                 userCredentialsProperties.username() + ":" +
                 userCredentialsProperties.password();
@@ -85,8 +79,8 @@ public class PostgresUtils {
 
     public String createPgBaseBackupCommand(String backupPath) {
         return CommandsConstants.PG_BASE_BACKUP_COMMAND + " " +
-                CommandsConstants.PG_BASE_BACKUP_COMMAND_HOST_KEY + " " + clusterRuntimeProperties.getMasterHostAddress() + " " +
-                CommandsConstants.PG_BASE_BACKUP_COMMAND_PORT_KEY + " " + clusterRuntimeProperties.getMasterPort() + " " +
+                CommandsConstants.PG_BASE_BACKUP_COMMAND_HOST_KEY + " " + clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress() + " " +
+                CommandsConstants.PG_BASE_BACKUP_COMMAND_PORT_KEY + " " + clusterRuntimeProperties.getPrimaryInstanceInfo().getPort() + " " +
                 CommandsConstants.PG_BASE_BACKUP_COMMAND_USERNAME_KEY + " " + postgresProperties.users().replication().username() + " " +
                 CommandsConstants.PG_BASE_BACKUP_COMMAND_TARGET_DIR_KEY + " " + backupPath + " " +
                 CommandsConstants.PG_BASE_BACKUP_COMMAND_PASSWORD_KEY;
@@ -109,8 +103,8 @@ public class PostgresUtils {
     public String getPrimaryConnInfoSetting() {
         return String.format(
                 "host=%s port=%d user=%s password=%s",
-                clusterRuntimeProperties.getMasterHostAddress(),
-                clusterRuntimeProperties.getMasterPort(),
+                clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress(),
+                clusterRuntimeProperties.getPrimaryInstanceInfo().getPort(),
                 postgresProperties.users().replication().username(),
                 postgresProperties.users().replication().password()
         );

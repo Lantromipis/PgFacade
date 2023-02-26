@@ -1,6 +1,6 @@
 package com.lantromipis.rest.service.impl;
 
-import com.lantromipis.configuration.producers.RuntimePrimaryConnectionProducer;
+import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.rest.constant.PostgresConstants;
 import com.lantromipis.rest.exception.GeneralRequestProcessingException;
@@ -24,14 +24,14 @@ import java.util.stream.Collectors;
 public class PostgresManagementServiceImpl implements PostgresManagementService {
 
     @Inject
-    RuntimePrimaryConnectionProducer runtimePrimaryConnectionProducer;
+    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
     @Inject
     PostgresOrchestrator postgresOrchestrator;
 
     @Override
     public PostgresSettingsResponseDto getCurrentSettings() {
-        try (Connection primaryConnection = runtimePrimaryConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+        try (Connection primaryConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
             return getCurrentSettings(primaryConnection);
         } catch (SQLException sqlException) {
             throw new GeneralRequestProcessingException("Error while executing SQL", sqlException);
@@ -41,7 +41,7 @@ public class PostgresManagementServiceImpl implements PostgresManagementService 
     @Override
     public PostgresSettingsResponseDto patchSettings(PatchPostgresSettingsRequestDto requestDto) {
         //TODO use everywhere runtimePrimaryConnectionProducer
-        try (Connection primaryConnection = runtimePrimaryConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+        try (Connection primaryConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
             Map<String, String> mapOfSettings = requestDto.getSettingsToPatch()
                     .stream()
                     .collect(Collectors.toMap(PostgresSettingValueDto::getName, PostgresSettingValueDto::getValue));

@@ -1,8 +1,7 @@
 package com.lantromipis.usermanagement.provider.impl;
 
-import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
+import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -20,7 +19,7 @@ import java.util.Map;
 public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
 
     @Inject
-    ClusterRuntimeProperties clusterRuntimeProperties;
+    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
     @Inject
     PostgresProperties postgresProperties;
@@ -30,18 +29,7 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
     public void initialize() {
         log.info("Initializing database users auth info using custom pg_authid table view.");
         try {
-            String jdbcUrl = "jdbc:postgresql://"
-                    + clusterRuntimeProperties.getMasterHostAddress()
-                    + ":"
-                    + clusterRuntimeProperties.getMasterPort()
-                    + "/"
-                    + postgresProperties.users().pgFacade().database();
-
-            Connection connection = DriverManager.getConnection(
-                    jdbcUrl,
-                    postgresProperties.users().pgFacade().username(),
-                    postgresProperties.users().pgFacade().password()
-            );
+            Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary();
 
             String pgShadowSelectSql = "SELECT * FROM pg_authid WHERE rolcanlogin = true";
 

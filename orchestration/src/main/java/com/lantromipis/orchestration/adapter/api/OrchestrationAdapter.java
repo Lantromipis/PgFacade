@@ -17,6 +17,8 @@ public interface OrchestrationAdapter {
 
     boolean stopPostgresInstance(UUID instanceId);
 
+    boolean restartPostgresInstance(UUID instanceId);
+
     PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId);
 
     List<PostgresAdapterInstanceInfo> getAvailablePostgresInstancesInfos();

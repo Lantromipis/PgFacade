@@ -1,6 +1,7 @@
 package com.lantromipis.orchestration.service.api;
 
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
+import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
 
 import java.util.Map;
 import java.util.UUID;
@@ -22,11 +23,21 @@ public interface PostgresConfigurator {
     void configureNewlyCreatedMaster();
 
     /**
+     * Method is used to validate settings and check if new settings require restart.
+     *
+     * @param settingsToCheck map of settings that will be checked. Key is setting name, value is setting value
+     * @return true if restart is needed, and false if not
+     * @throws PostgresConfigurationChangeException when some settings are invalid
+     */
+    boolean validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck) throws PostgresConfigurationCheckException;
+
+    /**
      * Method is used to change Postgres settings. It is an automated alternative to manually modifying postgresql.conf or calling ALTER SYSTEM.
      *
-     * @param newSettingNamesAndValuesMap new settings that will be applied
+     * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value
      * @return true if restart is needed, and false if not
+     * @throws PostgresConfigurationCheckException  when some settings are invalid
      * @throws PostgresConfigurationChangeException when something went wrong during settings update
      */
-    boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationChangeException;
+    boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException;
 }

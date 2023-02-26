@@ -15,9 +15,11 @@ pg-facade:
   storage:
     adapter: file
     file:
-      postgres-nodes-info-filename: postgres-nodes-info #wihtout extension
       directory-path: /var/pgfacade/stored #access should be granted to system user which will run PgFacade app
+      postgres-nodes-info-filename: postgres-nodes-info #wihtout extension
+      postgres-settings-info-filename: postgres-settings-info #wihtout extension
   orchestration:
+    adapter: docker
     common:
       postgres-startup-check:
         start-period: 2000 #millisecinds
@@ -29,7 +31,6 @@ pg-facade:
       standby:
         count: 1
         count-check-interval: PT1S
-    adapter: docker
     docker:
       docker-host: unix:///var/run/docker.sock
       postgres-network-name: pg-facade-postgres-network

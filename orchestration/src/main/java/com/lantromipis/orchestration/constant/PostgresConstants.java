@@ -27,7 +27,11 @@ public class PostgresConstants {
     public static final List<String> FORBIDDEN_TO_CHANGE_SETTINGS_NAMES = List.of(
             PRIMARY_CONN_INFO_SETTING_NAME,
             "wal_level",
-            "hot_standby"
+            "hot_standby",
+            "archive_command",
+            "archive_mode",
+            "archive_cleanup_command",
+            "archive_library"
     );
     public static final Set<String> UNMODIFIABLE_SETTINGS_CONTEXT_NAMES = Set.of("internal");
     public static final Set<String> RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES = Set.of("postmaster");
