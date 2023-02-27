@@ -1,5 +1,6 @@
 package com.lantromipis.orchestration.adapter.api;
 
+import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 
@@ -17,6 +18,8 @@ public interface OrchestrationAdapter {
 
     boolean stopPostgresInstance(UUID instanceId);
 
+    boolean restartPostgresInstance(UUID instanceId);
+
     PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId);
 
     List<PostgresAdapterInstanceInfo> getAvailablePostgresInstancesInfos();
@@ -24,6 +27,8 @@ public interface OrchestrationAdapter {
     boolean deletePostgresInstance(UUID instanceId, boolean force);
 
     void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId);
+
+    AdapterShellCommandExecutionResult executeShellCommandForInstance(UUID instanceId, String shellCommand);
 
     List<String> getRequiredHbaConfLines();
 }

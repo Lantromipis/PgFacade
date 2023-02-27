@@ -37,7 +37,7 @@ public class PostgresAdapterInstanceInfo {
      */
     private InstanceHealth health;
     /**
-     * True if this Instance is current Postgres master
+     * True if this Instance is current Postgres primary
      */
     private Boolean master;
 }

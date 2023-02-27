@@ -12,6 +12,8 @@ public interface StorageProperties {
         String directoryPath();
 
         String postgresNodesInfoFilename();
+
+        String postgresSettingsInfoFilename();
     }
 
     enum AdapterType {

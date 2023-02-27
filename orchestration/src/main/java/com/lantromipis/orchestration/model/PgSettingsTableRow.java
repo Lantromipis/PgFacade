@@ -5,14 +5,15 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
-
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PostgresInstanceCreationRequest {
-    private boolean primary;
-
-    Map<String, String> standbySettings;
+public class PgSettingsTableRow {
+    private String name;
+    private String value;
+    private String unit;
+    private String context;
+    private String vartype;
+    private String enumvals;
 }

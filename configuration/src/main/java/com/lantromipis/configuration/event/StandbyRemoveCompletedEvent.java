@@ -6,7 +6,7 @@ import lombok.Data;
 import java.util.UUID;
 
 /**
- * Event which is fired when switchover completed. StandbyRemoveStartedEvent must be fired before this event.
+ * Event which is fired when standby is removed. StandbyRemoveStartedEvent must be fired before this event.
  */
 @Data
 @AllArgsConstructor
@@ -20,11 +20,6 @@ public class StandbyRemoveCompletedEvent {
      * Instance id of standby.
      */
     private UUID instanceId;
-
-    /**
-     * IP or host name of standby.
-     */
-    private String address;
 
     /**
      * True if standby removed successfully.

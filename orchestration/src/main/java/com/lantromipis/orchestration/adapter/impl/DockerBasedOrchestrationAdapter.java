@@ -12,15 +12,17 @@ import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
 import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
+import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.configuration.properties.stored.api.PersistedProperties;
+import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
-import com.lantromipis.orchestration.constant.PostgresConstant;
+import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
+import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -57,8 +59,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     PostgresUtils postgresUtils;
 
     @Inject
-    PersistedProperties persistedProperties;
+    PostgresPersistedProperties persistedProperties;
 
+    //TODO add timeouts for client
     private DockerClient dockerClient;
 
     public void initialize() {
@@ -120,6 +123,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                     createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
                             )
                     )
+                    //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
                     .withHealthcheck(
                             new HealthCheck()
                                     .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().interval()))
@@ -129,8 +133,12 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                     .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgresHealthcheck().cmdShellCommand()))
                     );
 
-            if (!request.isMaster()) {
-                String volumeName = createVolumeWithPgBaseBackup(containerNamePostfix);
+            if (!request.isPrimary()) {
+                Map<String, String> postgresSettings = new HashMap<>(request.getStandbySettings());
+                postgresSettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
+
+                String volumeName = createVolumeWithPgBaseBackup(containerNamePostfix, postgresSettings);
+
                 if (volumeName == null) {
                     log.error("Unable to create stand-by because volume creation with backup failed.");
                     return null;
@@ -142,12 +150,6 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                                         new Volume(orchestrationProperties.docker().postgresImagePgDataDir())
                                 )
                         );
-                Map<String, String> standBySettings = new HashMap<>(request.getPostgresqlSettings());
-                standBySettings.put(PostgresConstant.PRIMARY_CONN_INFO_SETTING, postgresUtils.getPrimaryConnInfoSetting());
-
-                createContainerCmd.withCmd(createSettingsCmd(standBySettings));
-            } else {
-                createContainerCmd.withCmd(createSettingsCmd(request.getPostgresqlSettings()));
             }
 
             CreateContainerResponse createResponse = createContainerCmd.exec();
@@ -158,13 +160,13 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             persistedProperties.savePostgresNodeInfo(
                     PostgresPersistedNodeInfo
                             .builder()
-                            .master(request.isMaster())
+                            .master(request.isPrimary())
                             .instanceId(instanceId)
                             .adapterIdentifier(containerId)
                             .build()
             );
 
-            if (request.isMaster()) {
+            if (request.isPrimary()) {
                 log.info("Created container with master. Ready to start it.");
             } else {
                 log.info("Created container with stand-by. Ready to start it.");
@@ -220,6 +222,23 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             return true;
         } catch (Exception e) {
             log.error("Error stopping Postgres instance", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean restartPostgresInstance(UUID instanceId) {
+        String containerId = instanceIdToContainerId(instanceId);
+
+        if (containerId == null) {
+            return false;
+        }
+
+        try {
+            dockerClient.restartContainerCmd(containerId).exec();
+            return true;
+        } catch (Exception e) {
+            log.error("Error restarting Postgres instance", e);
             return false;
         }
     }
@@ -313,6 +332,53 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     }
 
     @Override
+    public AdapterShellCommandExecutionResult executeShellCommandForInstance(UUID instanceId, String shellCommand) {
+        String containerId = instanceIdToContainerId(instanceId);
+
+        if (containerId == null) {
+            return AdapterShellCommandExecutionResult
+                    .builder()
+                    .success(false)
+                    .build();
+        }
+
+        try {
+            ExecCreateCmdResponse backupExecCreateResponse = dockerClient.execCreateCmd(containerId)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .withCmd("/bin/sh", "-c", shellCommand)
+                    .exec();
+
+            ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
+            ByteArrayOutputStream stdErr = new ByteArrayOutputStream();
+
+            dockerClient.execStartCmd(backupExecCreateResponse.getId())
+                    .withDetach(false)
+                    .exec(new ExecStartResultCallback(stdOut, stdErr))
+                    .awaitCompletion();
+
+            AdapterShellCommandExecutionResult ret = AdapterShellCommandExecutionResult
+                    .builder()
+                    .success(true)
+                    .stderr(stdErr.toString())
+                    .stdout(stdOut.toString())
+                    .build();
+
+            stdErr.close();
+            stdOut.close();
+
+            return ret;
+
+        } catch (Exception e) {
+            log.error("Error while executing shell command in container ", e);
+            return AdapterShellCommandExecutionResult
+                    .builder()
+                    .success(false)
+                    .build();
+        }
+    }
+
+    @Override
     public List<String> getRequiredHbaConfLines() {
         List<Network> networks = dockerClient.listNetworksCmd()
                 .withNameFilter(orchestrationProperties.docker().postgresNetworkName())
@@ -331,46 +397,46 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
         List<String> result = new ArrayList<>();
 
-        result.add(PostgresConstant.PG_HBA_CONF_START_LINE);
+        result.add(PostgresConstants.PG_HBA_CONF_START_LINE);
 
         //for superuser. For security reasons, default is local
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.LOCAL,
-                        PostgresConstant.PG_HBA_CONF_ALL,
+                        PostgresConstants.PgHbaConfHost.LOCAL,
+                        PostgresConstants.PG_HBA_CONF_ALL,
                         postgresProperties.users().superuser().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
         //for PgFacade user
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.HOST,
+                        PostgresConstants.PgHbaConfHost.HOST,
                         postgresProperties.users().pgFacade().database(),
                         postgresProperties.users().pgFacade().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
         //for healthcheck user
         //TODO add healthcheck user
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.LOCAL,
+                        PostgresConstants.PgHbaConfHost.LOCAL,
                         postgresProperties.users().pgFacade().database(),
                         postgresProperties.users().pgFacade().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
         //for replication user
         result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstant.PgHbaConfHost.HOST,
-                        PostgresConstant.PG_HBA_CONF_REPLICATION_DB,
+                        PostgresConstants.PgHbaConfHost.HOST,
+                        PostgresConstants.PG_HBA_CONF_REPLICATION_DB,
                         postgresProperties.users().replication().username(),
                         postgresSubnet,
-                        PostgresConstant.PgHbaConfAuthMethod.SCRAM_SHA_256
+                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
                 )
         );
 
@@ -383,7 +449,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                 .orElse(null);
     }
 
-    private String createVolumeWithPgBaseBackup(String containerPostfix) {
+    private String createVolumeWithPgBaseBackup(String containerPostfix, Map<String, String> settings) {
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
@@ -409,9 +475,16 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
             dockerClient.startContainerCmd(tempCreateContainerResponse.getId()).exec();
 
+            List<String> settingsLines = new ArrayList<>();
+            for (var settingEntry : settings.entrySet()) {
+                settingsLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
+            }
+            String confFilePath = DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
+
             String commandToExecute = postgresUtils.getCommandToCreatePgPassFile(postgresProperties.users().replication())
                     + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
-                    + " ; touch " + DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/standby.signal";
+                    + " ; touch " + DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/standby.signal"
+                    + " ; echo \"" + String.join("\n", settingsLines) + "\" > " + confFilePath;
 
             log.info("Creating backup for standby. This will take some time...");
 
@@ -438,6 +511,9 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
             }
 
             log.info("Finished creating backup for standby.");
+
+            stdErr.close();
+            stdOut.close();
 
             dockerClient.stopContainerCmd(tempCreateContainerResponse.getId()).exec();
             dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).exec();
