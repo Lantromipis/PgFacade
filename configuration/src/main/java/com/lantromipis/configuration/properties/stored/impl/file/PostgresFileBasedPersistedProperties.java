@@ -54,7 +54,7 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
                         + storageProperties.file().postgresNodesInfoFilename() + JSON_EXTENSION
         );
 
-        postgresNodeInfoFile = createConfigFileIfNeeded(
+        postgresSettingInfoFile = createConfigFileIfNeeded(
                 storageProperties.file().directoryPath()
                         + "/"
                         + storageProperties.file().postgresSettingsInfoFilename() + JSON_EXTENSION

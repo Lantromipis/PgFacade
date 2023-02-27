@@ -31,14 +31,15 @@ public class PostgresConstants {
             "archive_command",
             "archive_mode",
             "archive_cleanup_command",
-            "archive_library"
+            "archive_library",
+            "primary_conninfo"
     );
     public static final Set<String> UNMODIFIABLE_SETTINGS_CONTEXT_NAMES = Set.of("internal");
     public static final Set<String> RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES = Set.of("postmaster");
 
     // Patterns and formats
     public static final String CONF_FILE_LINE_FORMAT = "%s = %s";
-    public static final Pattern CONF_FILE_LINE_PATTERN = Pattern.compile("(.*)=(.*)");
+    public static final Pattern CONF_FILE_LINE_PATTERN = Pattern.compile("(.*) *= *(.*)");
 
 
     // https://www.postgresql.org/docs/current/auth-pg-hba-conf.html

@@ -9,11 +9,14 @@ import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
+import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
+import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.PgSettingsTableRow;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -50,9 +53,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
                 if (PostgresConstants.MAX_CONNECTIONS_SETTING_NAME.equals(settingName)) {
-                    clusterRuntimeProperties.setMaxPostgresConnections(
-                            Integer.parseInt(pgSettingsResultSet.getString("setting")) - PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT
-                    );
+                    clusterRuntimeProperties.setMaxPostgresConnections(Integer.parseInt(pgSettingsResultSet.getString("setting")) - PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT);
                     break;
                 }
             }
@@ -66,62 +67,37 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     public void configureNewlyCreatedMaster() {
         log.info("Executing required start-up SQL statements on new master.");
         try {
-            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(
-                    postgresProperties.users().superuser().database(),
-                    postgresProperties.users().superuser().username(),
-                    postgresProperties.users().superuser().password()
-            );
+            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().superuser().database(), postgresProperties.users().superuser().username(), postgresProperties.users().superuser().password());
 
             PostgresProperties.UserProperties.UserCredentialsProperties pgFacadeUserProperties = postgresProperties.users().pgFacade();
 
             // create PgFacade user
-            superuserConnectionInSuperDB.createStatement()
-                    .executeUpdate("CREATE USER " + pgFacadeUserProperties.username()
-                            + " WITH ENCRYPTED PASSWORD '" + pgFacadeUserProperties.password() + "'");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("CREATE USER " + pgFacadeUserProperties.username() + " WITH ENCRYPTED PASSWORD '" + pgFacadeUserProperties.password() + "'");
 
             // create replication user
-            superuserConnectionInSuperDB.createStatement()
-                    .executeUpdate("CREATE ROLE " + postgresProperties.users().replication().username()
-                            + " WITH REPLICATION LOGIN ENCRYPTED PASSWORD '" + postgresProperties.users().replication().password() + "'");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("CREATE ROLE " + postgresProperties.users().replication().username() + " WITH REPLICATION LOGIN ENCRYPTED PASSWORD '" + postgresProperties.users().replication().password() + "'");
 
-            // grant some predefined roles to PgFacade user, so it will be possible to change files and read settings
-            grantRoleToUser(superuserConnectionInSuperDB, "pg_read_server_files", pgFacadeUserProperties.username());
-            grantRoleToUser(superuserConnectionInSuperDB, "pg_write_server_files", pgFacadeUserProperties.username());
+            // grant some predefined roles to PgFacade user
             grantRoleToUser(superuserConnectionInSuperDB, "pg_read_all_settings", pgFacadeUserProperties.username());
-
-            // grant execute on functions
-            grantExecuteOnFunction(superuserConnectionInSuperDB, "pg_stat_file(filename text, out size bigint, out access timestamp with time zone, out modification timestamp with time zone, out change timestamp with time zone, out creation timestamp with time zone, out isdir boolean)", pgFacadeUserProperties.username());
 
             // personal database for PgFacade user
             createDatabase(superuserConnectionInSuperDB, pgFacadeUserProperties.database(), pgFacadeUserProperties.username());
 
             // create custom PgFacade configuration file
-            replaceFileLines(superuserConnectionInSuperDB, getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB), new ArrayList<>());
+            replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB), new ArrayList<>());
 
             // include custom PgFacade configuration file to postgresql.conf
-            String confLineWithInclude = "include_if_exists ''" + getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB) + "''";
-            String postgresqlConfPath = getOriginalPostgresqlConfFilePath(superuserConnectionInSuperDB);
-            superuserConnectionInSuperDB.createStatement()
-                    .executeUpdate("CREATE TEMP TABLE tempConfInclude (tt_id serial PRIMARY KEY, line TEXT)");
-            superuserConnectionInSuperDB.createStatement()
-                    .execute(
-                            String.format(
-                                    "COPY tempConfInclude FROM PROGRAM 'echo \"%s\" >> %s'",
-                                    confLineWithInclude,
-                                    postgresqlConfPath
-                            )
-                    );
+            String confLineWithInclude = "include_if_exists = '" + getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB) + "'";
+            String postgresqlConfFilePath = getOriginalPostgresqlConfFilePath(superuserConnectionInSuperDB);
+
+            orchestrationAdapter.executeShellCommandForInstance(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), "echo \"" + confLineWithInclude + "\" >> " + postgresqlConfFilePath);
 
             // now superuser connection in its database is not needed.
             superuserConnectionInSuperDB.close();
 
             // changing database for superuser because we need to grant execute on some functions in PgFacade user database.
             // Otherwise, PgFacade user won't be able to call such functions from its database.
-            Connection superuserConnectionInPgFacadeDB = postgresUtils.getConnectionToCurrentPrimary(
-                    postgresProperties.users().pgFacade().database(),
-                    postgresProperties.users().superuser().username(),
-                    postgresProperties.users().superuser().password()
-            );
+            Connection superuserConnectionInPgFacadeDB = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().pgFacade().database(), postgresProperties.users().superuser().username(), postgresProperties.users().superuser().password());
 
             // grant execute on some functions.
             grantExecuteOnFunction(superuserConnectionInPgFacadeDB, "pg_promote", pgFacadeUserProperties.username());
@@ -129,25 +105,19 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             grantExecuteOnFunction(superuserConnectionInPgFacadeDB, "pg_reload_conf()", pgFacadeUserProperties.username());
 
             // grant select on pg_file_settings to PgFacade so it will be possible to validate settings
-            superuserConnectionInPgFacadeDB.createStatement()
-                    .executeUpdate("GRANT SELECT ON pg_file_settings TO " + pgFacadeUserProperties.username());
+            superuserConnectionInPgFacadeDB.createStatement().executeUpdate("GRANT SELECT ON pg_file_settings TO " + pgFacadeUserProperties.username());
 
             // PgFacade user needs access to pg_authid, so PgFacade will be able to check credentials automatically
-            superuserConnectionInPgFacadeDB.createStatement()
-                    .executeUpdate("GRANT SELECT ON TABLE pg_authid TO " + pgFacadeUserProperties.username());
+            superuserConnectionInPgFacadeDB.createStatement().executeUpdate("GRANT SELECT ON TABLE pg_authid TO " + pgFacadeUserProperties.username());
 
             // now superuser connection in PgFacade database is not needed.
             superuserConnectionInPgFacadeDB.close();
 
             // connection to PgFacade user database.
-            Connection pgfacadeUserConnection = postgresUtils.getConnectionToCurrentPrimary(
-                    postgresProperties.users().pgFacade().database(),
-                    postgresProperties.users().pgFacade().username(),
-                    postgresProperties.users().pgFacade().password()
-            );
+            Connection pgfacadeUserConnection = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().pgFacade().database(), postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password());
 
             // update pg_hba.conf
-            replaceFileLines(pgfacadeUserConnection, getPgHbaConfFilePath(pgfacadeUserConnection), orchestrationAdapter.getRequiredHbaConfLines());
+            replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), orchestrationAdapter.getRequiredHbaConfLines());
 
             reloadConf(pgfacadeUserConnection);
 
@@ -175,7 +145,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             //checking if trying to change forbidden settings
             for (String forbiddenSettingName : PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES) {
                 if (settingsToCheck.containsKey(forbiddenSettingName)) {
-                    throw new PostgresConfigurationChangeException("Unable to change setting '" + forbiddenSettingName + "' because it is managed by PgFacade.");
+                    throw new PostgresConfigurationCheckException("Unable to change setting '" + forbiddenSettingName + "' because it is managed by PgFacade.");
                 }
             }
 
@@ -183,7 +153,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             if (settingsToCheck.containsKey(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME)) {
                 int maxConnectionsSettingValue = Integer.parseInt(settingsToCheck.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME));
                 if (maxConnectionsSettingValue <= PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT) {
-                    throw new PostgresConfigurationChangeException("'max_connections' settings must be greater than " + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT + " due to builtin configuration value.");
+                    throw new PostgresConfigurationCheckException("'max_connections' settings must be greater than " + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT + " due to builtin configuration value.");
                 }
             }
 
@@ -195,10 +165,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             for (String settingName : settingsToCheck.keySet()) {
                 String settingContext = Optional.ofNullable(settingNameAndContextMap.get(settingName)).map(PgSettingsTableRow::getContext).orElse(null);
                 if (settingContext == null) {
-                    throw new PostgresConfigurationChangeException("Unknown setting '" + settingName + "' provided. Can not find it in pg_settings table.");
+                    throw new PostgresConfigurationCheckException("Unknown setting '" + settingName + "' provided. Can not find it in pg_settings table.");
                 }
                 if (PostgresConstants.UNMODIFIABLE_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
-                    throw new PostgresConfigurationChangeException("Unable to change setting '" + settingName + "'. This setting is immutable.");
+                    throw new PostgresConfigurationCheckException("Unable to change setting '" + settingName + "'. This setting is immutable.");
                 }
                 if (PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
                     restartRequired = true;
@@ -218,16 +188,16 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     public boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
         boolean restartRequired = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
 
-        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(instanceId)) {
             Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
 
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
 
-            List<String> oldConfLines = getFileLines(connection, filePath);
+            List<String> oldConfLines = getFileLines(instanceId, filePath);
 
             Map<String, String> newConfSettingsMap = new HashMap<>();
             for (String settingLine : oldConfLines) {
-                Matcher settingLineMatcher = PostgresConstants.CONF_FILE_LINE_PATTERN.matcher(settingLine.replaceAll("\\s+", ""));
+                Matcher settingLineMatcher = PostgresConstants.CONF_FILE_LINE_PATTERN.matcher(settingLine);
                 if (!settingLineMatcher.matches()) {
                     throw new PostgresConfigurationChangeException("Corrupted config file.");
                 }
@@ -238,25 +208,16 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
             List<String> newConfLines = new ArrayList<>();
             for (var settingEntry : newConfSettingsMap.entrySet()) {
-                newConfLines.add(
-                        String.format(
-                                PostgresConstants.CONF_FILE_LINE_FORMAT,
-                                settingEntry.getKey(),
-                                settingEntry.getValue()
-                        )
-                );
+                newConfLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
             }
 
-            replaceFileLines(connection, filePath, newConfLines);
-            ResultSet checkSettingResultSet = connection.createStatement()
-                    .executeQuery("SELECT * FROM pg_file_settings WHERE error NOTNULL AND sourcefile = '" + filePath + "'");
+            replaceFileLines(instanceId, filePath, newConfLines);
+            ResultSet checkSettingResultSet = connection.createStatement().executeQuery("SELECT * FROM pg_file_settings WHERE error NOTNULL AND sourcefile = '" + filePath + "'");
 
             List<String> errors = new ArrayList<>();
 
             while (checkSettingResultSet.next()) {
-                String settingsContext = Optional.ofNullable(settingNameAndContextMap.get(checkSettingResultSet.getString("name")))
-                        .map(PgSettingsTableRow::getContext)
-                        .orElse(null);
+                String settingsContext = Optional.ofNullable(settingNameAndContextMap.get(checkSettingResultSet.getString("name"))).map(PgSettingsTableRow::getContext).orElse(null);
 
                 if (settingsContext == null) {
                     errors.add("Can not identify error. Check parameters names.");
@@ -266,11 +227,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
                 // don't need to display them as real errors to user
                 if (!PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingsContext)) {
                     try {
-                        errors.add(
-                                "Parameter name: '" + checkSettingResultSet.getString("name") + "'." +
-                                        " Parameter value: '" + checkSettingResultSet.getString("setting") + "'." +
-                                        " Error: '" + checkSettingResultSet.getString("error") + "'"
-                        );
+                        errors.add("Parameter name: '" + checkSettingResultSet.getString("name") + "'." + " Parameter value: '" + checkSettingResultSet.getString("setting") + "'." + " Error: '" + checkSettingResultSet.getString("error") + "'");
                     } catch (Exception e) {
                         errors.add("Can not identify error. Check parameters names.");
                     }
@@ -278,7 +235,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             }
 
             if (CollectionUtils.isNotEmpty(errors)) {
-                replaceFileLines(connection, filePath, oldConfLines);
+                replaceFileLines(instanceId, filePath, oldConfLines);
                 String errorString = String.join("; \n", errors);
                 throw new PostgresConfigurationChangeException("Error while applying parameters. " + errorString);
             }
@@ -299,110 +256,74 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
         Map<String, PgSettingsTableRow> ret = new HashMap<>();
         while (resultSet.next()) {
-            ret.put(
-                    resultSet.getString("name"),
-                    PgSettingsTableRow
-                            .builder()
-                            .name(resultSet.getString("name"))
-                            .value(resultSet.getString("setting"))
-                            .unit(resultSet.getString("unit"))
-                            .vartype(resultSet.getString("vartype"))
-                            .enumvals(resultSet.getString("enumvals"))
-                            .context(resultSet.getString("context"))
-                            .build()
-            );
+            ret.put(resultSet.getString("name"), PgSettingsTableRow.builder().name(resultSet.getString("name")).value(resultSet.getString("setting")).unit(resultSet.getString("unit")).vartype(resultSet.getString("vartype")).enumvals(resultSet.getString("enumvals")).context(resultSet.getString("context")).build());
         }
 
         return ret;
     }
 
     private void reloadConf(Connection connection) throws SQLException {
-        connection.createStatement()
-                .execute("SELECT pg_reload_conf()");
+        connection.createStatement().execute("SELECT pg_reload_conf()");
     }
 
-    private List<String> getFileLines(Connection connection, String filePath) throws SQLException {
-        String tempTableName = postgresUtils.createRandomTableName("temp");
+    private List<String> getFileLines(UUID instanceId, String filePath) throws PostgresConfigurationReadException {
+        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = orchestrationAdapter.executeShellCommandForInstance(
+                instanceId,
+                "cat " + filePath
+        );
 
-        connection.createStatement()
-                .executeUpdate("CREATE TEMP TABLE " + tempTableName + " (line TEXT)");
-
-        connection.createStatement()
-                .execute("COPY " + tempTableName + " FROM '" + filePath + "'");
-
-        List<String> ret = new ArrayList<>();
-
-        ResultSet resultSet = connection.createStatement()
-                .executeQuery("SELECT * FROM " + tempTableName);
-
-        while (resultSet.next()) {
-            ret.add(resultSet.getString(1));
+        if (!adapterShellCommandExecutionResult.isSuccess() || StringUtils.isNotEmpty(adapterShellCommandExecutionResult.getStderr())) {
+            throw new PostgresConfigurationReadException("Unable to read Postgres settings file. Cause: " + adapterShellCommandExecutionResult.getStderr());
         }
 
-        connection.createStatement()
-                .executeUpdate("DROP TABLE " + tempTableName);
+        if (StringUtils.isEmpty(adapterShellCommandExecutionResult.getStdout())) {
+            return Collections.emptyList();
+        }
 
-        return ret;
+        return Arrays.asList(adapterShellCommandExecutionResult.getStdout().split("\n"));
     }
 
-    private void replaceFileLines(Connection connection, String filePath, List<String> newLines) throws SQLException {
-        String tempTableName = postgresUtils.createRandomTableName("temp");
+    private void replaceFileLines(UUID instanceId, String filePath, List<String> newLines) throws PostgresConfigurationChangeException {
+        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = orchestrationAdapter.executeShellCommandForInstance(
+                instanceId,
+                "echo \"" + String.join("\n", newLines) + "\" > " + filePath
+        );
 
-        connection.createStatement()
-                .executeUpdate("CREATE TEMP TABLE " + tempTableName + " (line TEXT)");
-
-        PreparedStatement preparedStatement = connection.prepareStatement("INSERT INTO " + tempTableName + " VALUES (?)");
-
-        for (String line : newLines) {
-            preparedStatement.setString(1, line);
-            preparedStatement.addBatch();
+        if (!adapterShellCommandExecutionResult.isSuccess() || StringUtils.isNotEmpty(adapterShellCommandExecutionResult.getStderr())) {
+            throw new PostgresConfigurationChangeException("Unable to change Postgres settings file. Cause: " + adapterShellCommandExecutionResult.getStderr());
         }
-
-        preparedStatement.executeBatch();
-
-        connection.createStatement()
-                .execute("COPY " + tempTableName + " TO '" + filePath + "'");
-
-        connection.createStatement()
-                .executeUpdate("DROP TABLE " + tempTableName);
     }
 
     private String getPgHbaConfFilePath(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement()
-                .executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.HBA_FILE_SETTING_NAME + "'");
+        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.HBA_FILE_SETTING_NAME + "'");
         resultSet.next();
 
         return resultSet.getString(1);
     }
 
     private String getPgFacadePostgresqlConfFilePath(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement()
-                .executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.DATA_DIRECTORY_SETTING_NAME + "'");
+        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.DATA_DIRECTORY_SETTING_NAME + "'");
         resultSet.next();
 
         return resultSet.getString(1) + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
     }
 
     private String getOriginalPostgresqlConfFilePath(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement()
-                .executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.CONFIG_FILE_SETTING_NAME + "'");
+        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.CONFIG_FILE_SETTING_NAME + "'");
         resultSet.next();
 
         return resultSet.getString(1);
     }
 
     private void createDatabase(Connection connection, String databaseName, String ownerUsername) throws SQLException {
-        connection.createStatement()
-                .executeUpdate("CREATE DATABASE " + databaseName + " WITH OWNER " + ownerUsername);
+        connection.createStatement().executeUpdate("CREATE DATABASE " + databaseName + " WITH OWNER " + ownerUsername);
     }
 
     private void grantRoleToUser(Connection connection, String role, String username) throws SQLException {
-        connection.createStatement()
-                .executeUpdate("GRANT " + role + " TO " + username);
+        connection.createStatement().executeUpdate("GRANT " + role + " TO " + username);
     }
 
     private void grantExecuteOnFunction(Connection connection, String function, String username) throws SQLException {
-        connection.createStatement()
-                .executeUpdate("GRANT EXECUTE ON FUNCTION " + function + " TO " + username);
+        connection.createStatement().executeUpdate("GRANT EXECUTE ON FUNCTION " + function + " TO " + username);
     }
 }

@@ -31,8 +31,34 @@ public class PostgresManagementServiceImpl implements PostgresManagementService 
 
     @Override
     public PostgresSettingsResponseDto getCurrentSettings() {
-        try (Connection primaryConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
-            return getCurrentSettings(primaryConnection);
+        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+            ResultSet resultSet = connection.createStatement().executeQuery("SELECT name, setting, unit, category, vartype, short_desc, context, enumvals FROM pg_settings");
+
+            List<PostgresSettingDescriptionDto> settingDescriptionDtos = new ArrayList<>();
+
+            while (resultSet.next()) {
+                settingDescriptionDtos.add(
+                        PostgresSettingDescriptionDto
+                                .builder()
+                                .category(resultSet.getString("category"))
+                                .description(resultSet.getString("short_desc"))
+                                .value(resultSet.getString("setting"))
+                                .unit(resultSet.getString("unit"))
+                                .enumValues(resultSet.getString("enumvals"))
+                                .type(resultSet.getString("vartype"))
+                                .name(resultSet.getString("name"))
+                                .context(resultSet.getString("context"))
+                                .build()
+                );
+            }
+
+            return PostgresSettingsResponseDto
+                    .builder()
+                    .importantNotes(PostgresConstants.IMPORTANT_NOTES)
+                    .settingContextDescriptions(PostgresConstants.SETTING_CONTEXT_DESCRIPTIONS)
+                    .currentSettings(settingDescriptionDtos)
+                    .build();
+
         } catch (SQLException sqlException) {
             throw new GeneralRequestProcessingException("Error while executing SQL", sqlException);
         }
@@ -40,46 +66,12 @@ public class PostgresManagementServiceImpl implements PostgresManagementService 
 
     @Override
     public PostgresSettingsResponseDto patchSettings(PatchPostgresSettingsRequestDto requestDto) {
-        //TODO use everywhere runtimePrimaryConnectionProducer
-        try (Connection primaryConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
-            Map<String, String> mapOfSettings = requestDto.getSettingsToPatch()
-                    .stream()
-                    .collect(Collectors.toMap(PostgresSettingValueDto::getName, PostgresSettingValueDto::getValue));
+        Map<String, String> mapOfSettings = requestDto.getSettingsToPatch()
+                .stream()
+                .collect(Collectors.toMap(PostgresSettingValueDto::getName, PostgresSettingValueDto::getValue));
 
-            postgresOrchestrator.changePostgresSettings(mapOfSettings);
+        postgresOrchestrator.changePostgresSettings(mapOfSettings);
 
-            return getCurrentSettings(primaryConnection);
-        } catch (SQLException sqlException) {
-            throw new GeneralRequestProcessingException("Error while executing SQL", sqlException);
-        }
-    }
-
-    private PostgresSettingsResponseDto getCurrentSettings(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("SELECT name, setting, unit, category, vartype, short_desc, context, enumvals FROM pg_settings");
-
-        List<PostgresSettingDescriptionDto> settingDescriptionDtos = new ArrayList<>();
-
-        while (resultSet.next()) {
-            settingDescriptionDtos.add(
-                    PostgresSettingDescriptionDto
-                            .builder()
-                            .category(resultSet.getString("category"))
-                            .description(resultSet.getString("short_desc"))
-                            .value(resultSet.getString("setting"))
-                            .unit(resultSet.getString("unit"))
-                            .enumValues(resultSet.getString("enumvals"))
-                            .type(resultSet.getString("vartype"))
-                            .name(resultSet.getString("name"))
-                            .context(resultSet.getString("context"))
-                            .build()
-            );
-        }
-
-        return PostgresSettingsResponseDto
-                .builder()
-                .importantNotes(PostgresConstants.IMPORTANT_NOTES)
-                .settingContextDescriptions(PostgresConstants.SETTING_CONTEXT_DESCRIPTIONS)
-                .currentSettings(settingDescriptionDtos)
-                .build();
+        return getCurrentSettings();
     }
 }

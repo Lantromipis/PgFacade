@@ -46,7 +46,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     OrchestrationProperties orchestrationProperties;
 
     @Inject
-    Event<MasterReadyEvent> masterReadyEvent;
+    Event<PrimaryReadyEvent> masterReadyEvent;
 
     @Inject
     Event<SwitchoverCompletedEvent> masterSwitchoverEvent;
@@ -125,6 +125,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             log.info("Found active Postgres primary. No actions needed.");
         }
 
+        addInstanceToRuntimeProperties(primaryInstanceInfo);
+
         log.info("Primary is up and running!");
 
         if (isNewDBSetup) {
@@ -132,7 +134,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         masterInstanceId = primaryInstanceInfo.getInstanceId();
-        masterReadyEvent.fire(new MasterReadyEvent());
+        masterReadyEvent.fire(new PrimaryReadyEvent());
 
         //standby section
         List<PostgresAdapterInstanceInfo> standbyInfos = orchestrationAdapter.get().getAvailablePostgresInstancesInfos()
@@ -241,7 +243,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     postgresConfigurator.changePostgresSettings(masterInstanceId, newSettingNamesAndValuesMap);
 
                     // switchover to apply new settings
-                    if (switchover(firstStandbyToRestartInstanceId)) {
+                    if (!switchover(firstStandbyToRestartInstanceId)) {
                         throw new PostgresConfigurationChangeException("Error during switchover. Settings not applied to primary. Try again.");
                     }
                 }
@@ -540,13 +542,15 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
-    private PostgresAdapterInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean master) throws InstanceCreationException, AwaitHealthyInstanceException {
+    private PostgresAdapterInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean primary) throws InstanceCreationException, AwaitHealthyInstanceException {
         UUID instanceId = orchestrationAdapter.get().createNewPostgresInstance(
                 PostgresInstanceCreationRequest
                         .builder()
-                        .master(master)
-                        .postgresqlSettings(
-                                postgresPersistedProperties.getPostgresSettingInfos()
+                        .primary(primary)
+                        .standbySettings(
+                                primary
+                                        ? null
+                                        : postgresPersistedProperties.getPostgresSettingInfos()
                                         .stream()
                                         .collect(Collectors.toMap(PostgresPersistedSettingInfo::getName, PostgresPersistedSettingInfo::getValue))
                         )

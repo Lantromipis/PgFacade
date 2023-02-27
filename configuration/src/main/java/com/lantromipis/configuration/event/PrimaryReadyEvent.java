@@ -1,4 +1,4 @@
 package com.lantromipis.configuration.event;
 
-public class MasterReadyEvent {
+public class PrimaryReadyEvent {
 }

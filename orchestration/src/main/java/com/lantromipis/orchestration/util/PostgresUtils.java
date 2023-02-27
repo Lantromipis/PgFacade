@@ -102,7 +102,7 @@ public class PostgresUtils {
 
     public String getPrimaryConnInfoSetting() {
         return String.format(
-                "host=%s port=%d user=%s password=%s",
+                "'host=%s port=%d user=%s password=%s'",
                 clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress(),
                 clusterRuntimeProperties.getPrimaryInstanceInfo().getPort(),
                 postgresProperties.users().replication().username(),

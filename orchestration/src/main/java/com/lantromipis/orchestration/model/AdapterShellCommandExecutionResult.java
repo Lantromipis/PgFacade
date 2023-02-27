@@ -5,14 +5,12 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
-
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PostgresInstanceCreationRequest {
-    private boolean primary;
-
-    Map<String, String> standbySettings;
+public class AdapterShellCommandExecutionResult {
+    boolean success;
+    private String stderr;
+    private String stdout;
 }
