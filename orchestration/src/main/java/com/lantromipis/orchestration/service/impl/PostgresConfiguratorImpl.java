@@ -188,6 +188,8 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     public boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
         boolean restartRequired = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
 
+        log.info("Changing settings for instance {}. Restart will be required: {}", instanceId, restartRequired);
+
         try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(instanceId)) {
             Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
 

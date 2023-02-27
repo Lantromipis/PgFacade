@@ -39,7 +39,7 @@ public class PostgresConstants {
 
     // Patterns and formats
     public static final String CONF_FILE_LINE_FORMAT = "%s = %s";
-    public static final Pattern CONF_FILE_LINE_PATTERN = Pattern.compile("(.*) *= *(.*)");
+    public static final Pattern CONF_FILE_LINE_PATTERN = Pattern.compile("^([^ ]*) *= *(.*)$");
 
 
     // https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
