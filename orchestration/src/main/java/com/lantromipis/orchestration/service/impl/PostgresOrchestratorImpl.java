@@ -3,6 +3,7 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.event.*;
 import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
+import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -13,6 +14,7 @@ import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.InstanceStatus;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -76,10 +78,13 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     PostgresUtils postgresUtils;
 
     @Inject
-    PostgresProperties postgresProperties;
+    ArchivingProperties archivingProperties;
 
     @Inject
     PostgresPersistedProperties postgresPersistedProperties;
+
+    @Inject
+    PostgresArchiver postgresArchiver;
 
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
@@ -162,6 +167,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .forEach(this::addInstanceToRuntimeProperties);
 
         postgresConfigurator.initialize();
+
+        if (archivingProperties.enabled()) {
+            postgresArchiver.initialize();
+        } else {
+            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
+        }
 
         log.info("Orchestrator initialization completed!");
 

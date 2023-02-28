@@ -18,6 +18,15 @@ pg-facade:
       directory-path: /var/pgfacade/stored #access should be granted to system user which will run PgFacade app
       postgres-nodes-info-filename: postgres-nodes-info #wihtout extension
       postgres-settings-info-filename: postgres-settings-info #wihtout extension
+  archiving:
+    enabled: true
+    adapter: s3
+    s3:
+      protocol: http
+      endpoint: http://minio:9000
+      access-key: XyWoumXpa0e5Pv8H
+      secret-key: wQxh5RfnLO0MN0nDv390nfo6piLvhStM
+      region: eu-central-1
   orchestration:
     adapter: docker
     common:

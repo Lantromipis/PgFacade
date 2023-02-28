@@ -36,6 +36,7 @@
         <postgresql.driver.version>42.5.0</postgresql.driver.version>
         <docker.client.version>3.2.14</docker.client.version>
         <docker.client.transport.version>3.2.3</docker.client.transport.version>
+        <aws.s3.sdk.version>1.11.163</aws.s3.sdk.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -88,6 +89,12 @@
                 <groupId>com.github.docker-java</groupId>
                 <artifactId>docker-java-transport-httpclient5</artifactId>
                 <version>${docker.client.transport.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk</artifactId>
+                <version>${aws.s3.sdk.version}</version>
             </dependency>
 
         </dependencies>
