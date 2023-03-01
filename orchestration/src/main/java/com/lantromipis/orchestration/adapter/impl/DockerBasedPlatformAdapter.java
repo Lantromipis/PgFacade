@@ -16,13 +16,13 @@ import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
-import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
-import com.lantromipis.orchestration.constant.CommandsConstants;
+import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
+import com.lantromipis.orchestration.model.BaseBackupAsInputStream;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -30,18 +30,20 @@ import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.io.input.ObservableInputStream;
+import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @ApplicationScoped
 @LookupIfProperty(name = "pg-facade.orchestration.adapter", stringValue = "docker")
-public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
+public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Inject
     OrchestrationProperties orchestrationProperties;
@@ -137,7 +139,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                 Map<String, String> postgresSettings = new HashMap<>(request.getStandbySettings());
                 postgresSettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
 
-                String volumeName = createVolumeWithPgBaseBackup(containerNamePostfix, postgresSettings);
+                String volumeName = createVolumeWithPgBaseBackupForStandby(containerNamePostfix, postgresSettings);
 
                 if (volumeName == null) {
                     log.error("Unable to create stand-by because volume creation with backup failed.");
@@ -332,7 +334,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
     }
 
     @Override
-    public AdapterShellCommandExecutionResult executeShellCommandForInstance(UUID instanceId, String shellCommand) {
+    public AdapterShellCommandExecutionResult executeShellCommandForInstance(UUID instanceId, String shellCommand, List<Long> okExitCodes) {
         String containerId = instanceIdToContainerId(instanceId);
 
         if (containerId == null) {
@@ -342,40 +344,7 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
                     .build();
         }
 
-        try {
-            ExecCreateCmdResponse backupExecCreateResponse = dockerClient.execCreateCmd(containerId)
-                    .withAttachStdout(true)
-                    .withAttachStderr(true)
-                    .withCmd("/bin/sh", "-c", shellCommand)
-                    .exec();
-
-            ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
-            ByteArrayOutputStream stdErr = new ByteArrayOutputStream();
-
-            dockerClient.execStartCmd(backupExecCreateResponse.getId())
-                    .withDetach(false)
-                    .exec(new ExecStartResultCallback(stdOut, stdErr))
-                    .awaitCompletion();
-
-            AdapterShellCommandExecutionResult ret = AdapterShellCommandExecutionResult
-                    .builder()
-                    .success(true)
-                    .stderr(stdErr.toString())
-                    .stdout(stdOut.toString())
-                    .build();
-
-            stdErr.close();
-            stdOut.close();
-
-            return ret;
-
-        } catch (Exception e) {
-            log.error("Error while executing shell command in container ", e);
-            return AdapterShellCommandExecutionResult
-                    .builder()
-                    .success(false)
-                    .build();
-        }
+        return executeCmdInContainer(containerId, shellCommand, okExitCodes);
     }
 
     @Override
@@ -443,13 +412,84 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
         return result;
     }
 
+    @Override
+    public BaseBackupAsInputStream createBaseBackupAndGetAsStream() {
+        OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+
+        CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
+                .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
+                .withHostConfig(
+                        HostConfig.newHostConfig()
+                                .withNetworkMode(dockerProperties.postgresNetworkName())
+                )
+                //we only need Postgres utils like pg_basebackup and don't want to start DB itself
+                .withEntrypoint("sleep", "infinity")
+                .exec();
+
+        String containerId = tempCreateContainerResponse.getId();
+        dockerClient.startContainerCmd(containerId).exec();
+
+        try {
+            String commandToExecute = postgresUtils.getCommandToCreatePgPassFile(postgresProperties.users().replication())
+                    + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH);
+
+            AdapterShellCommandExecutionResult baseBackupCommandExecutionResult = executeCmdInContainer(
+                    containerId,
+                    commandToExecute,
+                    List.of(0L)
+            );
+
+            if (!baseBackupCommandExecutionResult.isSuccess()) {
+                log.error("Failed to create backup as stream. Cause from CMD: {}", baseBackupCommandExecutionResult.getStderr());
+                dockerClient.stopContainerCmd(containerId).exec();
+                dockerClient.removeContainerCmd(containerId).exec();
+                return BaseBackupAsInputStream
+                        .builder()
+                        .success(false)
+                        .build();
+            }
+
+            ObservableInputStream ret = new ObservableInputStream(
+                    dockerClient.copyArchiveFromContainerCmd(
+                                    containerId,
+                                    DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH
+                            )
+                            .exec()
+            );
+
+            ret.add(new ObservableInputStream.Observer() {
+                @Override
+                public void closed() throws IOException {
+                    dockerClient.stopContainerCmd(containerId).exec();
+                    dockerClient.removeContainerCmd(containerId).exec();
+                    super.closed();
+                }
+            });
+
+            return BaseBackupAsInputStream
+                    .builder()
+                    .success(true)
+                    .stream(ret)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Error creating backup as stream ", e);
+            dockerClient.stopContainerCmd(containerId).exec();
+            dockerClient.removeContainerCmd(containerId).exec();
+            return BaseBackupAsInputStream
+                    .builder()
+                    .success(false)
+                    .build();
+        }
+    }
+
     private String instanceIdToContainerId(UUID instanceId) {
         return Optional.ofNullable(persistedProperties.getPostgresNodeInfo(instanceId))
                 .map(PostgresPersistedNodeInfo::getAdapterIdentifier)
                 .orElse(null);
     }
 
-    private String createVolumeWithPgBaseBackup(String containerPostfix, Map<String, String> settings) {
+    private String createVolumeWithPgBaseBackupForStandby(String containerPostfix, Map<String, String> settings) {
         try {
             OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
@@ -488,13 +528,42 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
             log.info("Creating backup for standby. This will take some time...");
 
-            ExecCreateCmdResponse backupExecCreateResponse = dockerClient.execCreateCmd(tempCreateContainerResponse.getId())
+            AdapterShellCommandExecutionResult commandExecutionResult = executeCmdInContainer(
+                    tempCreateContainerResponse.getId(),
+                    commandToExecute,
+                    List.of(0L)
+            );
+
+            if (!commandExecutionResult.isSuccess()) {
+                log.error("Error while creating backup. Message from CMD: {}", commandExecutionResult.getStderr());
+                return null;
+            }
+
+            log.info("Finished creating backup for standby.");
+
+            dockerClient.stopContainerCmd(tempCreateContainerResponse.getId()).exec();
+            dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).exec();
+
+            return createVolumeResponse.getName();
+
+        } catch (Exception e) {
+            log.error("Error while creating volume with backup.", e);
+            return null;
+        }
+    }
+
+    private String createEnvValueForRequest(String varName, String value) {
+        return varName + "=" + value;
+    }
+
+    private AdapterShellCommandExecutionResult executeCmdInContainer(String containerId, String shellCommand, List<Long> okExitCodes) {
+        try {
+            ExecCreateCmdResponse backupExecCreateResponse = dockerClient.execCreateCmd(containerId)
                     .withAttachStdout(true)
                     .withAttachStderr(true)
-                    .withCmd("/bin/sh", "-c", commandToExecute)
+                    .withCmd("/bin/sh", "-c", shellCommand)
                     .exec();
 
-            //a little hack because of bug in docker-java lib. Attaching stdout will make this call synchronous
             ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
             ByteArrayOutputStream stdErr = new ByteArrayOutputStream();
 
@@ -505,49 +574,31 @@ public class DockerBasedOrchestrationAdapter implements OrchestrationAdapter {
 
             InspectExecResponse inspectBackupExecResponse = dockerClient.inspectExecCmd(backupExecCreateResponse.getId()).exec();
 
-            if (inspectBackupExecResponse.getExitCodeLong() != 0) {
-                log.error("Error while creating backup. Message from CMD: {}", stdErr);
-                return null;
+            boolean success = false;
+
+            if (CollectionUtils.isNotEmpty(okExitCodes)) {
+                success = okExitCodes.contains(inspectBackupExecResponse.getExitCodeLong());
+            } else {
+                success = true;
             }
 
-            log.info("Finished creating backup for standby.");
+            AdapterShellCommandExecutionResult ret = AdapterShellCommandExecutionResult
+                    .builder()
+                    .success(success)
+                    .stderr(stdErr.toString())
+                    .stdout(stdOut.toString())
+                    .build();
 
             stdErr.close();
             stdOut.close();
 
-            dockerClient.stopContainerCmd(tempCreateContainerResponse.getId()).exec();
-            dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).exec();
-
-            return createVolumeResponse.getName();
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Interrupted while creating volume with backup.", e);
-            return null;
+            return ret;
         } catch (Exception e) {
-            log.error("Error while creating volume with backup.", e);
-            return null;
+            log.error("Error while executing shell command in Docker container ", e);
+            return AdapterShellCommandExecutionResult
+                    .builder()
+                    .success(false)
+                    .build();
         }
-    }
-
-    private List<String> createSettingsCmd(Map<String, String> settings) {
-        if (MapUtils.isEmpty(settings)) {
-            return Collections.emptyList();
-        }
-
-        List<String> ret = new LinkedList<>();
-
-        ret.add(CommandsConstants.POSTGRES_COMMAND);
-
-        for (var setting : settings.entrySet()) {
-            ret.add(CommandsConstants.POSTGRES_COMMAND_PARAMETER_KEY);
-            ret.add(setting.getKey() + "=" + setting.getValue());
-        }
-
-        return ret;
-    }
-
-    private String createEnvValueForRequest(String varName, String value) {
-        return varName + "=" + value;
     }
 }

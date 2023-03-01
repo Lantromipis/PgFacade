@@ -4,7 +4,7 @@ import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
+import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
@@ -32,7 +32,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     PostgresProperties postgresProperties;
 
     @Inject
-    OrchestrationAdapter orchestrationAdapter;
+    PlatformAdapter platformAdapter;
 
     @Inject
     PostgresUtils postgresUtils;
@@ -90,7 +90,11 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             String confLineWithInclude = "include_if_exists = '" + getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB) + "'";
             String postgresqlConfFilePath = getOriginalPostgresqlConfFilePath(superuserConnectionInSuperDB);
 
-            orchestrationAdapter.executeShellCommandForInstance(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), "echo \"" + confLineWithInclude + "\" >> " + postgresqlConfFilePath);
+            platformAdapter.executeShellCommandForInstance(
+                    clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(),
+                    "echo \"" + confLineWithInclude + "\" >> " + postgresqlConfFilePath,
+                    Collections.emptyList()
+            );
 
             // now superuser connection in its database is not needed.
             superuserConnectionInSuperDB.close();
@@ -117,7 +121,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             Connection pgfacadeUserConnection = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().pgFacade().database(), postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password());
 
             // update pg_hba.conf
-            replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), orchestrationAdapter.getRequiredHbaConfLines());
+            replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), platformAdapter.getRequiredHbaConfLines());
 
             reloadConf(pgfacadeUserConnection);
 
@@ -269,9 +273,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     private List<String> getFileLines(UUID instanceId, String filePath) throws PostgresConfigurationReadException {
-        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = orchestrationAdapter.executeShellCommandForInstance(
+        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = platformAdapter.executeShellCommandForInstance(
                 instanceId,
-                "cat " + filePath
+                "cat " + filePath,
+                Collections.emptyList()
         );
 
         if (!adapterShellCommandExecutionResult.isSuccess() || StringUtils.isNotEmpty(adapterShellCommandExecutionResult.getStderr())) {
@@ -286,9 +291,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     private void replaceFileLines(UUID instanceId, String filePath, List<String> newLines) throws PostgresConfigurationChangeException {
-        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = orchestrationAdapter.executeShellCommandForInstance(
+        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = platformAdapter.executeShellCommandForInstance(
                 instanceId,
-                "echo \"" + String.join("\n", newLines) + "\" > " + filePath
+                "echo \"" + String.join("\n", newLines) + "\" > " + filePath,
+                Collections.emptyList()
         );
 
         if (!adapterShellCommandExecutionResult.isSuccess() || StringUtils.isNotEmpty(adapterShellCommandExecutionResult.getStderr())) {

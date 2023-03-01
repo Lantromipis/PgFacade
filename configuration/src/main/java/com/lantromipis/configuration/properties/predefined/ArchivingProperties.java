@@ -22,6 +22,10 @@ public interface ArchivingProperties {
         String secretKey();
 
         String region();
+
+        String bucket();
+
+        int multipartUploadPartSizeMb();
     }
 
     enum AdapterType {

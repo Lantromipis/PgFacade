@@ -5,10 +5,9 @@ import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
-import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
-import com.lantromipis.orchestration.adapter.api.OrchestrationAdapter;
+import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
 import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.InstanceStatus;
@@ -39,7 +38,7 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
-    Instance<OrchestrationAdapter> orchestrationAdapter;
+    Instance<PlatformAdapter> orchestrationAdapter;
 
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
