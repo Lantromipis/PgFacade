@@ -6,16 +6,13 @@ import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.regions.Regions;
-import com.amazonaws.services.devicefarm.model.ListUploadsRequest;
-import com.amazonaws.services.dynamodbv2.xspec.S;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.*;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverAdapter;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.exception.BackupCreationException;
-import com.lantromipis.orchestration.model.BaseBackupAsInputStream;
+import com.lantromipis.orchestration.constant.ArchiverConstants;
+import com.lantromipis.orchestration.exception.UploadException;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -23,15 +20,17 @@ import org.apache.commons.io.IOUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
-import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.regex.Matcher;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -42,14 +41,9 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
     ArchivingProperties archivingProperties;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
-
-    @Inject
     ManagedExecutor managedExecutor;
 
     private AmazonS3 s3Client;
-
-    private static final String METADATA_DATE = "date";
 
     @Override
     public void initialize() {
@@ -88,46 +82,40 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
 
         s3Client.listBuckets().forEach(bucket -> log.info(bucket.getName()));
 
-        createNewBackup();
-
         log.info("S3 archiving adapter initialization completed!");
     }
 
     @Override
-    public void createNewBackup() throws BackupCreationException {
-        BaseBackupAsInputStream baseBackupAsInputStream = platformAdapter.get().createBaseBackupAndGetAsStream();
-        if (!baseBackupAsInputStream.isSuccess()) {
-            throw new BackupCreationException("Failed to get basebackup");
-        }
-        try {
-            Instant instant = Instant.now();
+    public List<Instant> getBackupInstants() {
+        ObjectListing backupsListing = s3Client.listObjects(
+                archivingProperties.s3().backupsBucket(),
+                ArchiverConstants.S3_BACKUP_PREFIX
+        );
 
-            uploadDataAsInputStream(
-                    instant,
-                    archivingProperties.s3().bucket(),
-                    createBackupName(instant),
-                    baseBackupAsInputStream.getStream()
-            );
-        } catch (Exception e) {
-            try {
-                baseBackupAsInputStream.getStream().close();
-            } catch (Exception ignored) {
-            }
-
-            throw new BackupCreationException("Failed to transfer basebackup", e);
+        if (CollectionUtils.isEmpty(backupsListing.getObjectSummaries())) {
+            return Collections.emptyList();
         }
+
+        return backupsListing
+                .getObjectSummaries()
+                .stream()
+                .map(summary -> {
+                    Matcher matcher = ArchiverConstants.S3_BACKUP_KEY_PATTERN.matcher(summary.getKey());
+                    if (!matcher.matches()) {
+                        return null;
+                    }
+                    return matcher.group(1);
+                })
+                .filter(Objects::nonNull)
+                .map(instantString -> ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.parse(instantString, Instant::from))
+                .collect(Collectors.toList());
     }
 
-    private String createBackupName(Instant instant) {
-        return "postgres-backup-" + instant.toString();
-    }
+    @Override
+    public void uploadBackup(InputStream inputStream, Instant creationTime) throws UploadException {
+        String key = String.format(ArchiverConstants.S3_BACKUP_KEY_FORMAT, ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime));
 
-    private void uploadDataAsInputStream(Instant instant, String bucket, String key, InputStream inputStream) throws BackupCreationException {
-        ObjectMetadata metadata = new ObjectMetadata();
-        metadata.getUserMetadata().put(METADATA_DATE, instant.toString());
-
-        InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(bucket, key)
-                .withObjectMetadata(metadata);
+        InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(archivingProperties.s3().backupsBucket(), key);
         InitiateMultipartUploadResult initResponse = s3Client.initiateMultipartUpload(initRequest);
 
         Queue<PartETag> eTagQueue = new ConcurrentLinkedQueue<>();
@@ -144,7 +132,7 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
                 }
 
                 UploadPartRequest uploadRequest = new UploadPartRequest()
-                        .withBucketName(bucket)
+                        .withBucketName(archivingProperties.s3().backupsBucket())
                         .withKey(key)
                         .withUploadId(initResponse.getUploadId())
                         .withPartSize(bytesRead)
@@ -159,7 +147,7 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
             }
 
             CompleteMultipartUploadRequest completeRequest = new CompleteMultipartUploadRequest(
-                    bucket,
+                    archivingProperties.s3().backupsBucket(),
                     key,
                     initResponse.getUploadId(),
                     eTagQueue.stream().toList()
@@ -170,19 +158,18 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
             inputStream.close();
 
         } catch (Exception e) {
-            log.error("Error while uploading backup to S3. ", e);
 
             // free space
             while (true) {
                 AbortMultipartUploadRequest abortMultipartUploadRequest = new AbortMultipartUploadRequest(
-                        bucket,
+                        archivingProperties.s3().backupsBucket(),
                         key,
                         initResponse.getUploadId()
                 );
                 s3Client.abortMultipartUpload(abortMultipartUploadRequest);
 
                 try {
-                    ListPartsRequest listPartsRequest = new ListPartsRequest(bucket, key, initResponse.getUploadId());
+                    ListPartsRequest listPartsRequest = new ListPartsRequest(archivingProperties.s3().backupsBucket(), key, initResponse.getUploadId());
                     PartListing partListing = s3Client.listParts(listPartsRequest);
 
                     if (CollectionUtils.isEmpty(partListing.getParts())) {
@@ -196,6 +183,8 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
                     break;
                 }
             }
+
+            throw new UploadException("Failed to upload backup! ", e);
         }
     }
 

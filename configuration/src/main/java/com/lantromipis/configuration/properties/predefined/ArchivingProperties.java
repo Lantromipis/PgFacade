@@ -23,7 +23,9 @@ public interface ArchivingProperties {
 
         String region();
 
-        String bucket();
+        String backupsBucket();
+
+        String walBucket();
 
         int multipartUploadPartSizeMb();
     }

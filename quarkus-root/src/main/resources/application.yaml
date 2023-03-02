@@ -27,8 +27,9 @@ pg-facade:
       access-key: XyWoumXpa0e5Pv8H
       secret-key: wQxh5RfnLO0MN0nDv390nfo6piLvhStM
       region: eu-central-1
-      bucket: pgfacade
       multipart-upload-part-size-mb: 5
+      backups-bucket: pgfacade
+      wal-bucket: pgfacade
   orchestration:
     adapter: docker
     common:
