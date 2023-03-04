@@ -12,7 +12,7 @@ import java.util.UUID;
 public interface PostgresConfigurator {
 
     /**
-     * Method used to initialize this service
+     * Method used to initialize configurator service. This method must load some important runtime properties based on current primary configuration (like max_connections)
      */
     void initialize();
 

@@ -1,5 +1,7 @@
 package com.lantromipis.proxy.producer;
 
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
@@ -7,6 +9,7 @@ import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
+import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
 import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
 import com.lantromipis.proxy.handler.proxy.database.SimpleDatabaseMasterConnectionClientChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
@@ -30,6 +33,9 @@ public class ProxyChannelHandlersProducer {
 
     @Inject
     ClientConnectionsManagementService clientConnectionsManagementService;
+
+    @Inject
+    OrchestrationProperties orchestrationProperties;
 
     public StartupClientChannelHandler createNewClientStartupHandler() {
         StartupClientChannelHandler handler = new StartupClientChannelHandler(
@@ -59,6 +65,16 @@ public class ProxyChannelHandlersProducer {
                 this,
                 clientConnectionsManagementService
         );
+        clientConnectionsManagementService.registerNewClientChannelHandler(handler);
+        return handler;
+    }
+
+    public NoPoolProxyClientHandler createNewNoPoolProxyClientHandler() {
+        NoPoolProxyClientHandler handler = new NoPoolProxyClientHandler(
+                orchestrationProperties.noAdapter().primaryHost(),
+                orchestrationProperties.noAdapter().primaryPort()
+        );
+
         clientConnectionsManagementService.registerNewClientChannelHandler(handler);
         return handler;
     }

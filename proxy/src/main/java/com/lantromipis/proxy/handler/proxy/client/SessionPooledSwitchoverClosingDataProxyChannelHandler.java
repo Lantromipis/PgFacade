@@ -14,7 +14,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
@@ -50,7 +52,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         masterConnection = connectionPool.getMasterConnection(connectionInfo, authAdditionalInfo);
 
         if (masterConnection == null) {
-            forceCloseConnectionWithError(ctx);
+            forceCloseConnectionWithError();
             return;
         }
 
@@ -95,6 +97,12 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         connectionPool.returnConnectionToPool(connectionInfo, masterConnection);
         clientConnectionsManagementService.unregisterClientChannelHandler(this);
         setActive(false);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.error("Exception in client connection handler. Connection will be closed ", cause);
+        super.exceptionCaught(ctx, cause);
     }
 
     @Override

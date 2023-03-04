@@ -6,10 +6,12 @@ import java.time.Duration;
 import java.util.Map;
 
 @ConfigMapping(prefix = "pg-facade.proxy")
-public interface ProxyStaticProperties {
+public interface ProxyProperties {
     int port();
 
     int maxConnections();
+
+    ConnectionPoolProperties connectionPool();
 
     InactiveClientsProperties inactiveClients();
 
@@ -21,5 +23,9 @@ public interface ProxyStaticProperties {
         Duration inactiveConnectionTimeout();
 
         Duration checkInterval();
+    }
+
+    interface ConnectionPoolProperties {
+        boolean enabled();
     }
 }

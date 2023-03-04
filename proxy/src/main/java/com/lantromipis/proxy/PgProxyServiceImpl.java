@@ -1,6 +1,6 @@
 package com.lantromipis.proxy;
 
-import com.lantromipis.configuration.properties.predefined.ProxyStaticProperties;
+import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.proxy.initializer.ProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
@@ -21,7 +21,7 @@ import java.time.Duration;
 @ApplicationScoped
 public class PgProxyServiceImpl implements PgProxyService {
     @Inject
-    ProxyStaticProperties proxyProperties;
+    ProxyProperties proxyProperties;
 
     @Inject
     ProxyChannelHandlersProducer proxyChannelHandlersProducer;
@@ -47,7 +47,7 @@ public class PgProxyServiceImpl implements PgProxyService {
                     try {
                         proxyChannelFuture = proxyBootstrap.group(bossGroup, workerGroup)
                                 .channel(NioServerSocketChannel.class)
-                                .childHandler(new ProxyChannelInitializer(proxyChannelHandlersProducer, clientConnectionsManagementService))
+                                .childHandler(new ProxyChannelInitializer(proxyProperties.connectionPool().enabled(), proxyChannelHandlersProducer, clientConnectionsManagementService))
                                 .childOption(ChannelOption.AUTO_READ, false)
                                 .bind(proxyProperties.port())
                                 .sync();

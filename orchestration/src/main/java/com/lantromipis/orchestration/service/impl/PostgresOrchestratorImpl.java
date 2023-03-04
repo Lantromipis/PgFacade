@@ -99,6 +99,18 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     public void initialize() {
         if (OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
             log.info("No orchestrator adapter is configured. PgFacade will work like proxy + connection pool without any HA features for Postgres. Consider choosing another adapter if you need HA features.");
+            addInstanceToRuntimeProperties(PostgresAdapterInstanceInfo
+                    .builder()
+                    .master(true)
+                    .instanceId(UUID.randomUUID())
+                    .instancePort(orchestrationProperties.noAdapter().primaryPort())
+                    .instanceAddress(orchestrationProperties.noAdapter().primaryHost())
+                    .build()
+            );
+
+            // to set runtime properties
+            postgresConfigurator.initialize();
+
             return;
         }
 

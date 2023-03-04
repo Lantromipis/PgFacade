@@ -9,6 +9,8 @@ public interface OrchestrationProperties {
 
     AdapterType adapter();
 
+    NoAdapterProperties noAdapter();
+
     DockerProperties docker();
 
     CommonProperties common();
@@ -40,6 +42,12 @@ public interface OrchestrationProperties {
 
             int retries();
         }
+    }
+
+    interface NoAdapterProperties {
+        String primaryHost();
+
+        int primaryPort();
     }
 
     interface DockerProperties {
@@ -78,8 +86,9 @@ public interface OrchestrationProperties {
          * Use when there is no need in orchestration. If active, PgFacade will work like proxy + connection pool without any HA features.
          */
         NO_ADAPTER,
+
         /**
-         * Use when PgFacade will work in docker
+         * If enabled, PgFacade will work in Docker.
          */
         DOCKER
     }

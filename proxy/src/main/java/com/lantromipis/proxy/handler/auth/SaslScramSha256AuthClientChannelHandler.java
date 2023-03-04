@@ -90,8 +90,8 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         SaslInitialResponse saslInitialResponse = ClientPostgreSqlProtocolMessageDecoder.decodeSaslInitialResponse((ByteBuf) msg);
 
         if (!saslInitialResponse.getNameOfSaslAuthMechanism().equals(PostgreSQLProtocolScramConstants.SASL_SHA_256_AUTH_MECHANISM_NAME)) {
-            log.error("SCRAM-SAH-256 was not chosen by client as SASL mechanism.");
-            forceCloseConnectionWithError(ctx);
+            log.error("SCRAM-SAH-256 was not chosen by client as SASL mechanism, but was expected to.");
+            forceCloseConnectionWithError();
             return;
         }
 
@@ -99,7 +99,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         Matcher firstClientMessageMatcher = firstClientMessagePattern.matcher(saslInitialResponse.getSaslMechanismSpecificData());
         if (!firstClientMessageMatcher.matches()) {
             log.error("Error reading SASLInitialResponse mechanism specific data.");
-            forceCloseConnectionWithError(ctx);
+            forceCloseConnectionWithError();
             return;
         }
 
@@ -125,7 +125,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
         if (!saslFinalMessageMatcher.matches()) {
             log.error("Error reading SASLResponse mechanism specific data.");
-            forceCloseConnectionWithError(ctx);
+            forceCloseConnectionWithError();
             return;
         }
 
@@ -133,7 +133,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
         if (!newGs2Header.equals(gs2Header)) {
             log.error("GS2 header from client is not equal to stored one.");
-            forceCloseConnectionWithError(ctx);
+            forceCloseConnectionWithError();
             return;
         }
 
@@ -141,7 +141,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
         if (!finalClientNonce.equals(clientNonce + serverNonce)) {
             log.error("SASL nonce received from client is not equal to stored one.");
-            forceCloseConnectionWithError(ctx);
+            forceCloseConnectionWithError();
             return;
         }
 
@@ -166,7 +166,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
             byte[] hashedComputedKey = MessageDigest.getInstance(PostgreSQLProtocolScramConstants.SHA256_DIGEST_NAME).digest(computedClientKey);
             if (!Arrays.equals(storedKeyBytes, hashedComputedKey)) {
                 log.error("Incorrect password provided");
-                forceCloseConnectionWithError(ctx);
+                forceCloseConnectionWithError();
                 return;
             }
 
@@ -197,7 +197,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
         } catch (Exception e) {
             log.error(e.getMessage(), e);
-            forceCloseConnectionWithError(ctx);
+            forceCloseConnectionWithError();
         }
     }
 }

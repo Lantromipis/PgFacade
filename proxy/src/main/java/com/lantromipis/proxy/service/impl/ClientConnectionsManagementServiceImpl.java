@@ -2,7 +2,7 @@ package com.lantromipis.proxy.service.impl;
 
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
-import com.lantromipis.configuration.properties.predefined.ProxyStaticProperties;
+import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.proxy.exception.ConnectionLimitReachedException;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.AbstractDataProxyClientChannelHandler;
@@ -22,21 +22,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ClientConnectionsManagementServiceImpl implements ClientConnectionsManagementService {
 
     @Inject
-    ProxyStaticProperties proxyStaticProperties;
+    ProxyProperties proxyProperties;
 
     private Set<AbstractClientChannelHandler> activeChannelsHandlers = ConcurrentHashMap.newKeySet();
     private long timeout;
 
     @PostConstruct
     public void init() {
-        int setCapacity = (int) (proxyStaticProperties.maxConnections() / 0.7);
+        int setCapacity = (int) (proxyProperties.maxConnections() / 0.7);
         activeChannelsHandlers = ConcurrentHashMap.newKeySet(setCapacity);
-        timeout = proxyStaticProperties.inactiveClients().inactiveConnectionTimeout().toMillis();
+        timeout = proxyProperties.inactiveClients().inactiveConnectionTimeout().toMillis();
     }
 
     @Override
     public void registerNewClientChannelHandler(AbstractClientChannelHandler handler) throws ConnectionLimitReachedException {
-        if (activeChannelsHandlers.size() + 1 > proxyStaticProperties.maxConnections()) {
+        if (activeChannelsHandlers.size() + 1 > proxyProperties.maxConnections()) {
             throw new ConnectionLimitReachedException("Can not register new connection because connection limit is reached.");
         }
         activeChannelsHandlers.add(handler);
@@ -62,12 +62,12 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
 
     @Override
     public boolean connectionsLimitReached() {
-        return activeChannelsHandlers.size() > proxyStaticProperties.maxConnections();
+        return activeChannelsHandlers.size() > proxyProperties.maxConnections();
     }
 
     @Scheduled(every = "${pg-facade.proxy.inactive-clients.check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkInactiveClients() {
-        if (!proxyStaticProperties.inactiveClients().disconnect()) {
+        if (!proxyProperties.inactiveClients().disconnect()) {
             return;
         }
 
