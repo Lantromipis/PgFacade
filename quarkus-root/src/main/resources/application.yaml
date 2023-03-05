@@ -23,6 +23,10 @@ pg-facade:
   archiving:
     enabled: true
     adapter: s3
+    basebackup:
+      create-interval: PT5M
+      keep-old-interval: PT15M
+      list-backups-interval: PT1M
     s3:
       protocol: http
       endpoint: http://minio:9000
@@ -77,8 +81,6 @@ pg-facade:
         username: replicant
         password: replicant
         database: postgres
-    postgresql-conf-override:
-      shared_buffers: 256MB
 quarkus:
   http:
     port: 8080

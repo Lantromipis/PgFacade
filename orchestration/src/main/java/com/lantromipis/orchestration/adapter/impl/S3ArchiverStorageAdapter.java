@@ -10,12 +10,13 @@ import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.*;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
-import com.lantromipis.orchestration.adapter.api.ArchiverAdapter;
+import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
 import com.lantromipis.orchestration.exception.UploadException;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.io.IOUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
@@ -24,18 +25,16 @@ import javax.inject.Inject;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
 @LookupIfProperty(name = "pg-facade.archiving.adapter", stringValue = "s3")
-public class S3ArchiverAdapter implements ArchiverAdapter {
+public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
     @Inject
     ArchivingProperties archivingProperties;
@@ -99,21 +98,17 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
         return backupsListing
                 .getObjectSummaries()
                 .stream()
-                .map(summary -> {
-                    Matcher matcher = ArchiverConstants.S3_BACKUP_KEY_PATTERN.matcher(summary.getKey());
-                    if (!matcher.matches()) {
-                        return null;
-                    }
-                    return matcher.group(1);
-                })
+                .map(summary -> parseBackupInstantSafely(summary.getKey()))
                 .filter(Objects::nonNull)
-                .map(instantString -> ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.parse(instantString, Instant::from))
                 .collect(Collectors.toList());
     }
 
     @Override
     public void uploadBackup(InputStream inputStream, Instant creationTime) throws UploadException {
-        String key = String.format(ArchiverConstants.S3_BACKUP_KEY_FORMAT, ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime));
+        String key = String.format(
+                ArchiverConstants.S3_BACKUP_KEY_FORMAT,
+                ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime)
+        );
 
         InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(archivingProperties.s3().backupsBucket(), key);
         InitiateMultipartUploadResult initResponse = s3Client.initiateMultipartUpload(initRequest);
@@ -188,5 +183,130 @@ public class S3ArchiverAdapter implements ArchiverAdapter {
         }
     }
 
+    @Override
+    public int removeBackupsAndWalOlderThanInstant(Instant instant) {
+        if (instant == null) {
+            return 0;
+        }
 
+        ObjectListing backupsListing = s3Client.listObjects(
+                archivingProperties.s3().backupsBucket(),
+                ArchiverConstants.S3_BACKUP_PREFIX
+        );
+
+        if (CollectionUtils.isEmpty(backupsListing.getObjectSummaries())) {
+            return 0;
+        }
+
+        // do not remove last backup
+        if (backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).count() == 1) {
+            return 0;
+        }
+
+        AtomicInteger removed = new AtomicInteger();
+
+        List<S3ObjectSummary> remainingBackupsSummaries = backupsListing.getObjectSummaries()
+                .stream()
+                .filter(summary -> {
+                            Instant backupInstant = parseBackupInstantSafely(summary.getKey());
+
+                            if (backupInstant == null) {
+                                return false;
+                            }
+
+                            if (backupInstant.compareTo(instant) < 0) {
+                                s3Client.deleteObject(archivingProperties.s3().backupsBucket(), summary.getKey());
+                                removed.getAndIncrement();
+                                return false;
+                            } else {
+                                return true;
+                            }
+                        }
+                ).toList();
+
+        if (removed.get() != 0) {
+            S3ObjectSummary oldestBackup = remainingBackupsSummaries
+                    .stream()
+                    .min((summary1, summary2) -> {
+                        Instant backupInstant1 = parseBackupInstantSafely(summary1.getKey());
+                        Instant backupInstant2 = parseBackupInstantSafely(summary2.getKey());
+
+                        return backupInstant1.compareTo(backupInstant2);
+                    })
+                    .stream()
+                    .findFirst()
+                    .orElse(null);
+
+            if (oldestBackup == null) {
+                log.error("Removed backup but failed to remove old WAL files. Consider removing them manually.");
+            } else {
+                S3Object oldestBackupObject = s3Client.getObject(archivingProperties.s3().backupsBucket(), oldestBackup.getKey());
+                String lastWalName = oldestBackupObject.getObjectMetadata().getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+
+                if (lastWalName == null) {
+                    log.error("Oldest backup has corrupted {} metadata parameter. Can not remove old WAL files. Consider removing them manually.", ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+                } else {
+                    removeWalFilesOlderThan(lastWalName);
+                }
+            }
+        }
+
+        return removed.get();
+    }
+
+    private void removeWalFilesOlderThan(String walFileName) {
+        String lastRequiredWalKey = String.format(
+                ArchiverConstants.S3_WAL_FILE_KEY_FORMAT,
+                walFileName
+        );
+
+        ListObjectsV2Request listObjectsReqManual = new ListObjectsV2Request()
+                .withBucketName(archivingProperties.s3().walBucket())
+                .withPrefix(ArchiverConstants.S3_WAL_PREFIX);
+
+        List<DeleteObjectsRequest.KeyVersion> keysToRemove = new ArrayList<>();
+
+        boolean done = false;
+        while (!done) {
+            ListObjectsV2Result listObjectsResult = s3Client.listObjectsV2(listObjectsReqManual);
+
+            for (S3ObjectSummary summary : listObjectsResult.getObjectSummaries()) {
+                if (summary.getKey().compareTo(lastRequiredWalKey) < 0) {
+                    keysToRemove.add(new DeleteObjectsRequest.KeyVersion(summary.getKey()));
+                }
+            }
+
+            if (listObjectsResult.getNextContinuationToken() == null) {
+                done = true;
+            }
+
+            listObjectsReqManual = new ListObjectsV2Request()
+                    .withContinuationToken(listObjectsResult.getNextContinuationToken());
+        }
+
+        List<List<DeleteObjectsRequest.KeyVersion>> partitionsBy1000Keys = ListUtils.partition(keysToRemove, 999);
+
+        for (var partition : partitionsBy1000Keys) {
+            s3Client.deleteObjects(
+                    new DeleteObjectsRequest(archivingProperties.s3().walBucket())
+                            .withKeys(partition)
+            );
+        }
+    }
+
+    private Instant parseBackupInstantSafely(String backupKey) {
+        try {
+            Matcher matcher = ArchiverConstants.S3_BACKUP_KEY_PATTERN.matcher(backupKey);
+
+            if (!matcher.matches()) {
+                log.error("Unable to check backup creation time for object with key '{}'. Did you change tha name of the object? You will need to remove it manually now.", backupKey);
+                return null;
+            }
+
+            return ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.parse(matcher.group(1), Instant::from);
+        } catch (Exception e) {
+            log.error("Unable to check backup creation time for object with key '{}'. Did you change tha name of the object? You will need to remove it manually now.", backupKey);
+            return null;
+        }
+    }
 }

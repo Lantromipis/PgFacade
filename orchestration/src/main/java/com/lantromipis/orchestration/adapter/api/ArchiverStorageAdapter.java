@@ -6,7 +6,13 @@ import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 
-public interface ArchiverAdapter {
+/**
+ * Interface for any archiver storage adapter. Different implementations allow PgFacade to use different systems to store backups and WAL files.
+ * For example, S3, FTP etc.
+ * <p>
+ * For easiness, PgFacade references backups by their creation Instance.
+ */
+public interface ArchiverStorageAdapter {
     void initialize();
 
     /**
@@ -24,4 +30,12 @@ public interface ArchiverAdapter {
      * @throws UploadException if something went wrong and upload failed.
      */
     void uploadBackup(InputStream inputStream, Instant creationTime) throws UploadException;
+
+    /**
+     * Removes backups which are older than provided timestamp
+     *
+     * @param instant timestamp to compare to
+     * @return number of removed backups
+     */
+    int removeBackupsAndWalOlderThanInstant(Instant instant);
 }

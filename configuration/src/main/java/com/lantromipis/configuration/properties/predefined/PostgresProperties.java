@@ -7,8 +7,6 @@ import java.util.Map;
 @ConfigMapping(prefix = "pg-facade.postgres")
 public interface PostgresProperties {
 
-    Map<String, String> postgresqlConfOverride();
-
     UserProperties users();
 
     interface UserProperties {
