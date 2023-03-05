@@ -215,6 +215,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                             }
 
                             if (backupInstant.compareTo(instant) < 0) {
+                                log.info("Removing backup with key '{}' as it is too old.", summary.getKey());
                                 s3Client.deleteObject(archivingProperties.s3().backupsBucket(), summary.getKey());
                                 removed.getAndIncrement();
                                 return false;
@@ -292,6 +293,8 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                             .withKeys(partition)
             );
         }
+
+        log.info("Removed {} old wal files which are not required.", keysToRemove.size());
     }
 
     private Instant parseBackupInstantSafely(String backupKey) {

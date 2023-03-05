@@ -47,34 +47,36 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         archiverReady = true;
 
-        createAndUploadBackup();
-
         log.info("Archiver initialization completed.");
     }
 
     @Override
     public void createAndUploadBackup() throws BackupCreationException {
+        log.info("Started creating basebackup for archiving.");
         Instant instant = Instant.now();
 
         BaseBackupAsInputStream baseBackupAsInputStream = platformAdapter.get().createBaseBackupAndGetAsStream();
         if (!baseBackupAsInputStream.isSuccess()) {
-            throw new BackupCreationException("Failed to get basebackup");
+            throw new BackupCreationException("Failed to get basebackup for archiving.");
         }
 
         try {
+            log.info("Uploading new basebackup for archiving.");
             archiverAdapter.get().uploadBackup(
                     baseBackupAsInputStream.getStream(),
                     instant
             );
 
         } catch (Throwable e) {
-            throw new BackupCreationException("Failed to transfer basebackup", e);
+            throw new BackupCreationException("Failed to upload for archiving. ", e);
         } finally {
             try {
                 baseBackupAsInputStream.getStream().close();
             } catch (Exception ignored) {
             }
         }
+
+        log.info("Successfully created and uploaded base backup for archiving.");
     }
 
     @Scheduled(every = "${pg-facade.archiving.basebackup.list-backups-interval}")
@@ -87,7 +89,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                 Instant oldestPermittedBackupInstant = Instant.now().minus(archivingProperties.basebackup().keepOldInterval());
 
                 if (archiverAdapter.get().removeBackupsAndWalOlderThanInstant(oldestPermittedBackupInstant) > 0) {
-                    log.info("Removed old backups according to configuration.");
+                    log.info("Removed old backups and wal files according to configuration.");
                 }
             }
 
@@ -108,7 +110,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                 try {
                     createAndUploadBackup();
                 } catch (Exception e) {
-                    log.info("Error while creating new backup because old one was outdated ", e);
+                    log.info("Error while creating new backup because old one was outdated. ", e);
                 } finally {
                     backupModificationInProgress.set(false);
                 }
