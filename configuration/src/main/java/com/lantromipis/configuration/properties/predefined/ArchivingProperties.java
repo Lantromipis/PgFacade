@@ -15,6 +15,16 @@ public interface ArchivingProperties {
 
     BasebackupProperties basebackup();
 
+    WalProperties wal();
+
+    interface WalProperties {
+        int uploadWalRetries();
+
+        Duration walDirClearInterval();
+        
+        Duration retryUploadWalFilesInterval();
+    }
+
     interface BasebackupProperties {
         Duration createInterval();
 

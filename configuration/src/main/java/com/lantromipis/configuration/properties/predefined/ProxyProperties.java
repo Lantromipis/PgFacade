@@ -15,8 +15,6 @@ public interface ProxyProperties {
 
     InactiveClientsProperties inactiveClients();
 
-    Map<String, String> parameterStatusOverride();
-
     interface InactiveClientsProperties {
         boolean disconnect();
 

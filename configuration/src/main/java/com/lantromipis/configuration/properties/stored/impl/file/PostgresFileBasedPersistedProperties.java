@@ -7,9 +7,10 @@ import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
 import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
-import com.lantromipis.configuration.properties.predefined.StorageProperties;
+import com.lantromipis.configuration.producers.FilesPathsProducer;
+import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
-import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.PostConstruct;
@@ -25,15 +26,15 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
-@LookupIfProperty(name = "pg-facade.storage.adapter", stringValue = "file")
 public class PostgresFileBasedPersistedProperties implements PostgresPersistedProperties {
 
     @Inject
-    StorageProperties storageProperties;
+    OrchestrationProperties orchestrationProperties;
+
+    @Inject
+    FilesPathsProducer filesPathsProducer;
 
     private ObjectMapper objectMapper;
-
-    private final static String JSON_EXTENSION = ".json";
 
     private File postgresNodeInfoFile;
     private File postgresSettingInfoFile;
@@ -48,17 +49,10 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     @PostConstruct
     public void init() {
         objectMapper = new ObjectMapper();
-        postgresNodeInfoFile = createConfigFileIfNeeded(
-                storageProperties.file().directoryPath()
-                        + "/"
-                        + storageProperties.file().postgresNodesInfoFilename() + JSON_EXTENSION
-        );
+        // TODO make some local identifier instead of dir
 
-        postgresSettingInfoFile = createConfigFileIfNeeded(
-                storageProperties.file().directoryPath()
-                        + "/"
-                        + storageProperties.file().postgresSettingsInfoFilename() + JSON_EXTENSION
-        );
+        postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
+        postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
     }
 
     @Override
@@ -195,7 +189,6 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
             File file = new File(path);
 
             if (!file.exists()) {
-                Files.createDirectories(Paths.get(storageProperties.file().directoryPath()));
                 file.createNewFile();
             }
 

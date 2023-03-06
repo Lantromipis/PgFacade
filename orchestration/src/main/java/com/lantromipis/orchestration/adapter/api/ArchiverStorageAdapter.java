@@ -2,6 +2,7 @@ package com.lantromipis.orchestration.adapter.api;
 
 import com.lantromipis.orchestration.exception.UploadException;
 
+import java.io.File;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
@@ -23,9 +24,9 @@ public interface ArchiverStorageAdapter {
     List<Instant> getBackupInstants();
 
     /**
-     * Uploads backup received as input stream
+     * Uploads backup to storage
      *
-     * @param inputStream  stream containing backup files. Uploaded as-is.
+     * @param inputStream  stream containing backup files. Uploaded as-is. Will be closed after completion.
      * @param creationTime will be used to name file containing backup.
      * @throws UploadException if something went wrong and upload failed.
      */
@@ -38,4 +39,12 @@ public interface ArchiverStorageAdapter {
      * @return number of removed backups
      */
     int removeBackupsAndWalOlderThanInstant(Instant instant);
+
+    /**
+     * Uploads WAL file to storage.
+     *
+     * @param file WAL file to upload. Will NOT be closed after completion.
+     * @throws UploadException if something went wrong and upload failed.
+     */
+    void uploadWalFile(File file) throws UploadException;
 }

@@ -2,6 +2,14 @@ package com.lantromipis.orchestration.constant;
 
 public class CommandsConstants {
 
+    public static final String PG_RECEIVE_WAL_COMMAND = "pg_receivewal";
+    public static final String PG_RECEIVE_WAL_COMMAND_TARGET_DIR_KEY = "-D";
+    public static final String PG_RECEIVE_WAL_COMMAND_HOST_KEY = "-h";
+    public static final String PG_RECEIVE_WAL_COMMAND_PORT_KEY = "-p";
+    public static final String PG_RECEIVE_WAL_COMMAND_USER_KEY = "-U";
+    public static final String PG_RECEIVE_WAL_COMMAND_PASSWORD_KEY = "-w";
+    public static final String PG_RECEIVE_WAL_COMMAND_NO_LOOP_KEY = "-n";
+
     public static final String POSTGRES_COMMAND = "postgres";
     public static final String POSTGRES_COMMAND_PARAMETER_KEY = "-c";
 

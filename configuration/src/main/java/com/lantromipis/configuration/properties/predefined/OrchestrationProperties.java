@@ -53,32 +53,41 @@ public interface OrchestrationProperties {
     interface DockerProperties {
         String dockerHost();
 
-        String postgresNetworkName();
+        PgFacadeProperties pgFacade();
 
-        String postgresContainerName();
-
-        String postgresVolumeName();
-
-        String postgresImageTag();
-
-        String postgresImagePgDataDir();
+        PostgresProperties postgres();
 
         String helperObjectName();
 
-        HealthCheckProperties postgresHealthcheck();
-
-        interface HealthCheckProperties {
-            long interval();
-
-            long timeout();
-
-            int retries();
-
-            long startPeriod();
-
-            String cmdShellCommand();
+        interface PgFacadeProperties {
+            String localFilesDirectory();
         }
 
+        interface PostgresProperties {
+            String imageTag();
+
+            String imagePgData();
+
+            String networkName();
+
+            String containerName();
+
+            String volumeName();
+
+            HealthCheckProperties healthcheck();
+
+            interface HealthCheckProperties {
+                long interval();
+
+                long timeout();
+
+                int retries();
+
+                long startPeriod();
+
+                String cmdShellCommand();
+            }
+        }
     }
 
     enum AdapterType {

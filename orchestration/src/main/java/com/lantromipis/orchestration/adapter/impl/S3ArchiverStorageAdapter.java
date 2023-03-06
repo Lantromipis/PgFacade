@@ -12,6 +12,7 @@ import com.amazonaws.services.s3.model.*;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
+import com.lantromipis.orchestration.exception.AdapterInitializationException;
 import com.lantromipis.orchestration.exception.UploadException;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,7 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
@@ -79,7 +81,28 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 )
                 .build();
 
-        s3Client.listBuckets().forEach(bucket -> log.info(bucket.getName()));
+        boolean walBucketExist = false;
+        boolean backupsBucketExist = false;
+
+        // connectivity check + validation of buckets presence
+        for (var bucket : s3Client.listBuckets()) {
+            if (bucket.getName().equals(archivingProperties.s3().backupsBucket())) {
+                log.info("Found bucket for backups in S3!");
+                backupsBucketExist = true;
+            }
+            if (bucket.getName().equals(archivingProperties.s3().walBucket())) {
+                log.info("Found bucket for WAL files in S3!");
+                walBucketExist = true;
+            }
+        }
+
+        if (!walBucketExist) {
+            throw new AdapterInitializationException("Bucket for WAL not found, but archiving is enabled! Create this bucket or/and change configuration!");
+        }
+
+        if (!backupsBucketExist) {
+            throw new AdapterInitializationException("Bucket for backups not found, but archiving is enabled! Create this bucket or/and change configuration!");
+        }
 
         log.info("S3 archiving adapter initialization completed!");
     }
@@ -198,10 +221,13 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
             return 0;
         }
 
+        long initialAmount = backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).count();
+
         // do not remove last backup
-        if (backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).count() == 1) {
+        if (initialAmount == 1) {
             return 0;
         }
+
 
         AtomicInteger removed = new AtomicInteger();
 
@@ -212,6 +238,11 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
                             if (backupInstant == null) {
                                 return false;
+                            }
+
+                            // do not remove last backup
+                            if (initialAmount - removed.get() <= 1) {
+                                return true;
                             }
 
                             if (backupInstant.compareTo(instant) < 0) {
@@ -253,6 +284,26 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
         }
 
         return removed.get();
+    }
+
+    @Override
+    public void uploadWalFile(File file) throws UploadException {
+        String key = String.format(
+                ArchiverConstants.S3_WAL_FILE_KEY_FORMAT,
+                file.getName()
+        );
+
+        PutObjectRequest putObjectRequest = new PutObjectRequest(
+                archivingProperties.s3().walBucket(),
+                key,
+                file
+        );
+
+        try {
+            s3Client.putObject(putObjectRequest);
+        } catch (Exception e) {
+            throw new UploadException("Failed to upload WAL file {}" + file.getName(), e);
+        }
     }
 
     private void removeWalFilesOlderThan(String walFileName) {

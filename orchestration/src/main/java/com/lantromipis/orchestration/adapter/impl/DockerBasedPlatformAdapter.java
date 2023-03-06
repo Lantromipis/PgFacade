@@ -31,7 +31,6 @@ import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.input.ObservableInputStream;
-import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -112,11 +111,11 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             String containerNamePostfix = UUID.randomUUID().toString();
 
-            CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
-                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgresContainerName(), containerNamePostfix))
+            CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().containerName(), containerNamePostfix))
                     .withHostConfig(
                             HostConfig.newHostConfig()
-                                    .withNetworkMode(dockerProperties.postgresNetworkName())
+                                    .withNetworkMode(dockerProperties.postgres().networkName())
                     )
                     .withEnv(
                             List.of(
@@ -128,11 +127,11 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
                     .withHealthcheck(
                             new HealthCheck()
-                                    .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().interval()))
-                                    .withRetries(dockerProperties.postgresHealthcheck().retries())
-                                    .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().startPeriod()))
-                                    .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgresHealthcheck().timeout()))
-                                    .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgresHealthcheck().cmdShellCommand()))
+                                    .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().interval()))
+                                    .withRetries(dockerProperties.postgres().healthcheck().retries())
+                                    .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().startPeriod()))
+                                    .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().timeout()))
+                                    .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgres().healthcheck().cmdShellCommand()))
                     );
 
             if (!request.isPrimary()) {
@@ -149,7 +148,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                         .withBinds(
                                 new Bind(
                                         volumeName,
-                                        new Volume(orchestrationProperties.docker().postgresImagePgDataDir())
+                                        new Volume(orchestrationProperties.docker().postgres().imagePgData())
                                 )
                         );
             }
@@ -313,7 +312,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 } catch (NotModifiedException ignored) {
                 }
 
-                dockerClient.removeContainerCmd(containerId).exec();
+                dockerClient.removeContainerCmd(containerId).withRemoveVolumes(true).exec();
             }
             persistedProperties.deletePostgresNodeInfo(instanceId);
             return true;
@@ -350,7 +349,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     @Override
     public List<String> getRequiredHbaConfLines() {
         List<Network> networks = dockerClient.listNetworksCmd()
-                .withNameFilter(orchestrationProperties.docker().postgresNetworkName())
+                .withNameFilter(orchestrationProperties.docker().postgres().networkName())
                 .exec();
 
         if (CollectionUtils.isEmpty(networks) || networks.size() > 1) {
@@ -416,11 +415,11 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     public BaseBackupAsInputStream createBaseBackupAndGetAsStream() {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
-        CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
+        CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
                 .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
                 .withHostConfig(
                         HostConfig.newHostConfig()
-                                .withNetworkMode(dockerProperties.postgresNetworkName())
+                                .withNetworkMode(dockerProperties.postgres().networkName())
                 )
                 //we only need Postgres utils like pg_basebackup and don't want to start DB itself
                 .withEntrypoint("sleep", "infinity")
@@ -430,7 +429,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         dockerClient.startContainerCmd(containerId).exec();
 
         try {
-            String commandToExecute = postgresUtils.getCommandToCreatePgPassFile(postgresProperties.users().replication())
+            String commandToExecute = postgresUtils.getCommandToCreatePgPassFileForPrimary(postgresProperties.users().replication())
                     + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH);
 
             AdapterShellCommandExecutionResult baseBackupCommandExecutionResult = executeCmdInContainer(
@@ -460,8 +459,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             ret.add(new ObservableInputStream.Observer() {
                 @Override
                 public void closed() throws IOException {
-                    dockerClient.stopContainerCmd(containerId).exec();
-                    dockerClient.removeContainerCmd(containerId).exec();
+                    try {
+                        dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
+                    } catch (Exception ignored) {
+                    }
                     super.closed();
                 }
             });
@@ -474,8 +475,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
         } catch (Exception e) {
             log.error("Error creating backup as stream ", e);
-            dockerClient.stopContainerCmd(containerId).exec();
-            dockerClient.removeContainerCmd(containerId).exec();
+            try {
+                dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
+            } catch (Exception ignored) {
+            }
             return BaseBackupAsInputStream
                     .builder()
                     .success(false)
@@ -490,29 +493,29 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     private String createVolumeWithPgBaseBackupForStandby(String containerPostfix, Map<String, String> settings) {
+        OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+
+        CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
+                .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().volumeName(), containerPostfix))
+                .exec();
+
+        CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+                .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
+                .withHostConfig(
+                        HostConfig.newHostConfig()
+                                .withBinds(
+                                        new Bind(
+                                                createVolumeResponse.getName(),
+                                                new Volume(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
+                                        )
+                                )
+                                .withNetworkMode(dockerProperties.postgres().networkName())
+                )
+                //we only need Postgres utils like pg_basebackup and don't want to start DB itself
+                .withEntrypoint("sleep", "infinity")
+                .exec();
+
         try {
-            OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
-
-            CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
-                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgresVolumeName(), containerPostfix))
-                    .exec();
-
-            CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgresImageTag())
-                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
-                    .withHostConfig(
-                            HostConfig.newHostConfig()
-                                    .withBinds(
-                                            new Bind(
-                                                    createVolumeResponse.getName(),
-                                                    new Volume(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
-                                            )
-                                    )
-                                    .withNetworkMode(dockerProperties.postgresNetworkName())
-                    )
-                    //we only need Postgres utils like pg_basebackup and don't want to start DB itself
-                    .withEntrypoint("sleep", "infinity")
-                    .exec();
-
             dockerClient.startContainerCmd(tempCreateContainerResponse.getId()).exec();
 
             List<String> settingsLines = new ArrayList<>();
@@ -521,7 +524,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             }
             String confFilePath = DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
 
-            String commandToExecute = postgresUtils.getCommandToCreatePgPassFile(postgresProperties.users().replication())
+            String commandToExecute = postgresUtils.getCommandToCreatePgPassFileForPrimary(postgresProperties.users().replication())
                     + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
                     + " ; touch " + DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/standby.signal"
                     + " ; echo \"" + String.join("\n", settingsLines) + "\" > " + confFilePath;
@@ -541,13 +544,17 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             log.info("Finished creating backup for standby.");
 
-            dockerClient.stopContainerCmd(tempCreateContainerResponse.getId()).exec();
-            dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).exec();
+            dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).withForce(true).withRemoveVolumes(true).exec();
+
 
             return createVolumeResponse.getName();
 
         } catch (Exception e) {
             log.error("Error while creating volume with backup.", e);
+            try {
+                dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).withForce(true).withRemoveVolumes(true).exec();
+            } catch (Exception ignored) {
+            }
             return null;
         }
     }

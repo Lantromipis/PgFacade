@@ -1,11 +1,15 @@
 package com.lantromipis.orchestration.constant;
 
+import java.math.BigInteger;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.regex.Pattern;
 
 public class ArchiverConstants {
+
+    public static final String PARTIAL_WAL_FILE_ENDING = ".partial";
+    public static final BigInteger PARTIAL_WAL_FILE_REMOVE_DIFF = BigInteger.valueOf(4L);
 
     // S3
     public static final String S3_BACKUP_PREFIX = "backup";
