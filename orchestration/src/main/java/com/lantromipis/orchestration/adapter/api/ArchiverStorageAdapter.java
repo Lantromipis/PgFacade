@@ -30,7 +30,7 @@ public interface ArchiverStorageAdapter {
      * @param creationTime will be used to name file containing backup.
      * @throws UploadException if something went wrong and upload failed.
      */
-    void uploadBackup(InputStream inputStream, Instant creationTime) throws UploadException;
+    void uploadBackup(InputStream inputStream, Instant creationTime, String firstWalFileName) throws UploadException;
 
     /**
      * Removes backups which are older than provided timestamp
@@ -38,7 +38,7 @@ public interface ArchiverStorageAdapter {
      * @param instant timestamp to compare to
      * @return number of removed backups
      */
-    int removeBackupsAndWalOlderThanInstant(Instant instant);
+    int removeBackupsAndWalOlderThanInstant(Instant instant, boolean removeWal);
 
     /**
      * Uploads WAL file to storage.

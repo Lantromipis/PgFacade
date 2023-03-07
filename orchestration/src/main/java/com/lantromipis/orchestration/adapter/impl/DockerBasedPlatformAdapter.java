@@ -17,6 +17,7 @@ import com.lantromipis.configuration.properties.predefined.OrchestrationProperti
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
@@ -30,14 +31,17 @@ import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.ObservableInputStream;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 
 @Slf4j
 @ApplicationScoped
@@ -430,7 +434,8 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
         try {
             String commandToExecute = postgresUtils.getCommandToCreatePgPassFileForPrimary(postgresProperties.users().replication())
-                    + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH);
+                    + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
+                    + " ; cat " + DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/" + CommandsConstants.PG_BASE_BACKUP_BACKUP_LABEL_FILE_NAME;
 
             AdapterShellCommandExecutionResult baseBackupCommandExecutionResult = executeCmdInContainer(
                     containerId,
@@ -440,8 +445,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             if (!baseBackupCommandExecutionResult.isSuccess()) {
                 log.error("Failed to create backup as stream. Cause from CMD: {}", baseBackupCommandExecutionResult.getStderr());
-                dockerClient.stopContainerCmd(containerId).exec();
-                dockerClient.removeContainerCmd(containerId).exec();
+                dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
                 return BaseBackupAsInputStream
                         .builder()
                         .success(false)
@@ -467,10 +471,21 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 }
             });
 
+            String backupLabelContentWithoutLineBreaks = baseBackupCommandExecutionResult.getStdout().replaceAll("\n", "");
+            Matcher matcher = CommandsConstants.PG_BASE_BACKUP_BACKUP_LABEL_WAL_FILE_NAME_PATTERN.matcher(backupLabelContentWithoutLineBreaks);
+            String firstWalFileName;
+            if (matcher.matches()) {
+                firstWalFileName = matcher.group(1);
+            } else {
+                firstWalFileName = "";
+                log.error("Failed to parse backup_label! Did backup_label file format change?");
+            }
+
             return BaseBackupAsInputStream
                     .builder()
                     .success(true)
                     .stream(ret)
+                    .firstWalFileName(firstWalFileName)
                     .build();
 
         } catch (Exception e) {
@@ -565,6 +580,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     private AdapterShellCommandExecutionResult executeCmdInContainer(String containerId, String shellCommand, List<Long> okExitCodes) {
         try {
+            // TODO add working dir
             ExecCreateCmdResponse backupExecCreateResponse = dockerClient.execCreateCmd(containerId)
                     .withAttachStdout(true)
                     .withAttachStderr(true)

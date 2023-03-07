@@ -127,13 +127,21 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
     }
 
     @Override
-    public void uploadBackup(InputStream inputStream, Instant creationTime) throws UploadException {
+    public void uploadBackup(InputStream inputStream, Instant creationTime, String firstWalFileName) throws UploadException {
         String key = String.format(
                 ArchiverConstants.S3_BACKUP_KEY_FORMAT,
                 ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime)
         );
 
         InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(archivingProperties.s3().backupsBucket(), key);
+        if (firstWalFileName == null || firstWalFileName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
+            log.error("Invalid first WAL file name. Backup will be created, but auto-remove WAL files wont work.");
+        } else {
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.addUserMetadata(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY, firstWalFileName);
+            initRequest.setObjectMetadata(metadata);
+        }
+
         InitiateMultipartUploadResult initResponse = s3Client.initiateMultipartUpload(initRequest);
 
         Queue<PartETag> eTagQueue = new ConcurrentLinkedQueue<>();
@@ -207,7 +215,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
     }
 
     @Override
-    public int removeBackupsAndWalOlderThanInstant(Instant instant) {
+    public int removeBackupsAndWalOlderThanInstant(Instant instant, boolean removeWal) {
         if (instant == null) {
             return 0;
         }
@@ -275,10 +283,12 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 S3Object oldestBackupObject = s3Client.getObject(archivingProperties.s3().backupsBucket(), oldestBackup.getKey());
                 String lastWalName = oldestBackupObject.getObjectMetadata().getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
 
-                if (lastWalName == null) {
-                    log.error("Oldest backup has corrupted {} metadata parameter. Can not remove old WAL files. Consider removing them manually.", ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
-                } else {
-                    removeWalFilesOlderThan(lastWalName);
+                if (removeWal) {
+                    if (lastWalName == null || lastWalName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
+                        log.error("Oldest backup has corrupted {} metadata parameter. Can not remove old WAL files. Consider removing them manually.", ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+                    } else {
+                        removeWalFilesOlderThan(lastWalName);
+                    }
                 }
             }
         }
@@ -302,11 +312,12 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
         try {
             s3Client.putObject(putObjectRequest);
         } catch (Exception e) {
-            throw new UploadException("Failed to upload WAL file {}" + file.getName(), e);
+            throw new UploadException("Failed to upload WAL file " + file.getName(), e);
         }
     }
 
     private void removeWalFilesOlderThan(String walFileName) {
+        // check wal file name format before calling!!!
         String lastRequiredWalKey = String.format(
                 ArchiverConstants.S3_WAL_FILE_KEY_FORMAT,
                 walFileName

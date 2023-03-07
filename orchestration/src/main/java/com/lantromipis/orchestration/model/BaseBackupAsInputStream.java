@@ -14,4 +14,5 @@ import java.io.InputStream;
 public class BaseBackupAsInputStream {
     private boolean success;
     private InputStream stream;
+    private String firstWalFileName;
 }

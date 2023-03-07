@@ -38,6 +38,6 @@ public interface PlatformAdapter {
 
     List<String> getRequiredHbaConfLines();
 
-    //TODO temporary solution. Better to implement Postgres replication protocol https://www.postgresql.org/docs/current/protocol-replication.html
+    //TODO Better to implement Postgres replication protocol https://www.postgresql.org/docs/current/protocol-replication.html
     BaseBackupAsInputStream createBaseBackupAndGetAsStream();
 }

@@ -114,7 +114,7 @@ public class PostgresUtils {
                 + " "
                 + CommandsConstants.PG_RECEIVE_WAL_COMMAND_TARGET_DIR_KEY + " " + targetDir
                 + " "
-                + CommandsConstants.PG_BASE_BACKUP_COMMAND_PASSWORD_KEY
+                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_PASSWORD_KEY
                 + " "
                 + CommandsConstants.PG_RECEIVE_WAL_COMMAND_NO_LOOP_KEY;
     }

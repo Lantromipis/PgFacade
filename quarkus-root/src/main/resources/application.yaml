@@ -49,12 +49,16 @@ pg-facade:
     adapter: s3
     basebackup:
       create-interval: PT30M
-      keep-old-interval: PT90M
       list-backups-interval: PT1M
+      clean-up:
+        remove-old: true
+        keep-old-interval: PT90M
+        remove-old-wal-files-when-removing: true
     wal:
       upload-wal-retries: 3
       wal-dir-clear-interval: PT5M # how often to clear old .partial files
       retry-upload-wal-files-interval: PT1M
+      streaming-active-check-interval: PT5S
     s3:
       protocol: http
       endpoint: http://minio:9000

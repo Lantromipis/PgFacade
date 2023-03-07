@@ -21,16 +21,26 @@ public interface ArchivingProperties {
         int uploadWalRetries();
 
         Duration walDirClearInterval();
-        
+
         Duration retryUploadWalFilesInterval();
+
+        Duration streamingActiveCheckInterval();
     }
 
     interface BasebackupProperties {
         Duration createInterval();
 
-        Duration keepOldInterval();
-
         Duration listBackupsInterval();
+
+        BasebackupCleanupProperties cleanUp();
+
+        interface BasebackupCleanupProperties {
+            boolean removeOld();
+
+            Duration keepOldInterval();
+
+            boolean removeOldWalFilesWhenRemoving();
+        }
     }
 
     interface S3ArchiverProperties {
