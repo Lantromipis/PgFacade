@@ -2,16 +2,14 @@ package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
-import java.util.Map;
-
 @ConfigMapping(prefix = "pg-facade.postgres")
 public interface PostgresProperties {
 
-    ReplicationProperties replication();
+    DefaultSettingsProperties defaultSettings();
 
     UserProperties users();
 
-    interface ReplicationProperties {
+    interface DefaultSettingsProperties {
         int maxWalKeepCount();
     }
 

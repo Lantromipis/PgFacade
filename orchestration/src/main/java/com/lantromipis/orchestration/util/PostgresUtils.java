@@ -5,15 +5,15 @@ import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
-import com.lantromipis.orchestration.model.PgSetting;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @ApplicationScoped
@@ -25,19 +25,25 @@ public class PostgresUtils {
     @Inject
     PostgresProperties postgresProperties;
 
-    public PgSetting getWalKepSizeOrSegmentsSettings(double version, int walKeepCount) {
+    public Map<String, String> getDefaultSettings(double version) {
+        Map<String, String> settings = new HashMap<>();
+
+        addWalKepSetting(settings, version, postgresProperties.defaultSettings().maxWalKeepCount());
+
+        return settings;
+    }
+
+    public void addWalKepSetting(Map<String, String> settings, double version, int walKeepCount) {
         if (version >= 13) {
-            return PgSetting
-                    .builder()
-                    .name(PostgresConstants.WAL_KEEP_SIZE_SETTING_NAME)
-                    .value(walKeepCount * 16 + "MB")
-                    .build();
+            settings.put(
+                    PostgresConstants.WAL_KEEP_SIZE_SETTING_NAME,
+                    walKeepCount * 16 + "MB"
+            );
         } else {
-            return PgSetting
-                    .builder()
-                    .name(PostgresConstants.WAL_KEEP_SEGMENTS_SETTING_NAME)
-                    .value(String.valueOf(walKeepCount))
-                    .build();
+            settings.put(
+                    PostgresConstants.WAL_KEEP_SEGMENTS_SETTING_NAME,
+                    String.valueOf(walKeepCount)
+            );
         }
     }
 

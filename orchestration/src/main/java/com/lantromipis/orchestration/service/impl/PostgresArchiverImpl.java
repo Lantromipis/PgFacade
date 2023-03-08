@@ -237,7 +237,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
                 boolean notConenctedToSwitchoverError = true;
 
-                if (switchoverLatch != null) {
+                if (switchoverLatch != null && switchoverLatch.getCount() > 0) {
                     notConenctedToSwitchoverError = false;
                     try {
                         switchoverLatch.await();
@@ -260,6 +260,8 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                             FileUtils.cleanDirectory(new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath()));
                         } catch (Exception ignored) {
                         }
+
+                        archiverWalStreamingState.getUnsuccessfulRetries().set(0);
 
                         startWalArchiving();
 
@@ -299,7 +301,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         }
     }
 
-    private void uploadWalFileAsyncByName(String walFileName) {
+    private void uploadWalFileOrHisotryFileByNameAsync(String walFileName) {
         managedExecutor.runAsync(() -> {
             String walFilePath = filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + walFileName;
 
@@ -327,7 +329,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                 failedToUploadWal.remove(walFileAbsolutePath);
                 return;
             } catch (Exception ignored) {
-                //do not log this exception due to stack trace spam
+                // do not log this exception due to stack trace spam
             }
         }
         failedToUploadWal.put(
@@ -372,7 +374,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                         for (WatchEvent<?> event : key.pollEvents()) {
                             String fileName = ((Path) event.context()).getFileName().toString();
                             if (!StringUtils.endsWith(fileName, ArchiverConstants.PARTIAL_WAL_FILE_ENDING) && !StringUtils.endsWith(fileName, ArchiverConstants.TMP_HISTORY_FILE_ENDING)) {
-                                uploadWalFileAsyncByName(fileName);
+                                uploadWalFileOrHisotryFileByNameAsync(fileName);
                             }
                         }
                         poll = key.reset();

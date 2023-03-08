@@ -4,6 +4,7 @@ import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
@@ -11,7 +12,6 @@ import com.lantromipis.orchestration.exception.PostgresConfigurationChangeExcept
 import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
-import com.lantromipis.orchestration.model.PgSetting;
 import com.lantromipis.orchestration.model.PgSettingsTableRow;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -25,7 +25,6 @@ import javax.inject.Inject;
 import java.sql.*;
 import java.util.*;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Slf4j
 @ApplicationScoped
@@ -46,13 +45,16 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
+    @Inject
+    PostgresPersistedProperties postgresPersistedProperties;
+
     @Override
     public void initialize() {
         try {
             Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary();
             ResultSet pgSettingsResultSet = connection.createStatement().executeQuery("SELECT name, setting, context FROM pg_settings");
 
-            // setting connection limit
+            // remember connection limit
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
                 if (PostgresConstants.MAX_CONNECTIONS_SETTING_NAME.equals(settingName)) {
@@ -134,18 +136,6 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
             // finished configuration
             pgfacadeUserConnection.close();
-
-            Map<String, String> postgresDefaultSettings = new HashMap<>();
-
-            double version = extractPostgresVersion(pgfacadeUserConnection);
-
-            PgSetting walKeepSetting = postgresUtils.getWalKepSizeOrSegmentsSettings(version, postgresProperties.replication().maxWalKeepCount());
-            postgresDefaultSettings.put(walKeepSetting.getName(), walKeepSetting.getValue());
-
-            changePostgresSettings(
-                    clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(),
-                    postgresDefaultSettings
-            );
 
             log.info("Finished executing required start-up SQL statements on new master.");
 

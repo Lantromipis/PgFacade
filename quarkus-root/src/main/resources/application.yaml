@@ -73,8 +73,8 @@ pg-facade:
       backups-bucket: pgfacade
       wal-bucket: pgfacade
   postgres:
-    replication:
-      max-wal-keep-count: 16 # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
+    default-settings:
+      max-wal-keep-count: 16  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       superuser: #used only when creating new database to create other users
         username: postgres

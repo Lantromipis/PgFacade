@@ -18,6 +18,7 @@ import com.lantromipis.orchestration.util.PostgresUtils;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -83,9 +84,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     PostgresArchiver postgresArchiver;
 
-    @Inject
-    PostgresProperties postgresProperties;
-
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
@@ -93,7 +91,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final AtomicBoolean clusterRestartInProgress = new AtomicBoolean(false);
     private int healthcheckFailedCount = 0;
     private Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
-    private Map<String, String> newPrimarySettings = new HashMap<>();
 
     private UUID masterInstanceId;
 
@@ -118,7 +115,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         orchestrationAdapter.get().initialize();
 
-        //primary section
+        // primary section
         PostgresAdapterInstanceInfo primaryInstanceInfo = orchestrationAdapter.get().getAvailablePostgresInstancesInfos().stream().filter(info -> Boolean.TRUE.equals(info.getMaster())).findFirst().orElse(null);
 
         boolean isNewDBSetup = false;
@@ -154,7 +151,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         masterInstanceId = primaryInstanceInfo.getInstanceId();
         masterReadyEvent.fire(new PrimaryReadyEvent());
 
-        //standby section
+        // standby section
         List<PostgresAdapterInstanceInfo> standbyInfos = orchestrationAdapter.get().getAvailablePostgresInstancesInfos()
                 .stream()
                 .filter(info -> Boolean.FALSE.equals(info.getMaster()))
@@ -181,14 +178,13 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         postgresConfigurator.initialize();
 
+        validateDefaultSettingsPresence();
+
         if (archivingProperties.enabled()) {
             postgresArchiver.initialize();
         } else {
             log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
-
-        PgSetting pgSetting = postgresUtils.getWalKepSizeOrSegmentsSettings(clusterRuntimeProperties.getPostgresVersion(), postgresProperties.replication().maxWalKeepCount());
-        newPrimarySettings.put(pgSetting.getName(), pgSetting.getValue());
 
         log.info("Orchestrator initialization completed!");
 
@@ -255,7 +251,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
                     log.warn("RESTARTING CLUSTER DUE TO POSTGRES SETTINGS CHANGES. CLUSTER WILL BE TEMPORARY UNAVAILABLE.");
 
-                    // using switchover event because for everyone restart looks the same
+                    // using switchover event because for application restart looks the same
                     UUID switchoverEventId = UUID.randomUUID();
                     switchoverStartedEvent.fire(new SwitchoverStartedEvent(switchoverEventId));
 
@@ -264,6 +260,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                         orchestrationAdapter.get().restartPostgresInstance(masterInstanceId);
 
                         waitUntilPostgresInstanceHealthy(masterInstanceId);
+
+                        // most likely we faced config parameter issue, so primary can not start.
+                        // Because of that, there is no ability to revert settings (in non-running container), so instance must be deleted
+                        orchestrationAdapter.get().deletePostgresInstance(masterInstanceId, true);
                     } catch (Throwable t) {
                         log.error("CLUSTER FAILED TO RESTART. WILL TRY TO RECOVER.");
                         switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, false));
@@ -283,17 +283,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     log.warn("CLUSTER RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. CLUSTER IS AVAILABLE NOW.");
                 }
 
-                postgresPersistedProperties.savePostgresSettingsInfos(newSettingNamesAndValuesMap
-                        .entrySet()
-                        .stream()
-                        .map(setting -> PostgresPersistedSettingInfo
-                                .builder()
-                                .name(setting.getKey())
-                                .value(setting.getValue())
-                                .build()
-                        )
-                        .collect(Collectors.toList())
-                );
+                postgresPersistedProperties.savePostgresSettingsInfos(newSettingNamesAndValuesMap);
 
             } catch (PostgresConfigurationChangeException e) {
                 throw e;
@@ -324,6 +314,30 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             List<PostgresAdapterInstanceInfo> availableInstances = orchestrationAdapter.get().getAvailablePostgresInstancesInfos();
             checkAndFixStandbyCount(availableInstances);
             standbyCountCheckInProgress.set(false);
+        }
+    }
+
+    private void validateDefaultSettingsPresence() {
+        Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(clusterRuntimeProperties.getPostgresVersion());
+
+        Map<String, String> persistedSettings = postgresPersistedProperties.getPostgresSettingInfos();
+        Map<String, String> mergedSettings = new HashMap<>(persistedSettings);
+
+        defaultSettings.forEach(mergedSettings::putIfAbsent);
+
+
+        if (!persistedSettings.equals(mergedSettings)) {
+            log.info("Not all required settings have values. Will apply default values.");
+            try {
+                clusterRuntimeProperties.getAllPostgresInstancesInfos().values().forEach(
+                        instance -> {
+                            postgresConfigurator.changePostgresSettings(instance.getInstanceId(), mergedSettings);
+                        }
+                );
+                postgresPersistedProperties.savePostgresSettingsInfos(mergedSettings);
+            } catch (Exception e) {
+                log.error("Failed to apply required settings default values ", e);
+            }
         }
     }
 
@@ -389,7 +403,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private PostgresAdapterInstanceInfo selectNewPrimary(List<PostgresAdapterInstanceInfo> availableInstances) {
-        //TODO maybe add some better logic to select new primary
+        //TODO maybe add some better logic to select new primary. By LSN?
         return availableInstances
                 .stream()
                 .filter(info ->
@@ -511,13 +525,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     newPrimaryInstanceInfo.getInstancePort()
             );
 
-            postgresConfigurator.fastPostgresSettingsChange(
-                    newPrimaryInstanceInfo.getInstanceId(),
-                    newPrimarySettings,
-                    true,
-                    standbyConnection
-            );
-
             ResultSet promoteResultSet = standbyConnection.createStatement().executeQuery("SELECT pg_promote()");
             promoteResultSet.next();
             boolean promoteSuccessful = promoteResultSet.getBoolean(1);
@@ -593,8 +600,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                                 primary
                                         ? null
                                         : postgresPersistedProperties.getPostgresSettingInfos()
-                                        .stream()
-                                        .collect(Collectors.toMap(PostgresPersistedSettingInfo::getName, PostgresPersistedSettingInfo::getValue))
                         )
                         .build()
         );

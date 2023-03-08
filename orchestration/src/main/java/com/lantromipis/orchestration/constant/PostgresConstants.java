@@ -28,8 +28,6 @@ public class PostgresConstants {
 
     public static final List<String> FORBIDDEN_TO_CHANGE_SETTINGS_NAMES = List.of(
             PRIMARY_CONN_INFO_SETTING_NAME,
-            WAL_KEEP_SEGMENTS_SETTING_NAME,
-            WAL_KEEP_SIZE_SETTING_NAME,
             "wal_level",
             "hot_standby",
             "archive_command",
