@@ -11,6 +11,7 @@ public class ArchiverConstants {
     public static final int WAL_FILE_NAME_LENGTH = 24;
 
     public static final String PARTIAL_WAL_FILE_ENDING = ".partial";
+    public static final String TMP_HISTORY_FILE_ENDING = ".tmp";
     public static final BigInteger PARTIAL_WAL_FILE_REMOVE_DIFF = BigInteger.valueOf(4L);
 
     // S3

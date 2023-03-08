@@ -371,7 +371,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                         WatchKey key = archiverWalStreamingState.getWalDirWatcherService().take();
                         for (WatchEvent<?> event : key.pollEvents()) {
                             String fileName = ((Path) event.context()).getFileName().toString();
-                            if (!StringUtils.endsWith(fileName, ArchiverConstants.PARTIAL_WAL_FILE_ENDING)) {
+                            if (!StringUtils.endsWith(fileName, ArchiverConstants.PARTIAL_WAL_FILE_ENDING) && !StringUtils.endsWith(fileName, ArchiverConstants.TMP_HISTORY_FILE_ENDING)) {
                                 uploadWalFileAsyncByName(fileName);
                             }
                         }
