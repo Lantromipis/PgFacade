@@ -6,6 +6,7 @@ import lombok.Data;
 
 import java.nio.file.WatchService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Data
 @Builder
@@ -15,9 +16,12 @@ public class ArchiverWalStreamingState {
     private AtomicBoolean processActive;
     private WatchService walDirWatcherService;
     private Process pgReceiveWallProcess;
+    private String pgReceiveWalStdErr;
+    private AtomicInteger unsuccessfulRetries;
 
     public ArchiverWalStreamingState() {
         watchServiceActive = new AtomicBoolean(false);
         processActive = new AtomicBoolean(false);
+        unsuccessfulRetries = new AtomicInteger(0);
     }
 }

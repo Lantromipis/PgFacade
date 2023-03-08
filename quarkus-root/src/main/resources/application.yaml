@@ -54,11 +54,15 @@ pg-facade:
         remove-old: true
         keep-old-interval: PT90M
         remove-old-wal-files-when-removing: true
-    wal:
+    wal-streaming:
       upload-wal-retries: 3
       wal-dir-clear-interval: PT5M # how often to clear old .partial files
       retry-upload-wal-files-interval: PT1M
-      streaming-active-check-interval: PT5S
+      recovery:
+        move-wal-after-completion: true # move completed WAL to another dir to prevent them from deletion in case of force restart
+        streaming-active-check-interval: PT5S
+        max-unsuccessful-retries-before-force-restart: 10 # clears WAL streaming directory and restarts WAL streaming. All files (even not saved) are roved! Recommended to use with move-wal-after-completion = true
+        create-new-backup-in-case-of-force-retry: false
     s3:
       protocol: http
       endpoint: http://minio:9000
@@ -69,6 +73,8 @@ pg-facade:
       backups-bucket: pgfacade
       wal-bucket: pgfacade
   postgres:
+    replication:
+      max-wal-keep-count: 16 # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       superuser: #used only when creating new database to create other users
         username: postgres

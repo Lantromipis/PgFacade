@@ -1,12 +1,14 @@
 package com.lantromipis.proxy;
 
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
-import com.lantromipis.proxy.initializer.ProxyChannelInitializer;
+import com.lantromipis.proxy.initializer.PooledProxyChannelInitializer;
+import com.lantromipis.proxy.initializer.UnpooledProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.proxy.service.api.PgProxyService;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -37,25 +39,36 @@ public class PgProxyServiceImpl implements PgProxyService {
     @Named("boss")
     EventLoopGroup bossGroup;
 
-    private ChannelFuture proxyChannelFuture;
+    private ChannelFuture primaryProxyChannelFuture;
 
     public void initialize() {
-        ServerBootstrap proxyBootstrap = new ServerBootstrap();
+        ServerBootstrap primaryProxyBootstrap = new ServerBootstrap();
 
-        Thread nettyBootstrapThread = new Thread(
+        Thread primaryBootstrapThread = new Thread(
                 () -> {
                     try {
-                        proxyChannelFuture = proxyBootstrap.group(bossGroup, workerGroup)
+
+                        ChannelHandler channelInitializer;
+
+                        if (proxyProperties.connectionPool().enabled()) {
+                            log.info("Starting primary proxy with connection pool.");
+                            channelInitializer = new PooledProxyChannelInitializer(proxyChannelHandlersProducer, clientConnectionsManagementService);
+                        } else {
+                            log.info("Starting primary proxy without connection pool.");
+                            channelInitializer = new UnpooledProxyChannelInitializer(true, proxyChannelHandlersProducer, clientConnectionsManagementService);
+                        }
+
+                        primaryProxyChannelFuture = primaryProxyBootstrap.group(bossGroup, workerGroup)
                                 .channel(NioServerSocketChannel.class)
-                                .childHandler(new ProxyChannelInitializer(proxyProperties.connectionPool().enabled(), proxyChannelHandlersProducer, clientConnectionsManagementService))
+                                .childHandler(channelInitializer)
                                 .childOption(ChannelOption.AUTO_READ, false)
                                 .bind(proxyProperties.port())
                                 .sync();
 
-                        log.info("Postgres proxy listening on port " + proxyProperties.port());
+                        log.info("Postgres primary proxy listening on port " + proxyProperties.port());
 
-                        proxyChannelFuture.channel().closeFuture().sync();
-                        log.info("Postgres proxy bootstrap stopped. Proxy not accepting connections.");
+                        primaryProxyChannelFuture.channel().closeFuture().sync();
+                        log.info("Postgres primary proxy bootstrap stopped. Proxy not accepting connections.");
 
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -64,12 +77,12 @@ public class PgProxyServiceImpl implements PgProxyService {
                     }
                 }
         );
-        nettyBootstrapThread.start();
+        primaryBootstrapThread.start();
     }
 
     @Override
     public void shutdown(boolean awaitClients, Duration awaitClientsDuration) {
-        proxyChannelFuture.channel().close();
+        primaryProxyChannelFuture.channel().close();
 
         if (!awaitClients) {
             clientConnectionsManagementService.forceDisconnectAll();

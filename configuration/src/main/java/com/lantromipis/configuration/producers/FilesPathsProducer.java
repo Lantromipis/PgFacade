@@ -22,7 +22,7 @@ public class FilesPathsProducer {
     public void createDirs() {
         try {
             Files.createDirectories(Paths.get(getPersistedPropertiesDirPath()));
-            Files.createDirectories(Paths.get(getPostgresWalStreamInfosDirectoryPath()));
+            Files.createDirectories(Paths.get(getPostgresWalStreamReceiverDirectoryPath()));
         } catch (IOException e) {
             log.error("Error while creating directories for PgFacade local files", e);
         }
@@ -37,10 +37,16 @@ public class FilesPathsProducer {
     }
 
 
-    public String getPostgresWalStreamInfosDirectoryPath() {
+    public String getPostgresWalStreamReceiverDirectoryPath() {
         return getLocalFilesDirPath()
                 + "/"
                 + PgFacadeConstants.POSTGRES_WAL_STREAM_DIRECTORY_NAME;
+    }
+
+    public String getPostgresWalStreamUploaderDirectoryPath() {
+        return getLocalFilesDirPath()
+                + "/"
+                + PgFacadeConstants.POSTGRES_WAL_UPLOAD_DIRECTORY_NAME;
     }
 
     public String getPostgresNodesInfosFilePath() {

@@ -11,15 +11,16 @@ import io.netty.handler.logging.LoggingHandler;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class ProxyChannelInitializer extends ChannelInitializer<Channel> {
-    private final boolean connectionPoolEnabled;
+public class UnpooledProxyChannelInitializer extends ChannelInitializer<Channel> {
+
+    private final boolean primaryRequired;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
 
-    public ProxyChannelInitializer(boolean connectionPoolEnabled,
-                                   final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
-                                   final ClientConnectionsManagementService clientConnectionsManagementService) {
-        this.connectionPoolEnabled = connectionPoolEnabled;
+    public UnpooledProxyChannelInitializer(final boolean primaryRequired,
+                                           final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
+                                           final ClientConnectionsManagementService clientConnectionsManagementService) {
+        this.primaryRequired = primaryRequired;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
     }
@@ -32,15 +33,9 @@ public class ProxyChannelInitializer extends ChannelInitializer<Channel> {
             channel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
         }
 
-        if (connectionPoolEnabled) {
-            channel.pipeline().addLast(
-                    proxyChannelHandlersProducer.createNewClientStartupHandler()
-            );
-        } else {
-            channel.pipeline().addLast(
-                    proxyChannelHandlersProducer.createNewNoPoolProxyClientHandler()
-            );
-        }
+        channel.pipeline().addLast(
+                proxyChannelHandlersProducer.createNewNoPoolProxyClientHandler(primaryRequired)
+        );
 
         channel.closeFuture().addListener((ChannelFutureListener) future -> {
             AbstractClientChannelHandler clientChannelHandler = future.channel().pipeline().get(AbstractClientChannelHandler.class);

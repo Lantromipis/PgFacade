@@ -15,16 +15,26 @@ public interface ArchivingProperties {
 
     BasebackupProperties basebackup();
 
-    WalProperties wal();
+    WalStreamingProperties walStreaming();
 
-    interface WalProperties {
+    interface WalStreamingProperties {
         int uploadWalRetries();
 
         Duration walDirClearInterval();
 
         Duration retryUploadWalFilesInterval();
 
-        Duration streamingActiveCheckInterval();
+        WalRecoveryProperties recovery();
+
+        interface WalRecoveryProperties {
+            boolean moveWalAfterCompletion();
+
+            Duration streamingActiveCheckInterval();
+
+            int maxUnsuccessfulRetriesBeforeForceRestart();
+
+            boolean createNewBackupInCaseOfForceRetry();
+        }
     }
 
     interface BasebackupProperties {

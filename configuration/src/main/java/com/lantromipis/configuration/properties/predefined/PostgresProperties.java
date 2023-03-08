@@ -7,7 +7,13 @@ import java.util.Map;
 @ConfigMapping(prefix = "pg-facade.postgres")
 public interface PostgresProperties {
 
+    ReplicationProperties replication();
+
     UserProperties users();
+
+    interface ReplicationProperties {
+        int maxWalKeepCount();
+    }
 
     interface UserProperties {
         UserCredentialsProperties superuser();

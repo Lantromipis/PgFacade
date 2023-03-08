@@ -5,6 +5,7 @@ import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
+import com.lantromipis.orchestration.model.PgSetting;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -23,6 +24,22 @@ public class PostgresUtils {
 
     @Inject
     PostgresProperties postgresProperties;
+
+    public PgSetting getWalKepSizeOrSegmentsSettings(double version, int walKeepCount) {
+        if (version >= 13) {
+            return PgSetting
+                    .builder()
+                    .name(PostgresConstants.WAL_KEEP_SIZE_SETTING_NAME)
+                    .value(walKeepCount * 16 + "MB")
+                    .build();
+        } else {
+            return PgSetting
+                    .builder()
+                    .name(PostgresConstants.WAL_KEEP_SEGMENTS_SETTING_NAME)
+                    .value(String.valueOf(walKeepCount))
+                    .build();
+        }
+    }
 
     public BigInteger calculateDifferenceBetweenWalFiles(String firstWal, String secondWal) {
         BigInteger firstWithoutTimeline = new BigInteger(firstWal.substring(8), 16);

@@ -26,7 +26,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
     }
 
     @Override
-    public void channelRead(final ChannelHandlerContext ctx, Object msg) {
+    public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
         int firstInt = message.readInt();
@@ -91,5 +91,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             ctx.channel().writeAndFlush(authRequestMessage);
             ctx.channel().read();
         }
+
+        super.channelRead(ctx, msg);
     }
 }

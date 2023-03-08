@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class FailedToUploadWalInfo {
-    String absoluteFilePath;
+public class PgSetting {
+    private String name;
+    private String value;
 }

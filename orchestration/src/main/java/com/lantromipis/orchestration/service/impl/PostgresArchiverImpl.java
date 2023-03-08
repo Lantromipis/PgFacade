@@ -18,6 +18,8 @@ import com.lantromipis.orchestration.util.PostgresUtils;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
@@ -27,6 +29,7 @@ import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.io.File;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.Instant;
 import java.util.Comparator;
@@ -83,7 +86,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         archiverAdapter.get().initialize();
 
-        File walDir = new File(filesPathsProducer.getPostgresWalStreamInfosDirectoryPath());
+        File walDir = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath());
 
         File[] files = walDir.listFiles();
 
@@ -91,10 +94,10 @@ public class PostgresArchiverImpl implements PostgresArchiver {
             for (File file : files) {
                 if (!file.getName().endsWith(ArchiverConstants.PARTIAL_WAL_FILE_ENDING)) {
                     failedToUploadWal.put(
-                            file.getName(),
+                            file.getAbsolutePath(),
                             FailedToUploadWalInfo
                                     .builder()
-                                    .fileName(file.getName())
+                                    .absoluteFilePath(file.getAbsolutePath())
                                     .build()
                     );
                 }
@@ -180,11 +183,11 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         }
     }
 
-    @Scheduled(every = "${pg-facade.archiving.wal.wal-dir-clear-interval}")
+    @Scheduled(every = "${pg-facade.archiving.wal-streaming.wal-dir-clear-interval}")
     public void checkWalDir() {
         if (archiverReady && lastKnownUploadedWal != null && walDirCheckInProgress.compareAndSet(false, true)) {
             try {
-                File dir = new File(filesPathsProducer.getPostgresWalStreamInfosDirectoryPath());
+                File dir = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath());
 
                 File[] files = dir.listFiles();
 
@@ -212,28 +215,59 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         }
     }
 
-    @Scheduled(every = "${pg-facade.archiving.wal.retry-upload-wal-files-interval}")
+    @Scheduled(every = "${pg-facade.archiving.wal-streaming.retry-upload-wal-files-interval}")
     public void retryUploadFailedWalFiles() {
         if (archiverReady && uploadFailedWalInProgress.compareAndSet(false, true)) {
             try {
-                failedToUploadWal.values().forEach(failedWalFileInfo -> uploadWalFileAsync(failedWalFileInfo.getFileName()));
+                failedToUploadWal.values()
+                        .forEach(failedWalFileInfo ->
+                                managedExecutor.runAsync(() -> uploadWalFileByPath(failedWalFileInfo.getAbsoluteFilePath()))
+                        );
             } finally {
                 uploadFailedWalInProgress.set(false);
             }
         }
     }
 
-    @Scheduled(every = "${pg-facade.archiving.wal.streaming-active-check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    @Scheduled(every = "${pg-facade.archiving.wal-streaming.recovery.streaming-active-check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkWalStreamingActive() {
         if (archiverReady) {
             if (!archiverWalStreamingState.getWatchServiceActive().get() || !archiverWalStreamingState.getProcessActive().get()) {
                 stopWalArchiving();
 
+                boolean notConenctedToSwitchoverError = true;
+
                 if (switchoverLatch != null) {
+                    notConenctedToSwitchoverError = false;
                     try {
                         switchoverLatch.await();
                     } catch (InterruptedException e) {
                         log.error("Failed to activate streaming replication. Will retry later...");
+                        return;
+                    }
+                    log.info("Restarting WAL stream due to switchover.");
+                }
+
+                if (notConenctedToSwitchoverError) {
+                    String cause = StringUtils.isEmpty(archiverWalStreamingState.getPgReceiveWalStdErr())
+                            ? "unknown"
+                            : archiverWalStreamingState.getPgReceiveWalStdErr().replaceAll("\n", "");
+                    log.error("Restarting WAL streaming due to error. Cause: '{}'", cause);
+
+                    if (archiverWalStreamingState.getUnsuccessfulRetries().incrementAndGet() > archivingProperties.walStreaming().recovery().maxUnsuccessfulRetriesBeforeForceRestart()) {
+                        log.error("Reached limit of max unsuccessful retries to restart WAL streaming! Force restarting WAL streaming!");
+                        try {
+                            FileUtils.cleanDirectory(new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath()));
+                        } catch (Exception ignored) {
+                        }
+
+                        startWalArchiving();
+
+                        if (archivingProperties.walStreaming().recovery().createNewBackupInCaseOfForceRetry()) {
+                            log.info("Creating and uploading new backup due to streaming force restart.");
+                            managedExecutor.runAsync(this::createAndUploadBackup);
+                        }
+
                         return;
                     }
                 }
@@ -265,28 +299,45 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         }
     }
 
-    private void uploadWalFileAsync(String walFileName) {
+    private void uploadWalFileAsyncByName(String walFileName) {
         managedExecutor.runAsync(() -> {
-            for (int i = 0; i < archivingProperties.wal().uploadWalRetries(); i++) {
+            String walFilePath = filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + walFileName;
+
+            if (archivingProperties.walStreaming().recovery().moveWalAfterCompletion()) {
+                File completedWalFile = new File(walFilePath);
+                File movedWalFile = new File(filesPathsProducer.getPostgresWalStreamUploaderDirectoryPath() + "/" + walFileName);
                 try {
-                    File file = new File(filesPathsProducer.getPostgresWalStreamInfosDirectoryPath() + "/" + walFileName);
-                    archiverAdapter.get().uploadWalFile(file);
-                    file.delete();
-                    failedToUploadWal.remove(walFileName);
-                    return;
+                    FileUtils.moveFile(completedWalFile, movedWalFile);
+                    walFilePath = movedWalFile.getAbsolutePath();
                 } catch (Exception ignored) {
-                    //do not log this exception due to stack trace spam
+                    // not logged. if this fails, any operation with file will fail
                 }
             }
-            failedToUploadWal.put(
-                    walFileName,
-                    FailedToUploadWalInfo
-                            .builder()
-                            .fileName(walFileName)
-                            .build()
-            );
-            log.error("FAILED TO UPLOAD WAL FILE! WILL KEEP IT AND RETRY LATER. MOST LIKELY IT IS STORAGE ISSUE. CHECK PGFACADE HEALTH!");
+
+            uploadWalFileByPath(walFilePath);
         });
+    }
+
+    private void uploadWalFileByPath(String walFileAbsolutePath) {
+        for (int i = 0; i < archivingProperties.walStreaming().uploadWalRetries(); i++) {
+            try {
+                File file = new File(walFileAbsolutePath);
+                archiverAdapter.get().uploadWalFile(file);
+                file.delete();
+                failedToUploadWal.remove(walFileAbsolutePath);
+                return;
+            } catch (Exception ignored) {
+                //do not log this exception due to stack trace spam
+            }
+        }
+        failedToUploadWal.put(
+                walFileAbsolutePath,
+                FailedToUploadWalInfo
+                        .builder()
+                        .absoluteFilePath(walFileAbsolutePath)
+                        .build()
+        );
+        log.error("FAILED TO UPLOAD WAL FILE! WILL KEEP IT AND RETRY LATER. MOST LIKELY IT IS STORAGE ISSUE.");
     }
 
     // true if successfully started
@@ -305,7 +356,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
             // start WatchService to monitor file system changes
             archiverWalStreamingState.setWalDirWatcherService(FileSystems.getDefault().newWatchService());
-            Path path = Paths.get(filesPathsProducer.getPostgresWalStreamInfosDirectoryPath());
+            Path path = Paths.get(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath());
 
             // At the end of WAL file pg_receivewal will rename file (remove .partial from end).
             // This means ENTRY_CREATE event will be fired, containing WAL file name without .partial at the end.
@@ -321,7 +372,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                         for (WatchEvent<?> event : key.pollEvents()) {
                             String fileName = ((Path) event.context()).getFileName().toString();
                             if (!StringUtils.endsWith(fileName, ArchiverConstants.PARTIAL_WAL_FILE_ENDING)) {
-                                uploadWalFileAsync(fileName);
+                                uploadWalFileAsyncByName(fileName);
                             }
                         }
                         poll = key.reset();
@@ -337,12 +388,21 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
             // start pg_receivewal
             ProcessBuilder pgReceiveWalProcessBuilder = new ProcessBuilder();
-            String walStreamDir = filesPathsProducer.getPostgresWalStreamInfosDirectoryPath();
+            String walStreamDir = filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath();
 
             pgReceiveWalProcessBuilder.command("/bin/sh", "-c", postgresUtils.createPgReceiveWalCommand(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), walStreamDir));
             archiverWalStreamingState.setPgReceiveWallProcess(pgReceiveWalProcessBuilder.start());
             archiverWalStreamingState.getProcessActive().set(true);
-            archiverWalStreamingState.getPgReceiveWallProcess().onExit().thenAccept(process -> archiverWalStreamingState.getProcessActive().set(false));
+            archiverWalStreamingState.getPgReceiveWallProcess().onExit()
+                    .thenAccept(process -> {
+                                try {
+                                    archiverWalStreamingState.setPgReceiveWalStdErr(IOUtils.toString(process.getErrorStream(), StandardCharsets.UTF_8));
+                                } catch (Exception ignored) {
+                                }
+
+                                archiverWalStreamingState.getProcessActive().set(false);
+                            }
+                    );
 
             log.info("Started streaming WAL from primary.");
         } catch (Exception e) {

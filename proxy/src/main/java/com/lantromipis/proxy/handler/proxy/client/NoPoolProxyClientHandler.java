@@ -50,7 +50,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     }
 
     @Override
-    public void channelRead(final ChannelHandlerContext ctx, Object msg) {
+    public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         if (postgreSqlChannel.isActive()) {
             postgreSqlChannel.writeAndFlush(msg).addListener(new ChannelFutureListener() {
                 @Override
@@ -63,6 +63,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
                     }
                 }
             });
+            super.channelRead(ctx, msg);
         }
     }
 

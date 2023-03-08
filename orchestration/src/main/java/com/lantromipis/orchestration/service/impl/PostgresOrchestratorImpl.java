@@ -5,14 +5,12 @@ import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
-import com.lantromipis.orchestration.model.InstanceHealth;
-import com.lantromipis.orchestration.model.InstanceStatus;
-import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
-import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
@@ -85,6 +83,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     PostgresArchiver postgresArchiver;
 
+    @Inject
+    PostgresProperties postgresProperties;
+
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
@@ -92,6 +93,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final AtomicBoolean clusterRestartInProgress = new AtomicBoolean(false);
     private int healthcheckFailedCount = 0;
     private Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
+    private Map<String, String> newPrimarySettings = new HashMap<>();
 
     private UUID masterInstanceId;
 
@@ -184,6 +186,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         } else {
             log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
+
+        PgSetting pgSetting = postgresUtils.getWalKepSizeOrSegmentsSettings(clusterRuntimeProperties.getPostgresVersion(), postgresProperties.replication().maxWalKeepCount());
+        newPrimarySettings.put(pgSetting.getName(), pgSetting.getValue());
 
         log.info("Orchestrator initialization completed!");
 
@@ -504,6 +509,13 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             Connection standbyConnection = postgresUtils.getConnectionForPgFacadeUser(
                     newPrimaryInstanceInfo.getInstanceAddress(),
                     newPrimaryInstanceInfo.getInstancePort()
+            );
+
+            postgresConfigurator.fastPostgresSettingsChange(
+                    newPrimaryInstanceInfo.getInstanceId(),
+                    newPrimarySettings,
+                    true,
+                    standbyConnection
             );
 
             ResultSet promoteResultSet = standbyConnection.createStatement().executeQuery("SELECT pg_promote()");

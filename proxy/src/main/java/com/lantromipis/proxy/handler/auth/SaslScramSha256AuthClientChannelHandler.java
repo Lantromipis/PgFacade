@@ -75,7 +75,6 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-
         switch (saslAuthStatus) {
             case NOT_STARTED -> {
                 processFirstMessage(ctx, msg);
@@ -84,6 +83,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
                 processFinalMessage(ctx, msg);
             }
         }
+        super.channelRead(ctx, msg);
     }
 
     private void processFirstMessage(ChannelHandlerContext ctx, Object msg) {

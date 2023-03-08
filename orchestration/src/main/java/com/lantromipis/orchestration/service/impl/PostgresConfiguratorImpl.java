@@ -11,11 +11,13 @@ import com.lantromipis.orchestration.exception.PostgresConfigurationChangeExcept
 import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
+import com.lantromipis.orchestration.model.PgSetting;
 import com.lantromipis.orchestration.model.PgSettingsTableRow;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -23,6 +25,7 @@ import javax.inject.Inject;
 import java.sql.*;
 import java.util.*;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @ApplicationScoped
@@ -49,7 +52,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary();
             ResultSet pgSettingsResultSet = connection.createStatement().executeQuery("SELECT name, setting, context FROM pg_settings");
 
-            //setting connection limit
+            // setting connection limit
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
                 if (PostgresConstants.MAX_CONNECTIONS_SETTING_NAME.equals(settingName)) {
@@ -57,6 +60,9 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
                     break;
                 }
             }
+
+            clusterRuntimeProperties.setPostgresVersion(extractPostgresVersion(connection));
+
             connection.close();
         } catch (Exception e) {
             log.error("Error during configurator initialization.", e);
@@ -123,10 +129,23 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             // update pg_hba.conf
             replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), platformAdapter.getRequiredHbaConfLines());
 
+            // apply new conf
             reloadConf(pgfacadeUserConnection);
 
             // finished configuration
             pgfacadeUserConnection.close();
+
+            Map<String, String> postgresDefaultSettings = new HashMap<>();
+
+            double version = extractPostgresVersion(pgfacadeUserConnection);
+
+            PgSetting walKeepSetting = postgresUtils.getWalKepSizeOrSegmentsSettings(version, postgresProperties.replication().maxWalKeepCount());
+            postgresDefaultSettings.put(walKeepSetting.getName(), walKeepSetting.getValue());
+
+            changePostgresSettings(
+                    clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(),
+                    postgresDefaultSettings
+            );
 
             log.info("Finished executing required start-up SQL statements on new master.");
 
@@ -190,6 +209,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
     @Override
     public boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
+        if (MapUtils.isEmpty(newSettingNamesAndValuesMap)) {
+            return false;
+        }
+
         boolean restartRequired = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
 
         log.info("Changing settings for instance {}. Restart will be required: {}", instanceId, restartRequired);
@@ -198,26 +221,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
 
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
-
             List<String> oldConfLines = getFileLines(instanceId, filePath);
 
-            Map<String, String> newConfSettingsMap = new HashMap<>();
-            for (String settingLine : oldConfLines) {
-                Matcher settingLineMatcher = PostgresConstants.CONF_FILE_LINE_PATTERN.matcher(settingLine);
-                if (!settingLineMatcher.matches()) {
-                    throw new PostgresConfigurationChangeException("Corrupted config file.");
-                }
-                newConfSettingsMap.put(settingLineMatcher.group(1), settingLineMatcher.group(2));
-            }
+            fastPostgresSettingsChange(instanceId, newSettingNamesAndValuesMap, false, connection);
 
-            newConfSettingsMap.putAll(newSettingNamesAndValuesMap);
-
-            List<String> newConfLines = new ArrayList<>();
-            for (var settingEntry : newConfSettingsMap.entrySet()) {
-                newConfLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
-            }
-
-            replaceFileLines(instanceId, filePath, newConfLines);
             ResultSet checkSettingResultSet = connection.createStatement().executeQuery("SELECT * FROM pg_file_settings WHERE error NOTNULL AND sourcefile = '" + filePath + "'");
 
             List<String> errors = new ArrayList<>();
@@ -254,6 +261,53 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             throw postgresConfigurationChangeException;
         } catch (Exception e) {
             throw new PostgresConfigurationChangeException("Unexpected error occurred while trying to apply new Postgres settings. ", e);
+        }
+    }
+
+    @Override
+    public boolean fastPostgresSettingsChange(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
+        try {
+            boolean closeConnection = false;
+
+            if (connection == null) {
+                closeConnection = true;
+                connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(instanceId);
+            }
+
+            String filePath = getPgFacadePostgresqlConfFilePath(connection);
+
+            List<String> oldConfLines = getFileLines(instanceId, filePath);
+
+            Map<String, String> newConfSettingsMap = new HashMap<>();
+            for (String settingLine : oldConfLines) {
+                Matcher settingLineMatcher = PostgresConstants.CONF_FILE_LINE_PATTERN.matcher(settingLine);
+                if (!settingLineMatcher.matches()) {
+                    throw new PostgresConfigurationChangeException("Corrupted config file.");
+                }
+                newConfSettingsMap.put(settingLineMatcher.group(1), settingLineMatcher.group(2));
+            }
+
+            newConfSettingsMap.putAll(newSettingNamesAndValuesMap);
+
+            List<String> newConfLines = new ArrayList<>();
+            for (var settingEntry : newConfSettingsMap.entrySet()) {
+                newConfLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
+            }
+
+            replaceFileLines(instanceId, filePath, newConfLines);
+
+            if (reloadConf) {
+                reloadConf(connection);
+            }
+
+            if (closeConnection) {
+                connection.close();
+            }
+
+            return true;
+        } catch (Exception e) {
+            log.error("Error while applying settings", e);
+            return false;
         }
     }
 
@@ -333,5 +387,15 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
     private void grantExecuteOnFunction(Connection connection, String function, String username) throws SQLException {
         connection.createStatement().executeUpdate("GRANT EXECUTE ON FUNCTION " + function + " TO " + username);
+    }
+
+    private double extractPostgresVersion(Connection connection) throws SQLException {
+        ResultSet resultSet = connection.createStatement().executeQuery("show server_version");
+        resultSet.next();
+        String showVersionResult = resultSet.getString(1);
+        Matcher matcher = PostgresConstants.SHOW_SERVER_VERSION_PATTERN.matcher(showVersionResult);
+        matcher.matches();
+
+        return Double.parseDouble(matcher.group(1).trim());
     }
 }
