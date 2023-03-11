@@ -18,10 +18,12 @@ public class ArchiverWalStreamingState {
     private Process pgReceiveWallProcess;
     private String pgReceiveWalStdErr;
     private AtomicInteger unsuccessfulRetries;
+    private AtomicBoolean switchoverActionProcessed;
 
     public ArchiverWalStreamingState() {
         watchServiceActive = new AtomicBoolean(false);
         processActive = new AtomicBoolean(false);
         unsuccessfulRetries = new AtomicInteger(0);
+        switchoverActionProcessed = new AtomicBoolean(false);
     }
 }

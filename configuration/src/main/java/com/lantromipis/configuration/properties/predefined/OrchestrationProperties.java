@@ -9,11 +9,23 @@ public interface OrchestrationProperties {
 
     AdapterType adapter();
 
+    PostgresClusterRestoreProperties postgresClusterRestore();
+
     NoAdapterProperties noAdapter();
 
     DockerProperties docker();
 
     CommonProperties common();
+
+    interface PostgresClusterRestoreProperties {
+        boolean autoRestoreIfNoInstancesOnStartup();
+
+        boolean allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed();
+
+        boolean autoRestoreLostCluster();
+
+        boolean removeFailedToRestoreInstance();
+    }
 
     interface CommonProperties {
 

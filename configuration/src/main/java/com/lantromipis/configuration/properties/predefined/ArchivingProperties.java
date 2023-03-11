@@ -20,15 +20,11 @@ public interface ArchivingProperties {
     interface WalStreamingProperties {
         int uploadWalRetries();
 
-        Duration walDirClearInterval();
-
         Duration retryUploadWalFilesInterval();
 
-        WalRecoveryProperties recovery();
+        WalFaultToleranceProperties faultTolerance();
 
-        interface WalRecoveryProperties {
-            boolean moveWalAfterCompletion();
-
+        interface WalFaultToleranceProperties {
             Duration streamingActiveCheckInterval();
 
             int maxUnsuccessfulRetriesBeforeForceRestart();

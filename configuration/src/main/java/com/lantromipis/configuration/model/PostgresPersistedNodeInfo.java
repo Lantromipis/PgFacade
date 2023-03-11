@@ -28,5 +28,5 @@ public class PostgresPersistedNodeInfo {
     /**
      * Indicates if node is running in master mode.
      */
-    private boolean master;
+    private boolean primary;
 }

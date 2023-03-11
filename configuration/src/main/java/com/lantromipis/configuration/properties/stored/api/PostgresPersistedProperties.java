@@ -18,6 +18,8 @@ public interface PostgresPersistedProperties {
 
     PostgresPersistedNodeInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
 
+    void clearPostgresNodesInfos() throws PropertyModificationException;
+
     Map<String, String> getPostgresSettingInfos() throws PropertyReadException;
 
     void savePostgresSettingsInfos(Map<String, String> persistedSettingsInfos) throws PropertyModificationException;

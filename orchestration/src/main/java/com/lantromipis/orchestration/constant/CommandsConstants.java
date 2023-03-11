@@ -4,6 +4,8 @@ import java.util.regex.Pattern;
 
 public class CommandsConstants {
 
+    public static final String PG_CTL_RECOVERY_TIMEOUT = "86400";
+
     public static final String PG_RECEIVE_WAL_COMMAND = "pg_receivewal";
     public static final String PG_RECEIVE_WAL_COMMAND_TARGET_DIR_KEY = "-D";
     public static final String PG_RECEIVE_WAL_COMMAND_HOST_KEY = "-h";
@@ -11,9 +13,6 @@ public class CommandsConstants {
     public static final String PG_RECEIVE_WAL_COMMAND_USER_KEY = "-U";
     public static final String PG_RECEIVE_WAL_COMMAND_PASSWORD_KEY = "-w";
     public static final String PG_RECEIVE_WAL_COMMAND_NO_LOOP_KEY = "-n";
-
-    public static final String POSTGRES_COMMAND = "postgres";
-    public static final String POSTGRES_COMMAND_PARAMETER_KEY = "-c";
 
     public static final String PG_BASE_BACKUP_COMMAND = "pg_basebackup";
     public static final String PG_BASE_BACKUP_COMMAND_TARGET_DIR_KEY = "-D";

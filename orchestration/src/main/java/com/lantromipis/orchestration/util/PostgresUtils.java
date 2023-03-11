@@ -25,6 +25,27 @@ public class PostgresUtils {
     @Inject
     PostgresProperties postgresProperties;
 
+    public String getShellPgCtlToStopPostgres(String pgDataDirPath) {
+        return "pg_ctl stop -D " + pgDataDirPath + " ; rm -f " + pgDataDirPath + "/recovery.signal";
+    }
+
+    public String getShellPgCtlToStartRecovery(String pgDataDirPath, String dirWithWalFilesPath) {
+        return "PGDATA=" + pgDataDirPath + " ; "
+                + "pg_ctl start -s"
+                + " -D " + pgDataDirPath
+                + " -o \"-c restore_command='cp " + dirWithWalFilesPath + "/%f %p'\""
+                + " -t " + CommandsConstants.PG_CTL_RECOVERY_TIMEOUT
+                // sleeping to give headroom for database after startup
+                + " 1> /dev/null ; sleep 10";
+    }
+
+    public String getShellCommandToPrepareForRecovery(String pgDataDirPath) {
+        return "rm -rf " + pgDataDirPath + "/pg_wal/* ; "
+                + "touch " + pgDataDirPath + "/recovery.signal ; "
+                + "chown -R postgres:postgres " + pgDataDirPath + " ; "
+                + "chmod 700 " + pgDataDirPath;
+    }
+
     public Map<String, String> getDefaultSettings(double version) {
         Map<String, String> settings = new HashMap<>();
 

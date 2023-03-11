@@ -5,13 +5,13 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.io.InputStream;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class FailedToUploadWalInfo {
-    private String absoluteFilePath;
-    private Instant timestamp;
+public class BaseBackupDownload {
+    private String firstWalFile;
+    private InputStream inputStreamWithBackupTar;
 }

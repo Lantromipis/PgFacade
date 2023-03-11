@@ -19,6 +19,7 @@ import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+import org.checkerframework.checker.units.qual.A;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -89,13 +90,14 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
     private final AtomicBoolean clusterRestartInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean primaryUnhealthy = new AtomicBoolean(false);
     private int healthcheckFailedCount = 0;
     private Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
 
     private UUID masterInstanceId;
 
     @Override
-    public void initialize() {
+    public boolean initialize() {
         if (OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
             log.info("No orchestrator adapter is configured. PgFacade will work like proxy + connection pool without any HA features for Postgres. Consider choosing another adapter if you need HA features.");
             addInstanceToRuntimeProperties(PostgresAdapterInstanceInfo
@@ -110,20 +112,50 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             // to set runtime properties
             postgresConfigurator.initialize();
 
-            return;
+            return true;
         }
 
         orchestrationAdapter.get().initialize();
 
         // primary section
-        PostgresAdapterInstanceInfo primaryInstanceInfo = orchestrationAdapter.get().getAvailablePostgresInstancesInfos().stream().filter(info -> Boolean.TRUE.equals(info.getMaster())).findFirst().orElse(null);
+        PostgresAdapterInstanceInfo primaryInstanceInfo = orchestrationAdapter.get()
+                .getAvailablePostgresInstancesInfos()
+                .stream()
+                .filter(info -> Boolean.TRUE.equals(info.getMaster()))
+                .findFirst()
+                .orElse(null);
 
         boolean isNewDBSetup = false;
 
         if (primaryInstanceInfo == null) {
-            log.info("Can not find any Postgres primary instance. Will create and start new one.");
-            primaryInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
-            isNewDBSetup = true;
+            if (orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
+                log.info("No Postgres primary instance found. Will try to restore it from backup.");
+                postgresArchiver.initializeForStartupRecovery();
+                if (!postgresArchiver.doesAnyBackupExist()) {
+                    log.error("No backups are available in archive storage! Can not restore!");
+                } else {
+                    try {
+                        log.info("Restoring primary from backup. This will take some time...");
+                        postgresPersistedProperties.clearPostgresNodesInfos();
+                        UUID newPrimaryInstanceId = postgresArchiver.restorePostgresToLatestVersionFromArchive();
+                        orchestrationAdapter.get().startPostgresInstance(newPrimaryInstanceId);
+                        primaryInstanceInfo = waitUntilPostgresInstanceHealthy(newPrimaryInstanceId);
+                    } catch (Exception e) {
+                        if (orchestrationProperties.postgresClusterRestore().allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed()) {
+                            log.error("Failed to restore from backup!", e);
+                        } else {
+                            log.error("Failed to restore from backup! Restore manually and restart PgFacade in 'RECOVERY' mode!", e);
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            if (primaryInstanceInfo == null && orchestrationProperties.postgresClusterRestore().allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed()) {
+                log.info("Will create and start new and empty Primary because configuration allows it.");
+                primaryInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
+                isNewDBSetup = true;
+            }
         } else if (InstanceStatus.NOT_ACTIVE.equals(primaryInstanceInfo.getStatus())) {
             log.info("Found non-active Postgres primary instance. Will start it now.");
             boolean masterStarted = orchestrationAdapter.get().startPostgresInstance(primaryInstanceInfo.getInstanceId());
@@ -189,6 +221,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         log.info("Orchestrator initialization completed!");
 
         orchestratorReady.set(true);
+
+        return true;
     }
 
     @Override
@@ -302,18 +336,24 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Scheduled(every = "${pg-facade.orchestration.common.postgres-dead-check.interval}")
     public void checkPrimaryLiveliness() {
         if (orchestratorReady.get() && !switchoverInProgress.get() && !clusterRestartInProgress.get() && livelinessCheckInProgress.compareAndSet(false, true)) {
-            List<PostgresAdapterInstanceInfo> availableInstances = orchestrationAdapter.get().getAvailablePostgresInstancesInfos();
-            checkPrimaryHealthAndFailoverIfNeeded(availableInstances);
-            livelinessCheckInProgress.set(false);
+            try {
+                List<PostgresAdapterInstanceInfo> availableInstances = orchestrationAdapter.get().getAvailablePostgresInstancesInfos();
+                checkPrimaryHealthAndFailoverIfNeeded(availableInstances);
+            } finally {
+                livelinessCheckInProgress.set(false);
+            }
         }
     }
 
     @Scheduled(every = "${pg-facade.orchestration.common.standby.count-check-interval}")
     public void checkStandbyCount() {
-        if (orchestratorReady.get() && !switchoverInProgress.get() && !clusterRestartInProgress.get() && standbyCountCheckInProgress.compareAndSet(false, true)) {
-            List<PostgresAdapterInstanceInfo> availableInstances = orchestrationAdapter.get().getAvailablePostgresInstancesInfos();
-            checkAndFixStandbyCount(availableInstances);
-            standbyCountCheckInProgress.set(false);
+        if (orchestratorReady.get() && !primaryUnhealthy.get() && !switchoverInProgress.get() && !clusterRestartInProgress.get() && standbyCountCheckInProgress.compareAndSet(false, true)) {
+            try {
+                List<PostgresAdapterInstanceInfo> availableInstances = orchestrationAdapter.get().getAvailablePostgresInstancesInfos();
+                checkAndFixStandbyCount(availableInstances);
+            } finally {
+                standbyCountCheckInProgress.set(false);
+            }
         }
     }
 
@@ -355,34 +395,44 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void checkPrimaryHealthAndFailoverIfNeeded(List<PostgresAdapterInstanceInfo> availableInstances) {
-        boolean foundMaster = false;
         boolean healthcheckFailed = false;
         PostgresAdapterInstanceInfo newMasterInstanceInfo = null;
 
         for (PostgresAdapterInstanceInfo instanceInfo : availableInstances) {
-            if (instanceInfo.getMaster()) {
-                foundMaster = true;
-            }
             if (instanceInfo.getMaster() && !InstanceHealth.HEALTHY.equals(instanceInfo.getHealth())) {
                 healthcheckFailedCount++;
                 healthcheckFailed = true;
+                primaryUnhealthy.set(true);
                 log.error("POSTGRES PRIMARY UNHEALTHY. {} HEALTHCHECKS FAILED WHEN MAXIMUM IS {}", healthcheckFailedCount, orchestrationProperties.common().postgresDeadCheck().retries());
-            }
-        }
-
-        if (!foundMaster) {
-            log.error("NO ACTIVE PRIMARY FOUND. NEED TO FAILOVER.");
-            newMasterInstanceInfo = selectNewPrimary(availableInstances);
-            if (newMasterInstanceInfo == null) {
-                log.error("FATAL ERROR. NO PRIMARY FOUND BUT NO HEALTH AND ACTIVE STANDBY FOUND. CAN NOT FAILOVER!!!");
             }
         }
 
         if (healthcheckFailedCount >= orchestrationProperties.common().postgresDeadCheck().retries()) {
             log.error("REACHED MAXIMUM HEALTHCHECKS RETRY COUNT. NEED TO FAILOVER.");
+
+            // mark orchestrator as not ready, to prevent any other changes during failover
+            orchestratorReady.set(false);
+
             newMasterInstanceInfo = selectNewPrimary(availableInstances);
             if (newMasterInstanceInfo == null) {
-                log.error("FATAL ERROR. POSTGRES PRIMARY IS UNHEALTHY BUT NO ALIVE AND ACTIVE STANDBY FOUND. CAN NOT FAILOVER!!!");
+                log.error("FATAL ERROR. POSTGRES PRIMARY IS UNHEALTHY BUT NO ALIVE AND ACTIVE STANDBY FOUND. CAN NOT FAILOVER IMMIDIATLY!");
+                if (!orchestrationProperties.postgresClusterRestore().autoRestoreLostCluster()) {
+                    log.error("WILL NOT TRY TO RESTORE CLUSTER FROM BACKUP, BECAUSE CONFIGURATION PROHIBITS THIS ACTION! RESTORE PRIMARY MANUALLY AND RESTART PGFACADE!");
+                    // keep orchestrator inactive.
+                    return;
+                } else {
+                    try {
+                        log.error("RESTORING PRIMARY USING LATEST AVAILABLE VERSION FROM ARCHIVE.");
+                        UUID newPrimaryInstanceId = postgresArchiver.restorePostgresToLatestVersionFromArchive();
+                        orchestrationAdapter.get().startPostgresInstance(newPrimaryInstanceId);
+                        waitUntilPostgresInstanceHealthy(newPrimaryInstanceId);
+                        postgresPersistedProperties.clearPostgresNodesInfos();
+                        log.info("SUCCESFULY RESTORED LOST CLUSTER FROM BACKUP!");
+                        healthcheckFailedCount = 0;
+                    } catch (Exception e) {
+                        log.error("FAILED TO RESTORE PRIMARY FROM BACKUP!", e);
+                    }
+                }
             }
         }
 
@@ -390,16 +440,26 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             log.info("FAILOVER STARTED. STANDBY WILL SWITCHOVER PRIMARY.");
             if (!switchover(newMasterInstanceInfo)) {
                 log.error("FATAL ERROR. TRIED TO PROMOTE STANDBY BUT FAILED. FAILOVER FAILED!!!");
+                orchestratorReady.set(true);
                 return;
             } else {
-                waitUntilPostgresInstanceHealthy(newMasterInstanceInfo.getInstanceId());
+                try {
+                    waitUntilPostgresInstanceHealthy(newMasterInstanceInfo.getInstanceId());
+                } catch (Exception e) {
+                    log.error("FAILED TO ACHIEVE HEALTH PRIMARY AFTER SWITCHOVER!");
+                    orchestratorReady.set(true);
+                    return;
+                }
                 healthcheckFailedCount = 0;
             }
         }
 
         if (!healthcheckFailed) {
             healthcheckFailedCount = 0;
+            primaryUnhealthy.set(false);
         }
+
+        orchestratorReady.set(true);
     }
 
     private PostgresAdapterInstanceInfo selectNewPrimary(List<PostgresAdapterInstanceInfo> availableInstances) {

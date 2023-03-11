@@ -1,10 +1,10 @@
 pg-facade:
   shutdown:
-    await-clients: true
+    await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   proxy:
     port: 5433
-    max-connections: 100
+    max-connections: 500
     connection-pool:
       enabled: false
     inactive-clients:
@@ -13,6 +13,11 @@ pg-facade:
       check-interval: PT10S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   orchestration:
     adapter: docker
+    postgres-cluster-restore:
+      auto-restore-if-no-instances-on-startup: true
+      allow-creating-new-empty-primary-if-restore-on-startup-failed: false
+      auto-restore-lost-cluster: true
+      remove-failed-to-restore-instance: false
     common:
       postgres-startup-check:
         start-period: 2000 #millisecinds
@@ -23,7 +28,7 @@ pg-facade:
         retries: 3
       standby:
         count: 1
-        count-check-interval: PT1S
+        count-check-interval: PT10S
     no-adapter:
       primary-host: localhost
       primary-port: 5432
@@ -48,21 +53,19 @@ pg-facade:
     enabled: true
     adapter: s3
     basebackup:
-      create-interval: PT30M
+      create-interval: PT60M
       list-backups-interval: PT1M
       clean-up:
         remove-old: true
-        keep-old-interval: PT90M
+        keep-old-interval: PT180M
         remove-old-wal-files-when-removing: true
     wal-streaming:
-      upload-wal-retries: 3
-      wal-dir-clear-interval: PT5M # how often to clear old .partial files
+      upload-wal-retries: 5
       retry-upload-wal-files-interval: PT1M
-      recovery:
-        move-wal-after-completion: true # move completed WAL to another dir to prevent them from deletion in case of force restart
-        streaming-active-check-interval: PT5S
-        max-unsuccessful-retries-before-force-restart: 10 # clears WAL streaming directory and restarts WAL streaming. All files (even not saved) are roved! Recommended to use with move-wal-after-completion = true
-        create-new-backup-in-case-of-force-retry: false
+      fault-tolerance:
+        streaming-active-check-interval: PT3S
+        max-unsuccessful-retries-before-force-restart: 5 # rarely pg_receivewal stuck after switchover, because new primary did not receive last WAL, but pg_receivewal did. Because of that PgFacade clears WAL streaming directory and restarts WAL streaming. All files (even not saved) are removed! Recommended to use with move-wal-after-completion = true
+        create-new-backup-in-case-of-force-retry: true
     s3:
       protocol: http
       endpoint: http://minio:9000
@@ -105,6 +108,10 @@ quarkus:
     name: PgFacade
 
 "%dev":
+  pg-facade:
+    orchestration:
+      postgres-cluster-restore:
+        allow-creating-new-empty-primary-if-restore-on-startup-failed: true
   quarkus:
     devservices:
       enabled: false

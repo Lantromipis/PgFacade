@@ -3,7 +3,6 @@ package com.lantromipis.orchestration.adapter.impl;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.exception.NotFoundException;
-import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
@@ -21,26 +20,30 @@ import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
+import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
-import com.lantromipis.orchestration.model.BaseBackupAsInputStream;
+import com.lantromipis.orchestration.model.BaseBackupCreationResult;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.ObservableInputStream;
+import org.apache.commons.lang3.StringUtils;
+import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 
 @Slf4j
@@ -65,6 +68,12 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Inject
     PostgresPersistedProperties persistedProperties;
+
+    @Inject
+    ManagedExecutor managedExecutor;
+
+    @Inject
+    PgFacadeIOUtils pgFacadeIOUtils;
 
     //TODO add timeouts for client
     private DockerClient dockerClient;
@@ -111,32 +120,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         String containerId = null;
         UUID instanceId = null;
         try {
-            OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+            UUID futureInstanceId = UUID.randomUUID();
+            String containerNamePostfix = futureInstanceId.toString();
 
-            String containerNamePostfix = UUID.randomUUID().toString();
-
-            CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
-                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().containerName(), containerNamePostfix))
-                    .withHostConfig(
-                            HostConfig.newHostConfig()
-                                    .withNetworkMode(dockerProperties.postgres().networkName())
-                    )
-                    .withEnv(
-                            List.of(
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().superuser().password()),
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().superuser().username()),
-                                    createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
-                            )
-                    )
-                    //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
-                    .withHealthcheck(
-                            new HealthCheck()
-                                    .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().interval()))
-                                    .withRetries(dockerProperties.postgres().healthcheck().retries())
-                                    .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().startPeriod()))
-                                    .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().timeout()))
-                                    .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgres().healthcheck().cmdShellCommand()))
-                    );
+            CreateContainerCmd createContainerCmd = getDefaultCreateContainerCmdRequest(containerNamePostfix);
 
             if (!request.isPrimary()) {
                 Map<String, String> postgresSettings = new HashMap<>(request.getStandbySettings());
@@ -160,19 +147,19 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             CreateContainerResponse createResponse = createContainerCmd.exec();
             containerId = createResponse.getId();
 
-            instanceId = UUID.randomUUID();
+            instanceId = futureInstanceId;
 
             persistedProperties.savePostgresNodeInfo(
                     PostgresPersistedNodeInfo
                             .builder()
-                            .master(request.isPrimary())
+                            .primary(request.isPrimary())
                             .instanceId(instanceId)
                             .adapterIdentifier(containerId)
                             .build()
             );
 
             if (request.isPrimary()) {
-                log.info("Created container with master. Ready to start it.");
+                log.info("Created container with primary. Ready to start it.");
             } else {
                 log.info("Created container with stand-by. Ready to start it.");
             }
@@ -182,9 +169,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         } catch (Exception e) {
             log.error("Failed to create new container ", e);
             try {
-                if (containerId != null) {
-                    dockerClient.removeContainerCmd(containerId);
-                }
+                forceDeleteContainerSafe(containerId);
                 if (instanceId != null) {
                     persistedProperties.deletePostgresNodeInfo(instanceId);
                 }
@@ -261,7 +246,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .instancePort(5432) //TODO maybe need to change
                     .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                     .health(dockerMapper.toInstanceHealth(inspectResponse))
-                    .master(persistedNodeInfo.isMaster())
+                    .master(persistedNodeInfo.isPrimary())
                     .build();
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -286,7 +271,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                 .instancePort(5432)
                                 .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                                 .health(dockerMapper.toInstanceHealth(inspectResponse))
-                                .master(persistedNodeInfo.isMaster())
+                                .master(persistedNodeInfo.isPrimary())
                                 .build()
                 );
             } catch (NotFoundException e) {
@@ -308,12 +293,21 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         }
 
         try {
+            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(containerId).exec();
+
+            for (var bind : inspectContainerResponse.getHostConfig().getBinds()) {
+                try {
+                    dockerClient.removeVolumeCmd(bind.getPath()).exec();
+                } catch (Exception ignored) {
+                }
+            }
+
             if (force) {
-                dockerClient.removeContainerCmd(containerId).withForce(true).exec();
+                forceDeleteContainerSafe(containerId);
             } else {
                 try {
                     dockerClient.stopContainerCmd(containerId).exec();
-                } catch (NotModifiedException ignored) {
+                } catch (Exception ignored) {
                 }
 
                 dockerClient.removeContainerCmd(containerId).withRemoveVolumes(true).exec();
@@ -330,7 +324,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     @Override
     public void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId) {
         PostgresPersistedNodeInfo newMasterPersistedInfo = persistedProperties.getPostgresNodeInfo(newMasterInstanceId);
-        newMasterPersistedInfo.setMaster(true);
+        newMasterPersistedInfo.setPrimary(true);
         persistedProperties.savePostgresNodeInfo(newMasterPersistedInfo);
         deletePostgresInstance(oldMasterInstanceId, true);
         log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newMasterPersistedInfo.getAdapterIdentifier());
@@ -347,7 +341,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .build();
         }
 
-        return executeCmdInContainer(containerId, shellCommand, okExitCodes);
+        return executeCmdInContainer(containerId, shellCommand, okExitCodes, null);
     }
 
     @Override
@@ -416,7 +410,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public BaseBackupAsInputStream createBaseBackupAndGetAsStream() {
+    public BaseBackupCreationResult createBaseBackupAndGetAsStream() {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
@@ -440,13 +434,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             AdapterShellCommandExecutionResult baseBackupCommandExecutionResult = executeCmdInContainer(
                     containerId,
                     commandToExecute,
-                    List.of(0L)
+                    List.of(0L),
+                    null
             );
 
             if (!baseBackupCommandExecutionResult.isSuccess()) {
                 log.error("Failed to create backup as stream. Cause from CMD: {}", baseBackupCommandExecutionResult.getStderr());
                 dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
-                return BaseBackupAsInputStream
+                return BaseBackupCreationResult
                         .builder()
                         .success(false)
                         .build();
@@ -455,7 +450,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             ObservableInputStream ret = new ObservableInputStream(
                     dockerClient.copyArchiveFromContainerCmd(
                                     containerId,
-                                    DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH
+                                    DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/"
                             )
                             .exec()
             );
@@ -463,10 +458,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             ret.add(new ObservableInputStream.Observer() {
                 @Override
                 public void closed() throws IOException {
-                    try {
-                        dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
-                    } catch (Exception ignored) {
-                    }
+                    forceDeleteContainerSafe(tempCreateContainerResponse.getId());
                     super.closed();
                 }
             });
@@ -481,7 +473,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 log.error("Failed to parse backup_label! Did backup_label file format change?");
             }
 
-            return BaseBackupAsInputStream
+            return BaseBackupCreationResult
                     .builder()
                     .success(true)
                     .stream(ret)
@@ -490,14 +482,193 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
         } catch (Exception e) {
             log.error("Error creating backup as stream ", e);
-            try {
-                dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
-            } catch (Exception ignored) {
-            }
-            return BaseBackupAsInputStream
+            forceDeleteContainerSafe(tempCreateContainerResponse.getId());
+            return BaseBackupCreationResult
                     .builder()
                     .success(false)
                     .build();
+        }
+    }
+
+    @Override
+    public UUID restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException {
+        OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+
+        String containerNamePostfix = UUID.randomUUID().toString();
+        String recoveryContainerId = null, volumeName = null;
+
+        try {
+            CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().volumeName(), containerNamePostfix))
+                    .exec();
+
+            volumeName = createVolumeResponse.getName();
+
+            CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
+                    .withHostConfig(
+                            HostConfig.newHostConfig()
+                                    .withBinds(
+                                            new Bind(
+                                                    createVolumeResponse.getName(),
+                                                    new Volume(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH)
+                                            )
+                                    )
+                                    .withNetworkMode(dockerProperties.postgres().networkName())
+                    )
+                    // do not execute any default entrypoint scripts
+                    .withEntrypoint("sh", "-c", "mkdir -p " + DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH + " " + DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH + " ; sleep infinity")
+                    .exec();
+
+            recoveryContainerId = tempCreateContainerResponse.getId();
+
+            dockerClient.startContainerCmd(recoveryContainerId).exec();
+
+            // copy backup
+            try (basebackupTarInputStream) {
+                dockerClient.copyArchiveToContainerCmd(recoveryContainerId)
+                        .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH)
+                        .withTarInputStream(basebackupTarInputStream)
+                        .exec();
+            }
+
+            AdapterShellCommandExecutionResult findPgWalCommandResult = executeCmdInContainer(
+                    recoveryContainerId,
+                    "find " + DockerConstants.HELP_CONTAINER_RESTORE_ROOT_PATH + " -type d -name pg_wal",
+                    List.of(0L),
+                    null
+            );
+            if (!findPgWalCommandResult.isSuccess() || StringUtils.isEmpty(findPgWalCommandResult.getStdout())) {
+                throw new PostgresRestoreException("Recovery failed! Failed to find pg_wal in container for restore. Is backup valid?");
+            }
+
+            String backupRootDir = findPgWalCommandResult.getStdout().replaceAll("\n", "").replaceAll("/pg_wal$", "");
+
+            // adaptation for cases when .tar contains directory with pg_data, but not contents of pg_data itself
+            if (!backupRootDir.equals(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH)) {
+                AdapterShellCommandExecutionResult mvBackupCommandResult = executeCmdInContainer(
+                        recoveryContainerId,
+                        "mv " + backupRootDir + "/*" + " " + DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH,
+                        List.of(0L),
+                        null
+                );
+                if (!mvBackupCommandResult.isSuccess()) {
+                    throw new PostgresRestoreException("Recovery failed! Failed to move backup files inside container to restore dir. Cause from container shell: " + mvBackupCommandResult.getStderr());
+                }
+            }
+
+            // copy WAL files
+            for (String walFilename : walFileNames) {
+                try (InputStream inputStream =
+                             pgFacadeIOUtils.createInputStreamWithTarFromInputStreamContainingFile(
+                                     walFilename,
+                                     walFileInputStreamFunction.apply(walFilename)
+                             )
+                ) {
+                    dockerClient.copyArchiveToContainerCmd(recoveryContainerId)
+                            .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH)
+                            .withTarInputStream(inputStream)
+                            .exec();
+                }
+            }
+
+            // clear pg_wal and set permissions
+            AdapterShellCommandExecutionResult prepareForRecoveryCommandResult = executeCmdInContainer(
+                    recoveryContainerId,
+                    postgresUtils.getShellCommandToPrepareForRecovery(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH),
+                    List.of(0L),
+                    null
+            );
+
+            if (!prepareForRecoveryCommandResult.isSuccess()) {
+                throw new PostgresRestoreException("Recovery failed! Failed to prepare for recovery. Cause from container shell: " + prepareForRecoveryCommandResult.getStderr());
+            }
+
+            AdapterShellCommandExecutionResult startRecoveryCommandResult = executeCmdInContainer(
+                    recoveryContainerId,
+                    postgresUtils.getShellPgCtlToStartRecovery(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH, DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH),
+                    List.of(0L),
+                    "postgres"
+            );
+
+            if (!startRecoveryCommandResult.isSuccess()) {
+                throw new PostgresRestoreException("Recovery failed! Started recovery, but it failed! Cause from container shell: " + prepareForRecoveryCommandResult.getStderr());
+            }
+
+            AdapterShellCommandExecutionResult stopRecoveredPostgresResult = executeCmdInContainer(
+                    recoveryContainerId,
+                    postgresUtils.getShellPgCtlToStopPostgres(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH),
+                    List.of(0L),
+                    "postgres"
+            );
+
+            if (!stopRecoveredPostgresResult.isSuccess()) {
+                throw new PostgresRestoreException("Recovery failed! Failed to stop recovered postgres! Cause from container shell: " + stopRecoveredPostgresResult.getStderr());
+            }
+
+            dockerClient.stopContainerCmd(recoveryContainerId);
+            forceDeleteContainerSafe(recoveryContainerId);
+
+            log.info("Recovery completed successfully!");
+
+            UUID instanceId = UUID.randomUUID();
+
+            CreateContainerCmd createContainerCmd = getDefaultCreateContainerCmdRequest(instanceId.toString());
+
+            createContainerCmd.getHostConfig()
+                    .withBinds(
+                            new Bind(
+                                    volumeName,
+                                    new Volume(orchestrationProperties.docker().postgres().imagePgData())
+                            )
+                    );
+
+            CreateContainerResponse createContainerResponse = createContainerCmd.exec();
+
+            persistedProperties.savePostgresNodeInfo(
+                    PostgresPersistedNodeInfo
+                            .builder()
+                            .primary(true)
+                            .instanceId(instanceId)
+                            .adapterIdentifier(createContainerResponse.getId())
+                            .build()
+            );
+
+            return instanceId;
+        } catch (Exception e) {
+            log.error("Error while restoring instance from backup.", e);
+            if (orchestrationProperties.postgresClusterRestore().removeFailedToRestoreInstance()) {
+                forceDeleteContainerSafe(recoveryContainerId);
+                deleteVolumeSafe(volumeName);
+            } else {
+                log.info("Container ID with failed to restore instance: {} volume name: {} . These resource was not removed according to configuration. Remove them manually.", recoveryContainerId, volumeName);
+            }
+
+            if (e instanceof PostgresRestoreException) {
+                throw (PostgresRestoreException) e;
+            } else {
+                throw new PostgresRestoreException("Failed to restore! ", e);
+            }
+        }
+    }
+
+    private void forceDeleteContainerSafe(String containerId) {
+        if (containerId != null) {
+            try {
+                dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
+            } catch (Exception ex) {
+                log.error("Failed to remove unneeded container. Remove it manually. Container id: {}", containerId);
+            }
+        }
+    }
+
+    private void deleteVolumeSafe(String volumeName) {
+        if (volumeName != null) {
+            try {
+                dockerClient.removeVolumeCmd(volumeName).exec();
+            } catch (Exception ex) {
+                log.error("Failed to remove unneeded volume. Remove it manually. Volume name: {}", volumeName);
+            }
         }
     }
 
@@ -510,28 +681,34 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     private String createVolumeWithPgBaseBackupForStandby(String containerPostfix, Map<String, String> settings) {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
-        CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
-                .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().volumeName(), containerPostfix))
-                .exec();
-
-        CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
-                .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
-                .withHostConfig(
-                        HostConfig.newHostConfig()
-                                .withBinds(
-                                        new Bind(
-                                                createVolumeResponse.getName(),
-                                                new Volume(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
-                                        )
-                                )
-                                .withNetworkMode(dockerProperties.postgres().networkName())
-                )
-                //we only need Postgres utils like pg_basebackup and don't want to start DB itself
-                .withEntrypoint("sleep", "infinity")
-                .exec();
+        String volumeName = null, containerId = null;
 
         try {
-            dockerClient.startContainerCmd(tempCreateContainerResponse.getId()).exec();
+            CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().volumeName(), containerPostfix))
+                    .exec();
+
+            volumeName = createVolumeResponse.getName();
+
+            CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+                    .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
+                    .withHostConfig(
+                            HostConfig.newHostConfig()
+                                    .withBinds(
+                                            new Bind(
+                                                    volumeName,
+                                                    new Volume(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
+                                            )
+                                    )
+                                    .withNetworkMode(dockerProperties.postgres().networkName())
+                    )
+                    //we only need Postgres utils like pg_basebackup and don't want to start DB itself
+                    .withEntrypoint("sleep", "infinity")
+                    .exec();
+
+            containerId = tempCreateContainerResponse.getId();
+
+            dockerClient.startContainerCmd(containerId).exec();
 
             List<String> settingsLines = new ArrayList<>();
             for (var settingEntry : settings.entrySet()) {
@@ -547,9 +724,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             log.info("Creating backup for standby. This will take some time...");
 
             AdapterShellCommandExecutionResult commandExecutionResult = executeCmdInContainer(
-                    tempCreateContainerResponse.getId(),
+                    containerId,
                     commandToExecute,
-                    List.of(0L)
+                    List.of(0L),
+                    null
             );
 
             if (!commandExecutionResult.isSuccess()) {
@@ -559,17 +737,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             log.info("Finished creating backup for standby.");
 
-            dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).withForce(true).withRemoveVolumes(true).exec();
-
+            forceDeleteContainerSafe(containerId);
 
             return createVolumeResponse.getName();
 
         } catch (Exception e) {
             log.error("Error while creating volume with backup.", e);
-            try {
-                dockerClient.removeContainerCmd(tempCreateContainerResponse.getId()).withForce(true).withRemoveVolumes(true).exec();
-            } catch (Exception ignored) {
-            }
+            forceDeleteContainerSafe(containerId);
+            deleteVolumeSafe(volumeName);
             return null;
         }
     }
@@ -578,14 +753,45 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         return varName + "=" + value;
     }
 
-    private AdapterShellCommandExecutionResult executeCmdInContainer(String containerId, String shellCommand, List<Long> okExitCodes) {
+    private CreateContainerCmd getDefaultCreateContainerCmdRequest(String containerNamePostfix) {
+        OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+
+        return dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+                .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().containerName(), containerNamePostfix))
+                .withHostConfig(
+                        HostConfig.newHostConfig()
+                                .withNetworkMode(dockerProperties.postgres().networkName())
+                )
+                .withEnv(
+                        List.of(
+                                createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().superuser().password()),
+                                createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().superuser().username()),
+                                createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
+                        )
+                )
+                //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
+                .withHealthcheck(
+                        new HealthCheck()
+                                .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().interval()))
+                                .withRetries(dockerProperties.postgres().healthcheck().retries())
+                                .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().startPeriod()))
+                                .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().timeout()))
+                                .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgres().healthcheck().cmdShellCommand()))
+                );
+    }
+
+    private AdapterShellCommandExecutionResult executeCmdInContainer(String containerId, String shellCommand, List<Long> okExitCodes, String user) {
         try {
-            // TODO add working dir
-            ExecCreateCmdResponse backupExecCreateResponse = dockerClient.execCreateCmd(containerId)
+            ExecCreateCmd backupExecCreateCmd = dockerClient.execCreateCmd(containerId)
                     .withAttachStdout(true)
                     .withAttachStderr(true)
-                    .withCmd("/bin/sh", "-c", shellCommand)
-                    .exec();
+                    .withCmd("/bin/sh", "-c", shellCommand);
+
+            if (StringUtils.isNotEmpty(user)) {
+                backupExecCreateCmd.withUser(user);
+            }
+
+            ExecCreateCmdResponse backupExecCreateResponse = backupExecCreateCmd.exec();
 
             ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
             ByteArrayOutputStream stdErr = new ByteArrayOutputStream();

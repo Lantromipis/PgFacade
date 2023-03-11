@@ -1,14 +1,15 @@
 package com.lantromipis.orchestration.adapter.api;
 
+import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
-import com.lantromipis.orchestration.model.BaseBackupAsInputStream;
+import com.lantromipis.orchestration.model.BaseBackupCreationResult;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Interface for adapters which allow PgFacade to work on multiple platforms.
@@ -39,5 +40,16 @@ public interface PlatformAdapter {
     List<String> getRequiredHbaConfLines();
 
     //TODO Better to implement Postgres replication protocol https://www.postgresql.org/docs/current/protocol-replication.html
-    BaseBackupAsInputStream createBaseBackupAndGetAsStream();
+    BaseBackupCreationResult createBaseBackupAndGetAsStream();
+
+    /**
+     * Restores Postgres primary from backup.
+     *
+     * @param basebackupTarInputStream   input stream containing contents of pg_basebackup in TAR format
+     * @param walFileNames               a list of WAL file names that will be used for backup
+     * @param walFileInputStreamFunction function which accepts WAL file name and returns content of WAL file as InputStream.
+     * @return uuid of new primary instance.
+     * @throws PostgresRestoreException when something went wrong and restore failed
+     */
+    UUID restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException;
 }

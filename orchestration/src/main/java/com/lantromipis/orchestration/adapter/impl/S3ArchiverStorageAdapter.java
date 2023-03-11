@@ -13,7 +13,10 @@ import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
 import com.lantromipis.orchestration.exception.AdapterInitializationException;
+import com.lantromipis.orchestration.exception.DownloadException;
 import com.lantromipis.orchestration.exception.UploadException;
+import com.lantromipis.orchestration.model.BaseBackupDownload;
+import com.lantromipis.orchestration.model.WalFileDownload;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -52,14 +55,10 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
         ArchivingProperties.S3ArchiverProperties s3ArchiverProperties = archivingProperties.s3();
 
-        Protocol protocol =
-                s3ArchiverProperties.protocol().equals(ArchivingProperties.ProtocolType.HTTP)
-                        ? Protocol.HTTP
-                        : Protocol.HTTPS;
+        Protocol protocol = s3ArchiverProperties.protocol().equals(ArchivingProperties.ProtocolType.HTTP) ? Protocol.HTTP : Protocol.HTTPS;
 
 
-        s3Client = AmazonS3ClientBuilder
-                .standard()
+        s3Client = AmazonS3ClientBuilder.standard()
                 .withEndpointConfiguration(
                         new AwsClientBuilder.EndpointConfiguration(
                                 s3ArchiverProperties.endpoint(),
@@ -70,6 +69,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 .withClientConfiguration(
                         new ClientConfiguration()
                                 .withProtocol(protocol)
+                                .withConnectionTimeout(30000)
                 )
                 .withCredentials(
                         new AWSStaticCredentialsProvider(
@@ -109,29 +109,23 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
     @Override
     public List<Instant> getBackupInstants() {
-        ObjectListing backupsListing = s3Client.listObjects(
-                archivingProperties.s3().backupsBucket(),
-                ArchiverConstants.S3_BACKUP_PREFIX
-        );
+        try {
+            ObjectListing backupsListing = s3Client.listObjects(archivingProperties.s3().backupsBucket(), ArchiverConstants.S3_BACKUP_PREFIX);
 
-        if (CollectionUtils.isEmpty(backupsListing.getObjectSummaries())) {
+            if (CollectionUtils.isEmpty(backupsListing.getObjectSummaries())) {
+                return Collections.emptyList();
+            }
+
+            return backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Failed to retrieve backups list.", e);
             return Collections.emptyList();
         }
-
-        return backupsListing
-                .getObjectSummaries()
-                .stream()
-                .map(summary -> parseBackupInstantSafely(summary.getKey()))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
     }
 
     @Override
-    public void uploadBackup(InputStream inputStream, Instant creationTime, String firstWalFileName) throws UploadException {
-        String key = String.format(
-                ArchiverConstants.S3_BACKUP_KEY_FORMAT,
-                ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime)
-        );
+    public void uploadBackupTar(InputStream inputStreamWithBackupTar, Instant creationTime, String firstWalFileName) throws UploadException {
+        String key = String.format(ArchiverConstants.S3_BACKUP_KEY_FORMAT, ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime));
 
         InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(archivingProperties.s3().backupsBucket(), key);
         if (firstWalFileName == null || firstWalFileName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
@@ -142,7 +136,17 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
             initRequest.setObjectMetadata(metadata);
         }
 
-        InitiateMultipartUploadResult initResponse = s3Client.initiateMultipartUpload(initRequest);
+        InitiateMultipartUploadResult initResponse;
+
+        try {
+            initResponse = s3Client.initiateMultipartUpload(initRequest);
+        } catch (Exception e) {
+            try {
+                inputStreamWithBackupTar.close();
+            } catch (Exception ignored) {
+            }
+            throw new UploadException("Failed to start backup upload ", e);
+        }
 
         Queue<PartETag> eTagQueue = new ConcurrentLinkedQueue<>();
 
@@ -151,7 +155,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
         try {
             while (true) {
-                int bytesRead = IOUtils.read(inputStream, buf);
+                int bytesRead = IOUtils.read(inputStreamWithBackupTar, buf);
 
                 if (bytesRead == 0) {
                     break;
@@ -181,8 +185,6 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
             s3Client.completeMultipartUpload(completeRequest);
 
-            inputStream.close();
-
         } catch (Exception e) {
 
             // free space
@@ -195,7 +197,11 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 s3Client.abortMultipartUpload(abortMultipartUploadRequest);
 
                 try {
-                    ListPartsRequest listPartsRequest = new ListPartsRequest(archivingProperties.s3().backupsBucket(), key, initResponse.getUploadId());
+                    ListPartsRequest listPartsRequest = new ListPartsRequest(
+                            archivingProperties.s3().backupsBucket(),
+                            key,
+                            initResponse.getUploadId()
+                    );
                     PartListing partListing = s3Client.listParts(listPartsRequest);
 
                     if (CollectionUtils.isEmpty(partListing.getParts())) {
@@ -211,121 +217,201 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
             }
 
             throw new UploadException("Failed to upload backup! ", e);
+        } finally {
+            try {
+                inputStreamWithBackupTar.close();
+            } catch (Exception ignored) {
+            }
         }
     }
 
     @Override
     public int removeBackupsAndWalOlderThanInstant(Instant instant, boolean removeWal) {
-        if (instant == null) {
-            return 0;
-        }
+        try {
+            if (instant == null) {
+                return 0;
+            }
 
-        ObjectListing backupsListing = s3Client.listObjects(
-                archivingProperties.s3().backupsBucket(),
-                ArchiverConstants.S3_BACKUP_PREFIX
-        );
+            ObjectListing backupsListing = s3Client.listObjects(archivingProperties.s3().backupsBucket(), ArchiverConstants.S3_BACKUP_PREFIX);
 
-        if (CollectionUtils.isEmpty(backupsListing.getObjectSummaries())) {
-            return 0;
-        }
+            if (CollectionUtils.isEmpty(backupsListing.getObjectSummaries())) {
+                return 0;
+            }
 
-        long initialAmount = backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).count();
+            long initialAmount = backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).count();
 
-        // do not remove last backup
-        if (initialAmount == 1) {
-            return 0;
-        }
+            // do not remove last backup
+            if (initialAmount == 1) {
+                return 0;
+            }
 
 
-        AtomicInteger removed = new AtomicInteger();
+            AtomicInteger removed = new AtomicInteger();
 
-        List<S3ObjectSummary> remainingBackupsSummaries = backupsListing.getObjectSummaries()
-                .stream()
-                .filter(summary -> {
-                            Instant backupInstant = parseBackupInstantSafely(summary.getKey());
+            List<S3ObjectSummary> remainingBackupsSummaries = backupsListing.getObjectSummaries().stream().filter(summary -> {
+                Instant backupInstant = parseBackupInstantSafely(summary.getKey());
 
-                            if (backupInstant == null) {
-                                return false;
-                            }
+                if (backupInstant == null) {
+                    return false;
+                }
 
-                            // do not remove last backup
-                            if (initialAmount - removed.get() <= 1) {
-                                return true;
-                            }
+                // do not remove last backup
+                if (initialAmount - removed.get() <= 1) {
+                    return true;
+                }
 
-                            if (backupInstant.compareTo(instant) < 0) {
-                                log.info("Removing backup with key '{}' as it is too old.", summary.getKey());
-                                s3Client.deleteObject(archivingProperties.s3().backupsBucket(), summary.getKey());
-                                removed.getAndIncrement();
-                                return false;
-                            } else {
-                                return true;
-                            }
+                if (backupInstant.compareTo(instant) < 0) {
+                    log.info("Removing backup with key '{}' as it is too old.", summary.getKey());
+                    s3Client.deleteObject(archivingProperties.s3().backupsBucket(), summary.getKey());
+                    removed.getAndIncrement();
+                    return false;
+                } else {
+                    return true;
+                }
+            }).toList();
+
+            if (removed.get() != 0) {
+                S3ObjectSummary oldestBackupObjectSummary = remainingBackupsSummaries.stream().min((summary1, summary2) -> {
+                    Instant backupInstant1 = parseBackupInstantSafely(summary1.getKey());
+                    Instant backupInstant2 = parseBackupInstantSafely(summary2.getKey());
+
+                    return backupInstant1.compareTo(backupInstant2);
+                }).stream().findFirst().orElse(null);
+
+                if (oldestBackupObjectSummary == null) {
+                    log.error("Removed backup but failed to remove old WAL files. Consider removing them manually.");
+                } else {
+                    ObjectMetadata metadata = s3Client.getObjectMetadata(archivingProperties.s3().backupsBucket(), oldestBackupObjectSummary.getKey());
+                    String lastWalName = metadata.getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+
+                    if (removeWal) {
+                        if (lastWalName == null || lastWalName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
+                            log.error("Oldest backup has corrupted {} metadata parameter. Can not remove old WAL files. Consider removing them manually.", ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+                        } else {
+                            removeWalFilesOlderThan(lastWalName);
                         }
-                ).toList();
-
-        if (removed.get() != 0) {
-            S3ObjectSummary oldestBackup = remainingBackupsSummaries
-                    .stream()
-                    .min((summary1, summary2) -> {
-                        Instant backupInstant1 = parseBackupInstantSafely(summary1.getKey());
-                        Instant backupInstant2 = parseBackupInstantSafely(summary2.getKey());
-
-                        return backupInstant1.compareTo(backupInstant2);
-                    })
-                    .stream()
-                    .findFirst()
-                    .orElse(null);
-
-            if (oldestBackup == null) {
-                log.error("Removed backup but failed to remove old WAL files. Consider removing them manually.");
-            } else {
-                S3Object oldestBackupObject = s3Client.getObject(archivingProperties.s3().backupsBucket(), oldestBackup.getKey());
-                String lastWalName = oldestBackupObject.getObjectMetadata().getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
-
-                if (removeWal) {
-                    if (lastWalName == null || lastWalName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
-                        log.error("Oldest backup has corrupted {} metadata parameter. Can not remove old WAL files. Consider removing them manually.", ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
-                    } else {
-                        removeWalFilesOlderThan(lastWalName);
                     }
                 }
             }
-        }
 
-        return removed.get();
+            return removed.get();
+        } catch (Exception e) {
+            log.error("Failed to remove old backups. ", e);
+            return 0;
+        }
     }
 
     @Override
-    public void uploadWalFile(File file) throws UploadException {
-        String key = String.format(
-                ArchiverConstants.S3_WAL_FILE_KEY_FORMAT,
-                file.getName()
-        );
-
-        PutObjectRequest putObjectRequest = new PutObjectRequest(
-                archivingProperties.s3().walBucket(),
-                key,
-                file
-        );
-
+    public void uploadWalFile(File file, Instant createdWhen) throws UploadException {
         try {
+            String key = String.format(ArchiverConstants.S3_WAL_FILE_KEY_FORMAT, file.getName());
+
+            ObjectMetadata objectMetadata = new ObjectMetadata();
+            objectMetadata.addUserMetadata(ArchiverConstants.S3_WAL_INSTANT_METADATA_KEY, Instant.now().toString());
+
+            PutObjectRequest putObjectRequest = new PutObjectRequest(archivingProperties.s3().walBucket(), key, file);
+
+            putObjectRequest.setMetadata(objectMetadata);
+
             s3Client.putObject(putObjectRequest);
         } catch (Exception e) {
             throw new UploadException("Failed to upload WAL file " + file.getName(), e);
         }
     }
 
-    private void removeWalFilesOlderThan(String walFileName) {
-        // check wal file name format before calling!!!
-        String lastRequiredWalKey = String.format(
-                ArchiverConstants.S3_WAL_FILE_KEY_FORMAT,
-                walFileName
-        );
+    @Override
+    public WalFileDownload downloadWalFile(String walFileName) throws DownloadException {
+        try {
+            String walFileKey = String.format(ArchiverConstants.S3_WAL_FILE_KEY_FORMAT, walFileName);
+
+            S3Object walObject = s3Client.getObject(archivingProperties.s3().walBucket(), walFileKey);
+
+            return WalFileDownload.builder().inputStream(walObject.getObjectContent()).build();
+
+        } catch (Exception e) {
+            throw new DownloadException("Failed to download WAL file " + walFileName + " ", e);
+        }
+    }
+
+    @Override
+    public BaseBackupDownload downloadBaseBackup(Instant instant) throws DownloadException {
+        try {
+            ObjectListing backupsListing = s3Client.listObjects(archivingProperties.s3().backupsBucket(), ArchiverConstants.S3_BACKUP_PREFIX);
+
+            S3ObjectSummary targetBackupSummary = backupsListing.getObjectSummaries().stream().filter(summary -> {
+                Instant backupInstant = parseBackupInstantSafely(summary.getKey());
+
+                if (backupInstant != null && backupInstant.equals(instant)) {
+                    return true;
+                }
+
+                return false;
+            }).findFirst().orElse(null);
+
+            if (targetBackupSummary == null) {
+                throw new DownloadException("Backup for provided instant " + ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(instant) + " not found. ");
+            }
+
+            S3Object backup = s3Client.getObject(archivingProperties.s3().backupsBucket(), targetBackupSummary.getKey());
+
+            String firstWalFile = backup.getObjectMetadata().getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+
+            if (firstWalFile == null || firstWalFile.length() < ArchiverConstants.WAL_FILE_NAME_LENGTH) {
+                throw new DownloadException("Corrupted metadata for backup. No metadata '" + ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY + "' provided.");
+            }
+
+            return BaseBackupDownload.builder().firstWalFile(firstWalFile).inputStreamWithBackupTar(backup.getObjectContent()).build();
+
+        } catch (DownloadException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DownloadException("Failed to retrieve backup", e);
+        }
+    }
+
+    @Override
+    public List<String> getAllWalFileNamesSortedStartingFrom(String firstWalFileName) {
+        try {
+            return getAllWalFilesKeys()
+                    .stream()
+                    .map(key -> key.replace(ArchiverConstants.S3_WAL_PREFIX_WITH_SLASH, ""))
+                    .filter(name -> name.compareTo(firstWalFileName) >= 0)
+                    .sorted()
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Failed to retrieve list of wal files starting from {}", firstWalFileName, e);
+            return Collections.emptyList();
+        }
+    }
+
+    private List<String> getAllWalFilesKeys() {
+        List<String> allWalFiles = new ArrayList<>();
 
         ListObjectsV2Request listObjectsReqManual = new ListObjectsV2Request()
                 .withBucketName(archivingProperties.s3().walBucket())
                 .withPrefix(ArchiverConstants.S3_WAL_PREFIX);
+
+        boolean done = false;
+        while (!done) {
+            ListObjectsV2Result listObjectsResult = s3Client.listObjectsV2(listObjectsReqManual);
+
+            allWalFiles.addAll(listObjectsResult.getObjectSummaries().stream().map(S3ObjectSummary::getKey).toList());
+
+            if (listObjectsResult.getNextContinuationToken() == null) {
+                done = true;
+            }
+
+            listObjectsReqManual = new ListObjectsV2Request().withContinuationToken(listObjectsResult.getNextContinuationToken());
+        }
+
+        return allWalFiles;
+    }
+
+    private void removeWalFilesOlderThan(String walFileName) {
+        // check wal file name format before calling!!!
+        String lastRequiredWalKey = String.format(ArchiverConstants.S3_WAL_FILE_KEY_FORMAT, walFileName);
+
+        ListObjectsV2Request listObjectsReqManual = new ListObjectsV2Request().withBucketName(archivingProperties.s3().walBucket()).withPrefix(ArchiverConstants.S3_WAL_PREFIX);
 
         List<DeleteObjectsRequest.KeyVersion> keysToRemove = new ArrayList<>();
 
@@ -343,17 +429,13 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 done = true;
             }
 
-            listObjectsReqManual = new ListObjectsV2Request()
-                    .withContinuationToken(listObjectsResult.getNextContinuationToken());
+            listObjectsReqManual = new ListObjectsV2Request().withContinuationToken(listObjectsResult.getNextContinuationToken());
         }
 
         List<List<DeleteObjectsRequest.KeyVersion>> partitionsBy1000Keys = ListUtils.partition(keysToRemove, 999);
 
         for (var partition : partitionsBy1000Keys) {
-            s3Client.deleteObjects(
-                    new DeleteObjectsRequest(archivingProperties.s3().walBucket())
-                            .withKeys(partition)
-            );
+            s3Client.deleteObjects(new DeleteObjectsRequest(archivingProperties.s3().walBucket()).withKeys(partition));
         }
 
         log.info("Removed {} old wal files which are not required.", keysToRemove.size());

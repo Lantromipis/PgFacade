@@ -11,7 +11,7 @@ import java.io.InputStream;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class BaseBackupAsInputStream {
+public class BaseBackupCreationResult {
     private boolean success;
     private InputStream stream;
     private String firstWalFileName;

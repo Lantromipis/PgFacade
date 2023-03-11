@@ -69,7 +69,10 @@ public class QuarkusStartupAndShutdownHandler {
 
         log.info("PgFacade initialization started!");
 
-        postgresOrchestrator.initialize();
+        if (!postgresOrchestrator.initialize()) {
+            log.error("Failed to initialize orchestrator! PgFacade will not work!");
+            return;
+        }
 
         userAuthInfoProvider.initialize();
         connectionPool.initialize();

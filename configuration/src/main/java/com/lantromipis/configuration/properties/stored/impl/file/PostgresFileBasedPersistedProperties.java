@@ -120,6 +120,18 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     }
 
     @Override
+    public void clearPostgresNodesInfos() throws PropertyModificationException {
+        try {
+            postgresNodeInfoFileModificationLock.lock();
+            objectMapper.writeValue(postgresNodeInfoFile, new HashMap<>());
+        } catch (Exception e) {
+            throw new PropertyModificationException("Error while saving nodes info to file", e);
+        } finally {
+            postgresNodeInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
     public Map<String, String> getPostgresSettingInfos() throws PropertyReadException {
         try {
             postgresSettingInfoFileModificationLock.lock();
