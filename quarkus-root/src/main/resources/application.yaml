@@ -6,7 +6,7 @@ pg-facade:
     port: 5433
     max-connections: 500
     connection-pool:
-      enabled: false
+      enabled: true
     inactive-clients:
       disconnect: true
       inactive-connection-timeout: PT5M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
