@@ -6,6 +6,7 @@ import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
 import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface PostgresPersistedProperties {
@@ -17,9 +18,11 @@ public interface PostgresPersistedProperties {
 
     PostgresPersistedNodeInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
 
-    List<PostgresPersistedSettingInfo> getPostgresSettingInfos() throws PropertyReadException;
+    void clearPostgresNodesInfos() throws PropertyModificationException;
 
-    void savePostgresSettingsInfos(List<PostgresPersistedSettingInfo> persistedSettingsInfos) throws PropertyModificationException;
+    Map<String, String> getPostgresSettingInfos() throws PropertyReadException;
+
+    void savePostgresSettingsInfos(Map<String, String> persistedSettingsInfos) throws PropertyModificationException;
 
     void deletePostgresSettingsInfos(List<String> settingsNames) throws PropertyModificationException;
 }

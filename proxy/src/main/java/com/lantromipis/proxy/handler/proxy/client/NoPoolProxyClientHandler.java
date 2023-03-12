@@ -1,23 +1,31 @@
-package com.lantromipis.proxy.handler.testproxy;
+package com.lantromipis.proxy.handler.proxy.client;
 
 import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.proxy.handler.testproxy.ProxyDatabaseHandler;
 import com.lantromipis.proxy.model.ProxyScramSaslAuthState;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
+import lombok.extern.slf4j.Slf4j;
 
-public class ProxyClientHandler extends ChannelInboundHandlerAdapter {
+@Slf4j
+public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHandler {
     private Channel postgreSqlChannel;
 
-    private final String remoteHost = "localhost";
-    private final int remotePort = 5432;
+    private final String remoteHost;
+    private final int remotePort;
+
+    public NoPoolProxyClientHandler(String remoteHost, int remotePort) {
+        this.remoteHost = remoteHost;
+        this.remotePort = remotePort;
+    }
 
     private ProxyScramSaslAuthState proxyScramSaslAuthState = ProxyScramSaslAuthState.NOT_STARTED;
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) {
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
         final Channel inboundChannel = ctx.channel();
 
         Bootstrap b = new Bootstrap();
@@ -37,24 +45,12 @@ public class ProxyClientHandler extends ChannelInboundHandlerAdapter {
                 }
             }
         });
+
+        super.channelActive(ctx);
     }
 
     @Override
-    public void channelRead(final ChannelHandlerContext ctx, Object msg) {
-        if (proxyScramSaslAuthState != ProxyScramSaslAuthState.FINISHED) {
-            switch (proxyScramSaslAuthState) {
-                //skip first packet as we don't need that
-                case NOT_STARTED -> proxyScramSaslAuthState = ProxyScramSaslAuthState.FIRST_MESSAGE_RECEIVED;
-                case FIRST_MESSAGE_RECEIVED -> {
-                    StartupMessage startupMessage = ClientPostgreSqlProtocolMessageDecoder.decodeStartupMessage((ByteBuf) msg);
-                    proxyScramSaslAuthState = ProxyScramSaslAuthState.STARTUP_MESSAGE_RECEIVED;
-                }
-                case STARTUP_MESSAGE_RECEIVED -> {
-                    proxyScramSaslAuthState = ProxyScramSaslAuthState.FINISHED;
-                }
-            }
-        }
-
+    public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         if (postgreSqlChannel.isActive()) {
             postgreSqlChannel.writeAndFlush(msg).addListener(new ChannelFutureListener() {
                 @Override
@@ -67,6 +63,7 @@ public class ProxyClientHandler extends ChannelInboundHandlerAdapter {
                     }
                 }
             });
+            super.channelRead(ctx, msg);
         }
     }
 
@@ -79,7 +76,22 @@ public class ProxyClientHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
-        HandlerUtils.closeOnFlush(ctx.channel());
+        log.error("Exception in client connection handler. Connection will be closed ", cause);
+        super.exceptionCaught(ctx, cause);
+    }
+
+    @Override
+    public void handleSwitchoverStarted() {
+        forceCloseConnectionWithError();
+    }
+
+    @Override
+    public void handleSwitchoverCompleted(boolean success) {
+        // do nothing. Connection already closed.
+    }
+
+    @Override
+    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+        // Overriding superclass method so channel.read() won't be called until postgresql connection is ready
     }
 }

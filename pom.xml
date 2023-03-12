@@ -32,10 +32,12 @@
         <lombok.version>1.18.24</lombok.version>
         <apache.commons.long3.version>3.12.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
+        <commons-io.version>2.11.0</commons-io.version>
         <netty.version>4.1.84.Final</netty.version>
         <postgresql.driver.version>42.5.0</postgresql.driver.version>
         <docker.client.version>3.2.14</docker.client.version>
         <docker.client.transport.version>3.2.3</docker.client.transport.version>
+        <aws.sdk.s3.version>1.12.420</aws.sdk.s3.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -67,6 +69,12 @@
             </dependency>
 
             <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-all</artifactId>
                 <version>${netty.version}</version>
@@ -88,6 +96,12 @@
                 <groupId>com.github.docker-java</groupId>
                 <artifactId>docker-java-transport-httpclient5</artifactId>
                 <version>${docker.client.transport.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-s3</artifactId>
+                <version>${aws.sdk.s3.version}</version>
             </dependency>
 
         </dependencies>

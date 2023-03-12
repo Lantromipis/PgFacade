@@ -2,14 +2,16 @@ package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
-import java.util.Map;
-
 @ConfigMapping(prefix = "pg-facade.postgres")
 public interface PostgresProperties {
 
-    Map<String, String> postgresqlConfOverride();
+    DefaultSettingsProperties defaultSettings();
 
     UserProperties users();
+
+    interface DefaultSettingsProperties {
+        int maxWalKeepCount();
+    }
 
     interface UserProperties {
         UserCredentialsProperties superuser();

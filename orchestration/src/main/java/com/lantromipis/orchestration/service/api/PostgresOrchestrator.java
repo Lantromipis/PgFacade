@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public interface PostgresOrchestrator {
-    void initialize();
+    boolean initialize();
 
     void shutdown();
 

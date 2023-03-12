@@ -26,7 +26,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
     }
 
     @Override
-    public void channelRead(final ChannelHandlerContext ctx, Object msg) {
+    public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
         int firstInt = message.readInt();
@@ -43,13 +43,13 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
             if (startupMessage == null) {
                 log.error("Error decoding client startup message. Closing connection.");
-                forceCloseConnectionWithError(ctx);
+                forceCloseConnectionWithError();
                 return;
             }
 
             if (startupMessage.getMajorVersion() != 3 && startupMessage.getMinorVersion() != 0) {
                 log.error("Client attempted to connect with wrong protocol version: major=" + startupMessage.getMajorVersion() + "; minor=" + startupMessage.getMinorVersion() + ". Closing connection.");
-                forceCloseConnectionWithError(ctx);
+                forceCloseConnectionWithError();
                 return;
             }
 
@@ -59,7 +59,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
             if (authenticationMethod == null) {
                 log.error("User not found or has unknown authMethod. Closing connection.");
-                forceCloseConnectionWithError(ctx);
+                forceCloseConnectionWithError();
                 return;
             }
 
@@ -80,7 +80,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                     );
                 }
                 default -> {
-                    forceCloseConnectionWithError(ctx);
+                    forceCloseConnectionWithError();
                     return;
                 }
             }
@@ -91,5 +91,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             ctx.channel().writeAndFlush(authRequestMessage);
             ctx.channel().read();
         }
+
+        super.channelRead(ctx, msg);
     }
 }

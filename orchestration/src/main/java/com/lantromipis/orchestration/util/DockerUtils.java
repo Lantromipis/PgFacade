@@ -18,7 +18,9 @@ public class DockerUtils {
     OrchestrationProperties orchestrationProperties;
 
     public String getContainerAddress(InspectContainerResponse inspectContainerResponse) {
-        ContainerNetwork containerNetwork = inspectContainerResponse.getNetworkSettings().getNetworks().get(orchestrationProperties.docker().postgresNetworkName());
+        ContainerNetwork containerNetwork = inspectContainerResponse.getNetworkSettings()
+                .getNetworks()
+                .get(orchestrationProperties.docker().postgres().networkName());
         if (containerNetwork == null) {
             return null;
         }
@@ -30,7 +32,7 @@ public class DockerUtils {
         return Optional.of(container)
                 .map(Container::getNetworkSettings)
                 .map(ContainerNetworkSettings::getNetworks)
-                .map(map -> map.get(orchestrationProperties.docker().postgresNetworkName()))
+                .map(map -> map.get(orchestrationProperties.docker().postgres().networkName()))
                 .map(ContainerNetwork::getIpAddress)
                 .orElse(null);
     }

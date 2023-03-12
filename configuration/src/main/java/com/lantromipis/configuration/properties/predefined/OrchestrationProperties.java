@@ -9,9 +9,23 @@ public interface OrchestrationProperties {
 
     AdapterType adapter();
 
+    PostgresClusterRestoreProperties postgresClusterRestore();
+
+    NoAdapterProperties noAdapter();
+
     DockerProperties docker();
 
     CommonProperties common();
+
+    interface PostgresClusterRestoreProperties {
+        boolean autoRestoreIfNoInstancesOnStartup();
+
+        boolean allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed();
+
+        boolean autoRestoreLostCluster();
+
+        boolean removeFailedToRestoreInstance();
+    }
 
     interface CommonProperties {
 
@@ -42,35 +56,50 @@ public interface OrchestrationProperties {
         }
     }
 
+    interface NoAdapterProperties {
+        String primaryHost();
+
+        int primaryPort();
+    }
+
     interface DockerProperties {
         String dockerHost();
 
-        String postgresNetworkName();
+        PgFacadeProperties pgFacade();
 
-        String postgresContainerName();
-
-        String postgresVolumeName();
-
-        String postgresImageTag();
-
-        String postgresImagePgDataDir();
+        PostgresProperties postgres();
 
         String helperObjectName();
 
-        HealthCheckProperties postgresHealthcheck();
-
-        interface HealthCheckProperties {
-            long interval();
-
-            long timeout();
-
-            int retries();
-
-            long startPeriod();
-
-            String cmdShellCommand();
+        interface PgFacadeProperties {
+            String localFilesDirectory();
         }
 
+        interface PostgresProperties {
+            String imageTag();
+
+            String imagePgData();
+
+            String networkName();
+
+            String containerName();
+
+            String volumeName();
+
+            HealthCheckProperties healthcheck();
+
+            interface HealthCheckProperties {
+                long interval();
+
+                long timeout();
+
+                int retries();
+
+                long startPeriod();
+
+                String cmdShellCommand();
+            }
+        }
     }
 
     enum AdapterType {
@@ -78,8 +107,9 @@ public interface OrchestrationProperties {
          * Use when there is no need in orchestration. If active, PgFacade will work like proxy + connection pool without any HA features.
          */
         NO_ADAPTER,
+
         /**
-         * Use when PgFacade will work in docker
+         * If enabled, PgFacade will work in Docker.
          */
         DOCKER
     }

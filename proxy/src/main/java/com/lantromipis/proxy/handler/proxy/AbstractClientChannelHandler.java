@@ -15,7 +15,6 @@ import java.util.UUID;
 /**
  * Abstract Netty connection handler for all proxy connections.
  */
-@Slf4j
 public abstract class AbstractClientChannelHandler extends ChannelInboundHandlerAdapter {
     /**
      * UUID used for good and simple equals() and hashcode() implementations.
@@ -59,7 +58,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      * For example, this method is called when PgFacade is shutting down, or when client was inactive for too long.
      */
     public void forceDisconnect() {
-        forceCloseConnectionWithError(initialChannelHandlerContext);
+        forceCloseConnectionWithError();
         active = false;
     }
 
@@ -71,8 +70,8 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        ctx.channel().read();
         initialize(ctx);
+        ctx.channel().read();
         super.handlerAdded(ctx);
     }
 
@@ -89,9 +88,8 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      * @throws Exception when something wants wrong
      */
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        log.error("Exception in client connection handler. Connection will be closed ", cause);
-        forceCloseConnectionWithError(ctx);
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        forceCloseConnectionWithError();
     }
 
     /**
@@ -99,11 +97,11 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      *
      * @param ctx ChannelHandlerContext of connection that will be closed.
      */
-    protected void forceCloseConnectionWithError(ChannelHandlerContext ctx) {
-        ctx.channel().writeAndFlush(
+    protected void forceCloseConnectionWithError() {
+        initialChannelHandlerContext.channel().writeAndFlush(
                 ServerPostgreSqlProtocolMessageEncoder.createEmptyErrorMessage()
         );
-        HandlerUtils.closeOnFlush(ctx.channel());
+        HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel());
         active = false;
     }
 
