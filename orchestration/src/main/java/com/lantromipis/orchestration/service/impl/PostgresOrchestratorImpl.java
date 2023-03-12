@@ -421,15 +421,24 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     // keep orchestrator inactive.
                     return;
                 } else {
+                    UUID switchoverEventId = UUID.randomUUID();
                     try {
                         log.error("RESTORING PRIMARY USING LATEST AVAILABLE VERSION FROM ARCHIVE.");
+                        switchoverStartedEvent.fire(new SwitchoverStartedEvent(switchoverEventId));
+                        postgresPersistedProperties.clearPostgresNodesInfos();
+
                         UUID newPrimaryInstanceId = postgresArchiver.restorePostgresToLatestVersionFromArchive();
                         orchestrationAdapter.get().startPostgresInstance(newPrimaryInstanceId);
-                        waitUntilPostgresInstanceHealthy(newPrimaryInstanceId);
-                        postgresPersistedProperties.clearPostgresNodesInfos();
+                        PostgresAdapterInstanceInfo restoredPrimary = waitUntilPostgresInstanceHealthy(newPrimaryInstanceId);
+                        
+                        clusterRuntimeProperties.getAllPostgresInstancesInfos().clear();
+                        addInstanceToRuntimeProperties(restoredPrimary);
+                        switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, true));
+
                         log.info("SUCCESFULY RESTORED LOST CLUSTER FROM BACKUP!");
                         healthcheckFailedCount = 0;
                     } catch (Exception e) {
+                        switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, false));
                         log.error("FAILED TO RESTORE PRIMARY FROM BACKUP!", e);
                     }
                 }
