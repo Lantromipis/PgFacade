@@ -29,11 +29,13 @@ public class PostgresInstancePooledConnectionsStorage {
      * @return a new pooled connection marked as 'free'
      */
     public PooledConnectionInternalInfo addNewChannel(StartupMessageInfo startupMessageInfo, Channel channel) {
+        long timestamp = System.currentTimeMillis();
         PooledConnectionInternalInfo pooledConnectionInternalInfo = PooledConnectionInternalInfo
                 .builder()
                 .startupMessageInfo(startupMessageInfo)
                 .taken(new AtomicBoolean(false))
-                .lastFreeTimestamp(System.currentTimeMillis())
+                .lastFreeTimestamp(timestamp)
+                .createdTimestamp(timestamp)
                 .realPostgresConnection(channel)
                 .build();
 
@@ -51,11 +53,13 @@ public class PostgresInstancePooledConnectionsStorage {
      * @return a new pooled connection marked as 'taken'
      */
     public PooledConnectionInternalInfo addNewChannelAndMarkAsTaken(StartupMessageInfo startupMessageInfo, Channel channel) {
+        long timestamp = System.currentTimeMillis();
         PooledConnectionInternalInfo pooledConnectionInternalInfo = PooledConnectionInternalInfo
                 .builder()
                 .startupMessageInfo(startupMessageInfo)
                 .taken(new AtomicBoolean(true))
-                .lastFreeTimestamp(System.currentTimeMillis())
+                .lastFreeTimestamp(timestamp)
+                .createdTimestamp(timestamp)
                 .realPostgresConnection(channel)
                 .build();
 
@@ -65,15 +69,24 @@ public class PostgresInstancePooledConnectionsStorage {
     }
 
     /**
-     * Returns connection back to storage and marks it as 'free'. Such connection must have been added earlier and marked as 'taken'.
-     * There are NO checks if connection was really added previously or marked as 'taken'! TChecks are not included to improve performance.
+     * If connection has not reached its max-age, then this method returns connection back to storage and marks it as 'free'. Such connection must have been added earlier and marked as 'taken'.
+     * If connection has reached its max-age, then such connection is removed from storage.
+     * There are NO checks if connection was really added previously or marked as 'taken'! Checks are not included to improve performance.
      *
      * @param pooledConnectionInternalInfo polled connection that was taken from the pool
+     * @param maxAgeMillis                 max age of this connection in milliseconds
+     * @return Netty channel if connection reached it max-age or null if it doesn't.
      */
-    public void returnTakenConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo) {
+    public Channel returnTakenConnectionAndCheckAge(PooledConnectionInternalInfo pooledConnectionInternalInfo, long maxAgeMillis) {
+        if (System.currentTimeMillis() - maxAgeMillis > pooledConnectionInternalInfo.getCreatedTimestamp()) {
+            removeConnection(pooledConnectionInternalInfo);
+            return pooledConnectionInternalInfo.getRealPostgresConnection();
+        }
+
         pooledConnectionInternalInfo.setLastFreeTimestamp(System.currentTimeMillis());
         pooledConnectionInternalInfo.getTaken().set(false);
         addConnectionToMap(pooledConnectionInternalInfo.getStartupMessageInfo(), pooledConnectionInternalInfo, freeConnections);
+        return null;
     }
 
     /**
@@ -112,7 +125,7 @@ public class PostgresInstancePooledConnectionsStorage {
      * @param lastTimestamp identifying the oldest timestamp for connection which will not be removed
      * @return list of freed connections
      */
-    public List<Channel> removeUnneededConnections(long lastTimestamp) {
+    public List<Channel> removeRedundantConnections(long lastTimestamp, long maxAgeMillis) {
         return freeConnections.values()
                 .stream()
                 .flatMap(Collection::stream)
@@ -120,6 +133,11 @@ public class PostgresInstancePooledConnectionsStorage {
                     // check if connection is old enough to be removed.
                     // if old enough, then mark it as 'taken' to prevent it from being taken by client
                     if (connection.getLastFreeTimestamp() < lastTimestamp && connection.getTaken().compareAndSet(false, true)) {
+                        removeConnection(connection);
+                        return true;
+                    }
+
+                    if (System.currentTimeMillis() - maxAgeMillis > connection.getCreatedTimestamp() && connection.getTaken().compareAndSet(false, true)) {
                         removeConnection(connection);
                         return true;
                     }

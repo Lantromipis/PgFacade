@@ -29,5 +29,11 @@ public interface ProxyProperties {
         Duration acquireRealConnectionTimeout();
 
         Duration realConnectionAuthTimeout();
+
+        Duration poolCleanupInterval();
+
+        Duration redundantConnectionsLifetime();
+
+        Duration connectionMaxAge();
     }
 }

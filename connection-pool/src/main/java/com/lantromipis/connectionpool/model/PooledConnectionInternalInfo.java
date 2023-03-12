@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -20,4 +21,33 @@ public class PooledConnectionInternalInfo {
     private Channel realPostgresConnection;
     private AtomicBoolean taken;
     private long lastFreeTimestamp;
+    private long createdTimestamp;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        PooledConnectionInternalInfo that = (PooledConnectionInternalInfo) o;
+
+        if (lastFreeTimestamp != that.lastFreeTimestamp) {
+            return false;
+        }
+        if (createdTimestamp != that.createdTimestamp) {
+            return false;
+        }
+        if (!Objects.equals(realPostgresConnection, that.realPostgresConnection)) {
+            return false;
+        }
+        return Objects.equals(taken, that.taken);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = realPostgresConnection != null ? realPostgresConnection.hashCode() : 0;
+        result = 31 * result + (taken != null ? taken.hashCode() : 0);
+        result = 31 * result + (int) (lastFreeTimestamp ^ (lastFreeTimestamp >>> 32));
+        result = 31 * result + (int) (createdTimestamp ^ (createdTimestamp >>> 32));
+        return result;
+    }
 }

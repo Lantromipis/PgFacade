@@ -21,12 +21,15 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
 import javax.inject.Named;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -53,10 +56,13 @@ public class ConnectionPoolImpl implements ConnectionPool {
     private CountDownLatch switchoverLatch = new CountDownLatch(0);
 
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage = new PostgresInstancePooledConnectionsStorage();
+    private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
+    private AtomicBoolean poolActive = new AtomicBoolean(false);
 
     @Override
     public void initialize() {
         primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
+        poolActive.set(true);
     }
 
     @Override
@@ -64,6 +70,22 @@ public class ConnectionPoolImpl implements ConnectionPool {
         return getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage);
     }
 
+    @Scheduled(every = "${pg-facade.proxy.connection-pool.pool-cleanup-interval}")
+    public void clearUnneededConnections() {
+        if (poolActive.get() && clearUnneededConnectionsInProgress.compareAndSet(false, true)) {
+            try {
+                long lastTimestamp = System.currentTimeMillis() - proxyProperties.connectionPool().redundantConnectionsLifetime().toMillis();
+                List<Channel> redundantChannels = primaryConnectionsStorage.removeRedundantConnections(lastTimestamp, proxyProperties.connectionPool().connectionMaxAge().toMillis());
+                if (CollectionUtils.isNotEmpty(redundantChannels)) {
+                    redundantChannels
+                            .forEach(channel -> HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()));
+                    log.debug("Closed and removed from pool {} redundant connections because they were not required for too long or reached max-age.", redundantChannels.size());
+                }
+            } finally {
+                clearUnneededConnectionsInProgress.set(false);
+            }
+        }
+    }
 
     private PooledConnectionWrapper getConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage) {
         if (switchoverLatch.getCount() != 0) {
@@ -163,8 +185,17 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 pooledConnectionInternalInfo.getRealPostgresConnection(),
                 () -> {
                     HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
-                    storage.returnTakenConnection(pooledConnectionInternalInfo);
-                    log.debug("Returned connection to pool.");
+                    Channel channel = storage.returnTakenConnectionAndCheckAge(
+                            pooledConnectionInternalInfo,
+                            proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                    );
+
+                    if (channel != null) {
+                        log.debug("Connection reached its max-age. Removing it from pool and closing.");
+                        HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+                    } else {
+                        log.debug("Returned connection to pool.");
+                    }
                 }
 
         );

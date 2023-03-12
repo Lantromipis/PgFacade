@@ -9,10 +9,13 @@ pg-facade:
       enabled: true
       acquire-real-connection-timeout: PT1S
       real-connection-auth-timeout: PT0.5S
+      pool-cleanup-interval: PT15S
+      redundant-connections-lifetime: PT5M
+      connection-max-age: PT60M
     inactive-clients:
       disconnect: true
-      inactive-connection-timeout: PT5M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
-      check-interval: PT10S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      inactive-connection-timeout: PT3M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      check-interval: PT15S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   orchestration:
     adapter: docker
     postgres-cluster-restore:
@@ -99,11 +102,13 @@ quarkus:
   log:
     level: INFO
     console:
-      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-50.50c{3.}] [%-20.20M] - %s%e%n"
+      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] - %s%e%n"
     category:
+      "com.lantromipis.proxy":
+        level: INFO
       "com.lantromipis.connectionpool" :
-        level: DEBUG
-      "org.apache" :
+        level: INFO
+      "org.apache.hc" :
         level: ERROR
   banner:
     enabled: true

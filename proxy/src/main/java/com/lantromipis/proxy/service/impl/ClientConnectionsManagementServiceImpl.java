@@ -86,7 +86,7 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
         }
 
         if (inactiveCount > 0) {
-            log.info("Closed {} inactive connections.", inactiveCount);
+            log.debug("Closed {} inactive connections.", inactiveCount);
         }
     }
 
