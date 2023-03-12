@@ -246,7 +246,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .instancePort(5432) //TODO maybe need to change
                     .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                     .health(dockerMapper.toInstanceHealth(inspectResponse))
-                    .master(persistedNodeInfo.isPrimary())
+                    .primary(persistedNodeInfo.isPrimary())
                     .build();
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -271,7 +271,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                 .instancePort(5432)
                                 .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                                 .health(dockerMapper.toInstanceHealth(inspectResponse))
-                                .master(persistedNodeInfo.isPrimary())
+                                .primary(persistedNodeInfo.isPrimary())
                                 .build()
                 );
             } catch (NotFoundException e) {
@@ -322,12 +322,12 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId) {
-        PostgresPersistedNodeInfo newMasterPersistedInfo = persistedProperties.getPostgresNodeInfo(newMasterInstanceId);
-        newMasterPersistedInfo.setPrimary(true);
-        persistedProperties.savePostgresNodeInfo(newMasterPersistedInfo);
-        deletePostgresInstance(oldMasterInstanceId, true);
-        log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newMasterPersistedInfo.getAdapterIdentifier());
+    public void updateInstancesAfterSwitchover(UUID newPrimaryInstanceId, UUID oldPrimaryInstanceId) {
+        PostgresPersistedNodeInfo newPrimaryPersistedInfo = persistedProperties.getPostgresNodeInfo(newPrimaryInstanceId);
+        newPrimaryPersistedInfo.setPrimary(true);
+        persistedProperties.savePostgresNodeInfo(newPrimaryPersistedInfo);
+        deletePostgresInstance(oldPrimaryInstanceId, true);
+        log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newPrimaryPersistedInfo.getAdapterIdentifier());
     }
 
     @Override

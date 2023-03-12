@@ -1,13 +1,13 @@
-package com.lantromipis.proxy.handler.testproxy;
+package com.lantromipis.proxy.handler.proxy.database;
 
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.channel.*;
 
-public class ProxyDatabaseHandler extends ChannelInboundHandlerAdapter {
+public class NoPoolProxyDatabaseChannelHandler extends ChannelInboundHandlerAdapter {
 
     private final Channel inboundChannel;
 
-    public ProxyDatabaseHandler(Channel inboundChannel) {
+    public NoPoolProxyDatabaseChannelHandler(Channel inboundChannel) {
         this.inboundChannel = inboundChannel;
     }
 
@@ -18,14 +18,11 @@ public class ProxyDatabaseHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) {
-        inboundChannel.writeAndFlush(msg).addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
-                if (future.isSuccess()) {
-                    ctx.channel().read();
-                } else {
-                    future.channel().close();
-                }
+        inboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                ctx.channel().read();
+            } else {
+                future.channel().close();
             }
         });
     }

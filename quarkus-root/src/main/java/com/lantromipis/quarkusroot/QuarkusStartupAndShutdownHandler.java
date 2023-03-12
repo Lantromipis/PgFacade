@@ -69,8 +69,15 @@ public class QuarkusStartupAndShutdownHandler {
 
         log.info("PgFacade initialization started!");
 
-        if (!postgresOrchestrator.initialize()) {
-            log.error("Failed to initialize orchestrator! PgFacade will not work!");
+        try {
+            if (!postgresOrchestrator.initialize()) {
+                log.error("Failed to initialize orchestrator! PgFacade will not work!");
+                postgresOrchestrator.shutdown();
+                return;
+            }
+        } catch (Exception e) {
+            log.error("Failed to initialize orchestrator due to error! PgFacade will not work!", e);
+            postgresOrchestrator.shutdown();
             return;
         }
 

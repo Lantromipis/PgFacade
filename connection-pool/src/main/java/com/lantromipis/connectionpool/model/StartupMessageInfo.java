@@ -12,7 +12,7 @@ import java.util.Objects;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ConnectionInfo {
+public class StartupMessageInfo {
     private String username;
     private String database;
     private Map<String, String> parameters;
@@ -22,7 +22,7 @@ public class ConnectionInfo {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
-        ConnectionInfo that = (ConnectionInfo) o;
+        StartupMessageInfo that = (StartupMessageInfo) o;
 
         if (!Objects.equals(username, that.username)) return false;
         if (!Objects.equals(database, that.database)) return false;

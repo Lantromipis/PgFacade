@@ -5,11 +5,11 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 
-public class SimpleDatabaseMasterConnectionClientChannelHandler extends ChannelInboundHandlerAdapter {
+public class SimpleDatabasePrimaryConnectionClientChannelHandler extends ChannelInboundHandlerAdapter {
 
     private Channel clientConnection;
 
-    public SimpleDatabaseMasterConnectionClientChannelHandler(Channel clientConnection) {
+    public SimpleDatabasePrimaryConnectionClientChannelHandler(Channel clientConnection) {
         this.clientConnection = clientConnection;
     }
 

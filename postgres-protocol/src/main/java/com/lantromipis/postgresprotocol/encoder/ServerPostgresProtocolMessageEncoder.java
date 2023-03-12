@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
-public class ServerPostgreSqlProtocolMessageEncoder {
+public class ServerPostgresProtocolMessageEncoder {
 
     public static ByteBuf createErrorMessage(byte errorFieldCode, String errorFieldValue) {
         ByteBuf buf = Unpooled.buffer();
@@ -38,17 +38,17 @@ public class ServerPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf createAuthRequestMessage(AuthenticationMethod authenticationMethod) {
-        ByteBuf buf = Unpooled.buffer();
-        buf.writeByte(PostgreSQLProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
-
-        //4 bytes length
+        // 4 bytes length
         int length = 4;
 
         byte[] nameOfSaslAuthMechanism = authenticationMethod.getProtocolMethodName().getBytes();
         length += nameOfSaslAuthMechanism.length;
-        //4 bytes marker + terminator + last byte
-        length += 6;
+        // 4 bytes marker + terminator + last byte
+        length += 10;
 
+        ByteBuf buf = Unpooled.buffer(length + 1);
+
+        buf.writeByte(PostgreSQLProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
         buf.writeInt(authenticationMethod.getProtocolMethodMarker());
         buf.writeBytes(nameOfSaslAuthMechanism);
@@ -61,12 +61,12 @@ public class ServerPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf createAuthenticationSaslContinueMessage(String message) {
-        ByteBuf buf = Unpooled.buffer();
-
         byte[] messageBytes = message.getBytes();
 
         //4 bytes length + 4 bytes marker
         int length = 8 + messageBytes.length;
+
+        ByteBuf buf = Unpooled.buffer(length + 1);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
@@ -77,10 +77,10 @@ public class ServerPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf createAuthenticationOkMessage() {
-        ByteBuf buf = Unpooled.buffer();
+        ByteBuf buf = Unpooled.buffer(9);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
-        //4 bytes length + 4 bytes marker
+        // 4 bytes length + 4 bytes marker
         buf.writeInt(8);
         buf.writeInt(PostgreSQLProtocolGeneralConstants.AUTH_OK);
 
@@ -88,12 +88,12 @@ public class ServerPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf createAuthenticationSASLFinalMessage(String message) {
-        ByteBuf buf = Unpooled.buffer();
-
         byte[] messageBytes = message.getBytes();
 
         //4 bytes length + 4 bytes marker
         int length = 8 + messageBytes.length;
+
+        ByteBuf buf = Unpooled.buffer(length + 1);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
@@ -104,13 +104,13 @@ public class ServerPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf encodeParameterStatusMessage(String parameterName, String parameterValue) {
-        ByteBuf buf = Unpooled.buffer();
-
         byte[] parameterNameBytes = parameterName.getBytes();
         byte[] parameterValueBytes = parameterValue.getBytes();
 
         //length (int32)
         int length = 4 + parameterNameBytes.length + parameterValueBytes.length;
+
+        ByteBuf buf = Unpooled.buffer(length + 1);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR);
         buf.writeInt(length);
@@ -122,10 +122,10 @@ public class ServerPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf encodeReadyForQueryMessage() {
-        ByteBuf buf = Unpooled.buffer();
-
         //constant
         int length = 5;
+
+        ByteBuf buf = Unpooled.buffer(6);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR);
         buf.writeInt(length);

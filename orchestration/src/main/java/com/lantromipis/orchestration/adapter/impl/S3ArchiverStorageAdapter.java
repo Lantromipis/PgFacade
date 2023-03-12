@@ -84,16 +84,20 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
         boolean walBucketExist = false;
         boolean backupsBucketExist = false;
 
-        // connectivity check + validation of buckets presence
-        for (var bucket : s3Client.listBuckets()) {
-            if (bucket.getName().equals(archivingProperties.s3().backupsBucket())) {
-                log.info("Found bucket for backups in S3!");
-                backupsBucketExist = true;
+        try {
+            // connectivity check + validation of buckets presence
+            for (var bucket : s3Client.listBuckets()) {
+                if (bucket.getName().equals(archivingProperties.s3().backupsBucket())) {
+                    log.info("Found bucket for backups in S3!");
+                    backupsBucketExist = true;
+                }
+                if (bucket.getName().equals(archivingProperties.s3().walBucket())) {
+                    log.info("Found bucket for WAL files in S3!");
+                    walBucketExist = true;
+                }
             }
-            if (bucket.getName().equals(archivingProperties.s3().walBucket())) {
-                log.info("Found bucket for WAL files in S3!");
-                walBucketExist = true;
-            }
+        } catch (Exception e) {
+            throw new AdapterInitializationException("Failed to check buckets in S3! Have you configured s3 properly?");
         }
 
         if (!walBucketExist) {

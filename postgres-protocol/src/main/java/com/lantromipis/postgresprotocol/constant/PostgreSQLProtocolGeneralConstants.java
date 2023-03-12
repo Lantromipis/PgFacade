@@ -11,14 +11,14 @@ public class PostgreSQLProtocolGeneralConstants {
     public static final String ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE = "N";
     public static final String STARTUP_PARAMETER_USER = "user";
     public static final String STARTUP_PARAMETER_DATABASE = "database";
-    public static final char CLIENT_PASSWORD_RESPONSE_START_CHAR = 'p';
 
     //message start chars
     public static final char AUTH_REQUEST_START_CHAR = 'R';
     public static final char ERROR_MESSAGE_START_CHAR = 'E';
     public static final char PARAMETER_STATUS_MESSAGE_START_CHAR = 'S';
     public static final char READY_FOR_QUERY_MESSAGE_START_CHAR = 'Z';
-    public static final char TERMINATION_MESSAGE_START_CHAR = 'X';
+    public static final char CLIENT_TERMINATION_MESSAGE_START_CHAR = 'X';
+    public static final char CLIENT_PASSWORD_RESPONSE_START_CHAR = 'p';
 
 
     //ready for query

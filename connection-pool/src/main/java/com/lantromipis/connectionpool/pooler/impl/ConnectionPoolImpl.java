@@ -2,12 +2,18 @@ package com.lantromipis.connectionpool.pooler.impl;
 
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
+import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.EmptyHandler;
-import com.lantromipis.connectionpool.model.ConnectionInfo;
+import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
+import com.lantromipis.connectionpool.model.PooledConnectionInternalInfo;
+import com.lantromipis.connectionpool.model.PostgresInstancePooledConnectionsStorage;
+import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
+import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -22,9 +28,7 @@ import javax.enterprise.event.Observes;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.util.NoSuchElementException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -41,42 +45,55 @@ public class ConnectionPoolImpl implements ConnectionPool {
     @Named("worker")
     EventLoopGroup workerGroup;
 
-    private Bootstrap poolMasterBootstrap;
-    //TODO capacity?
-    private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> freeConnections = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> allConnections = new ConcurrentHashMap<>();
+    @Inject
+    ProxyProperties proxyProperties;
+
+    private Bootstrap primaryBootstrap;
+
     private CountDownLatch switchoverLatch = new CountDownLatch(0);
+
+    private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage = new PostgresInstancePooledConnectionsStorage();
 
     @Override
     public void initialize() {
-        createMasterBootstrap();
+        primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
     }
 
     @Override
-    //TODO retry 1 time for switchover?
-    public Channel getMasterConnection(ConnectionInfo connectionInfo, AuthAdditionalInfo authAdditionalInfo) {
+    public PooledConnectionWrapper getPrimaryConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo) {
+        return getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage);
+    }
+
+
+    private PooledConnectionWrapper getConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage) {
         if (switchoverLatch.getCount() != 0) {
             try {
                 switchoverLatch.await();
             } catch (InterruptedException interruptedException) {
-                log.error("Connection pool can not give connection to master. Error while waiting for switchover.", interruptedException);
+                log.error("Connection pool can not give connection to primary. Error while waiting for switchover to complete.", interruptedException);
                 return null;
             }
         }
-        ConcurrentLinkedQueue<Channel> pooledChannelsList = freeConnections.get(connectionInfo);
 
-        if (pooledChannelsList != null) {
-            Channel freeChannel = pooledChannelsList.poll();
-            if (freeChannel != null) {
-                log.debug("Returned connection to client from pool.");
-                return freeChannel;
-            }
+        PooledConnectionInternalInfo pooledConnectionInternalInfo = storage.getFreeConnection(startupMessageInfo);
+
+        if (pooledConnectionInternalInfo != null) {
+            log.debug("Returned primary connection to client from pool.");
+            return wrapPooledConnection(
+                    pooledConnectionInternalInfo,
+                    storage
+            );
         }
 
-        log.debug("No connections in pool. Creating a new one...");
+        log.debug("No free primary connections in pool. Creating a new one...");
 
-        ChannelFuture channelFuture = poolMasterBootstrap.connect();
-        channelFuture.awaitUninterruptibly();//TODO add timeout
+        ChannelFuture channelFuture = instanceBootstrap.connect();
+        if (!channelFuture.awaitUninterruptibly(proxyProperties.connectionPool().acquireRealConnectionTimeout().toMillis())) {
+            channelFuture.cancel(true);
+            log.debug("Failed to acquire primary connection.");
+            return null;
+        }
+
         Channel newChannel = channelFuture.channel();
 
         try {
@@ -85,53 +102,48 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
 
         AtomicBoolean success = new AtomicBoolean();
-        CountDownLatch successLatch = new CountDownLatch(1);
+        CountDownLatch finishedLatch = new CountDownLatch(1);
 
         newChannel.pipeline().addLast(
                 connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
                         authAdditionalInfo,
-                        connectionInfo,
+                        startupMessageInfo,
                         result -> {
                             success.set(result);
-                            successLatch.countDown();
+                            finishedLatch.countDown();
                             return null;
                         }
-
                 )
         );
 
         try {
-            successLatch.await();//TODO add timeout
+            if (!finishedLatch.await(proxyProperties.connectionPool().realConnectionAuthTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+                log.debug("Failed to preform auth for new real primary connection. Timeout reached.");
+                return null;
+            }
 
             if (success.get()) {
-                addConnectionToMap(connectionInfo, newChannel, allConnections);
-                log.debug("Successfully created new connection.");
-                return newChannel;
+                pooledConnectionInternalInfo = storage.addNewChannelAndMarkAsTaken(
+                        startupMessageInfo,
+                        newChannel
+                );
+                log.debug("Successfully established new real primary connection. Connection added to pool and returned to client.");
+
+                return wrapPooledConnection(
+                        pooledConnectionInternalInfo,
+                        storage
+                );
             } else {
-                newChannel.close();
-                log.debug("Connection creation failed.");
+                HandlerUtils.closeOnFlush(newChannel);
+                log.debug("Failed to preform auth for new real primary connection.");
                 return null;
             }
 
         } catch (Exception e) {
-            log.error("Connection pool can not give connection to master. Error while waiting for connection to be ready.", e);
-            newChannel.close();
+            log.error("Failed to preform auth for new real primary connection. Error while waiting for connection to be ready.", e);
+            HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
             return null;
-        }
-    }
-
-    @Override
-    public void returnConnectionToPool(ConnectionInfo connectionInfo, Channel connection) {
-        if (connectionInfo == null || connection == null) {
-            return;
-        }
-
-        ConcurrentLinkedQueue<Channel> pooledChannelsList = allConnections.get(connectionInfo);
-
-        if (pooledChannelsList != null && pooledChannelsList.contains(connection)) {
-            HandlerUtils.removeAllHandlersFormPipeline(connection);
-            addConnectionToMap(connectionInfo, connection, freeConnections);
-            log.debug("Returned connection to pool.");
         }
     }
 
@@ -139,34 +151,36 @@ public class ConnectionPoolImpl implements ConnectionPool {
         switchoverLatch = new CountDownLatch(1);
     }
 
-    public void listenToSwitchoverStartedEvent(@Observes SwitchoverCompletedEvent switchoverCompletedEvent) {
+    public void listenToSwitchoverCompletedEvent(@Observes SwitchoverCompletedEvent switchoverCompletedEvent) {
         if (switchoverCompletedEvent.isSuccess()) {
-            createMasterBootstrap();
-            allConnections.clear();
-            freeConnections.clear();
+            primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
         }
         switchoverLatch.countDown();
     }
 
-    private void createMasterBootstrap() {
-        poolMasterBootstrap = new Bootstrap();
-        poolMasterBootstrap.group(workerGroup)
+    private PooledConnectionWrapper wrapPooledConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo, PostgresInstancePooledConnectionsStorage storage) {
+        return new PooledConnectionWrapper(
+                pooledConnectionInternalInfo.getRealPostgresConnection(),
+                () -> {
+                    HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
+                    storage.returnTakenConnection(pooledConnectionInternalInfo);
+                    log.debug("Returned connection to pool.");
+                }
+
+        );
+    }
+
+    private Bootstrap createInstanceBootstrap(RuntimePostgresInstanceInfo instanceInfo) {
+        Bootstrap bootstrap = new Bootstrap();
+        bootstrap.group(workerGroup)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.AUTO_READ, false)
                 .handler(new EmptyHandler())
-                .remoteAddress(clusterRuntimeConfiguration.getPrimaryInstanceInfo().getAddress(), clusterRuntimeConfiguration.getPrimaryInstanceInfo().getPort());
-    }
+                .remoteAddress(
+                        instanceInfo.getAddress(),
+                        instanceInfo.getPort()
+                );
 
-    private void addConnectionToMap(ConnectionInfo connectionInfo, Channel connection, ConcurrentHashMap<ConnectionInfo, ConcurrentLinkedQueue<Channel>> map) {
-        map.compute(connectionInfo, (k, v) -> {
-            if (v == null) {
-                var queue = new ConcurrentLinkedQueue<Channel>();
-                queue.add(connection);
-                return queue;
-            } else {
-                v.add(connection);
-                return v;
-            }
-        });
+        return bootstrap;
     }
 }

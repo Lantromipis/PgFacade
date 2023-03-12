@@ -33,7 +33,7 @@ public interface PlatformAdapter {
 
     boolean deletePostgresInstance(UUID instanceId, boolean force);
 
-    void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId);
+    void updateInstancesAfterSwitchover(UUID newPrimaryInstanceId, UUID oldPrimaryInstanceId);
 
     AdapterShellCommandExecutionResult executeShellCommandForInstance(UUID instanceId, String shellCommand, List<Long> okExitCodes);
 

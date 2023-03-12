@@ -1,7 +1,7 @@
 package com.lantromipis.postgresprotocol.utils;
 
 import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
@@ -32,7 +32,7 @@ public class ProtocolUtils {
         ByteBuf result = Unpooled.buffer();
 
         for (var entry : serverParameters.entrySet()) {
-            result.writeBytes(ServerPostgreSqlProtocolMessageEncoder.encodeParameterStatusMessage(entry.getKey(), entry.getValue()));
+            result.writeBytes(ServerPostgresProtocolMessageEncoder.encodeParameterStatusMessage(entry.getKey(), entry.getValue()));
             result.writeByte(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE);
         }
 
@@ -43,6 +43,6 @@ public class ProtocolUtils {
         byte startChar = buf.readByte();
         buf.resetReaderIndex();
 
-        return startChar == PostgreSQLProtocolGeneralConstants.TERMINATION_MESSAGE_START_CHAR;
+        return startChar == PostgreSQLProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR;
     }
 }

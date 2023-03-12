@@ -3,8 +3,8 @@ package com.lantromipis.proxy.handler.auth;
 import com.lantromipis.connectionpool.model.ScramAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolScramConstants;
-import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.decoder.clientPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.SaslResponse;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
@@ -87,7 +87,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     }
 
     private void processFirstMessage(ChannelHandlerContext ctx, Object msg) {
-        SaslInitialResponse saslInitialResponse = ClientPostgreSqlProtocolMessageDecoder.decodeSaslInitialResponse((ByteBuf) msg);
+        SaslInitialResponse saslInitialResponse = clientPostgresProtocolMessageDecoder.decodeSaslInitialResponse((ByteBuf) msg);
 
         if (!saslInitialResponse.getNameOfSaslAuthMechanism().equals(PostgreSQLProtocolScramConstants.SASL_SHA_256_AUTH_MECHANISM_NAME)) {
             log.error("SCRAM-SAH-256 was not chosen by client as SASL mechanism, but was expected to.");
@@ -110,7 +110,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         String combinedNonce = clientNonce + serverNonce;
         serverFirstMessage = String.format(PostgreSQLProtocolScramConstants.SERVER_FIRST_MESSAGE_FORMAT, combinedNonce, salt, iterationCount);
 
-        ByteBuf responseBuf = ServerPostgreSqlProtocolMessageEncoder.createAuthenticationSaslContinueMessage(serverFirstMessage);
+        ByteBuf responseBuf = ServerPostgresProtocolMessageEncoder.createAuthenticationSaslContinueMessage(serverFirstMessage);
 
         saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
         ctx.channel().writeAndFlush(responseBuf);
@@ -118,7 +118,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     }
 
     private void processFinalMessage(ChannelHandlerContext ctx, Object msg) {
-        SaslResponse saslResponse = ClientPostgreSqlProtocolMessageDecoder.decodeSaslResponse((ByteBuf) msg);
+        SaslResponse saslResponse = clientPostgresProtocolMessageDecoder.decodeSaslResponse((ByteBuf) msg);
 
         Pattern saslFinalMessagePattern = PostgreSQLProtocolScramConstants.CLIENT_FINAL_MESSAGE_PATTERN;
         Matcher saslFinalMessageMatcher = saslFinalMessagePattern.matcher(saslResponse.getSaslMechanismSpecificData());
@@ -172,10 +172,10 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
             String saslServerFinalMessage = "v=" + new String(Base64.getEncoder().encode(serverSignature), StandardCharsets.UTF_8);
 
-            ByteBuf finalSaslResponse = ServerPostgreSqlProtocolMessageEncoder.createAuthenticationSASLFinalMessage(saslServerFinalMessage);
-            ByteBuf authOkResponse = ServerPostgreSqlProtocolMessageEncoder.createAuthenticationOkMessage();
+            ByteBuf finalSaslResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationSASLFinalMessage(saslServerFinalMessage);
+            ByteBuf authOkResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationOkMessage();
             ByteBuf serverParametersStatusResponse = protocolUtils.getServerParametersStatusMessage();
-            ByteBuf readyForQueryResponse = ServerPostgreSqlProtocolMessageEncoder.encodeReadyForQueryMessage();
+            ByteBuf readyForQueryResponse = ServerPostgresProtocolMessageEncoder.encodeReadyForQueryMessage();
 
             ByteBuf combinedMessage = Unpooled.copiedBuffer(finalSaslResponse, authOkResponse, serverParametersStatusResponse, readyForQueryResponse);
 

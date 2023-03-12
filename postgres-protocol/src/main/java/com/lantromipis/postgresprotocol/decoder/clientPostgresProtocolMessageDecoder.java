@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ClientPostgreSqlProtocolMessageDecoder {
+public class clientPostgresProtocolMessageDecoder {
 
     public static StartupMessage decodeStartupMessage(ByteBuf byteBuf) throws MessageDecodingException {
         try {

@@ -7,10 +7,18 @@ import com.lantromipis.postgresprotocol.model.StartupMessage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-public class ClientPostgreSqlProtocolMessageEncoder {
-    public static ByteBuf encodeClientStartupMessage(StartupMessage startupMessage) {
-        ByteBuf buf = Unpooled.buffer();
+public class ClientPostgresProtocolMessageEncoder {
 
+    public static ByteBuf encodeClientTerminateMessage() {
+        ByteBuf buf = Unpooled.buffer(5);
+
+        buf.writeByte(PostgreSQLProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR);
+        buf.writeInt(4);
+
+        return buf;
+    }
+
+    public static ByteBuf encodeClientStartupMessage(StartupMessage startupMessage) {
         //4 bytes length + 4 bytes version + 1 byte final delimiter
         int length = 9;
 
@@ -33,6 +41,8 @@ public class ClientPostgreSqlProtocolMessageEncoder {
 
         paramsBuf.writeByte(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE);
 
+        ByteBuf buf = Unpooled.buffer(length + 1);
+
         buf.writeInt(length);
         buf.writeShort(startupMessage.getMajorVersion());
         buf.writeShort(startupMessage.getMinorVersion());
@@ -42,13 +52,13 @@ public class ClientPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf encodeSaslInitialResponseMessage(SaslInitialResponse saslInitialResponse) {
-        ByteBuf buf = Unpooled.buffer();
-
         byte[] mechanismNameBytes = saslInitialResponse.getNameOfSaslAuthMechanism().getBytes();
         byte[] saslSpecificData = saslInitialResponse.getSaslMechanismSpecificData().getBytes();
 
         //length (int32) + 1 delimiter byte + length of sasl data (int32)
         int length = 9 + mechanismNameBytes.length + saslSpecificData.length;
+
+        ByteBuf buf = Unpooled.buffer(length + 1);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR);
         buf.writeInt(length);
@@ -61,12 +71,12 @@ public class ClientPostgreSqlProtocolMessageEncoder {
     }
 
     public static ByteBuf encodeSaslResponseMessage(SaslResponse saslResponse) {
-        ByteBuf buf = Unpooled.buffer();
-
         byte[] saslSpecificData = saslResponse.getSaslMechanismSpecificData().getBytes();
 
         //length (int32)
         int length = 4 + saslSpecificData.length;
+
+        ByteBuf buf = Unpooled.buffer(length + 1);
 
         buf.writeByte(PostgreSQLProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR);
         buf.writeInt(length);

@@ -9,7 +9,7 @@ import io.netty.buffer.ByteBuf;
 
 import java.nio.charset.StandardCharsets;
 
-public class ServerPostgreSqlProtocolMessageDecoder {
+public class ServerPostgresProtocolMessageDecoder {
     public static AuthenticationRequestMessage decodeAuthRequestMessage(ByteBuf byteBuf) {
         try {
             byte marker = byteBuf.readByte();

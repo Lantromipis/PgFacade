@@ -1,13 +1,12 @@
 package com.lantromipis.proxy.handler.proxy;
 
-import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -99,7 +98,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      */
     protected void forceCloseConnectionWithError() {
         initialChannelHandlerContext.channel().writeAndFlush(
-                ServerPostgreSqlProtocolMessageEncoder.createEmptyErrorMessage()
+                ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage()
         );
         HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel());
         active = false;

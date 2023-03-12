@@ -1,8 +1,8 @@
 package com.lantromipis.proxy.handler.general;
 
 import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.decoder.clientPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
@@ -39,7 +39,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             ctx.channel().read();
         } else {
             message.resetReaderIndex();
-            StartupMessage startupMessage = ClientPostgreSqlProtocolMessageDecoder.decodeStartupMessage(message);
+            StartupMessage startupMessage = clientPostgresProtocolMessageDecoder.decodeStartupMessage(message);
 
             if (startupMessage == null) {
                 log.error("Error decoding client startup message. Closing connection.");
@@ -63,7 +63,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                 return;
             }
 
-            ByteBuf authRequestMessage = ServerPostgreSqlProtocolMessageEncoder.createAuthRequestMessage(authenticationMethod);
+            ByteBuf authRequestMessage = ServerPostgresProtocolMessageEncoder.createAuthRequestMessage(authenticationMethod);
 
             switch (authenticationMethod) {
                 case PLAIN_TEXT -> {

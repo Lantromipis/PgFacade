@@ -1,12 +1,9 @@
 package com.lantromipis.proxy.handler.proxy.client;
 
-import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
-import com.lantromipis.proxy.handler.testproxy.ProxyDatabaseHandler;
+import com.lantromipis.proxy.handler.proxy.database.NoPoolProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.model.ProxyScramSaslAuthState;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -31,7 +28,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
         Bootstrap b = new Bootstrap();
         b.group(inboundChannel.eventLoop())
                 .channel(ctx.channel().getClass())
-                .handler(new ProxyDatabaseHandler(inboundChannel))
+                .handler(new NoPoolProxyDatabaseChannelHandler(inboundChannel))
                 .option(ChannelOption.AUTO_READ, false);
         ChannelFuture f = b.connect(remoteHost, remotePort);
         postgreSqlChannel = f.channel();

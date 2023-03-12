@@ -1,11 +1,11 @@
 package com.lantromipis.connectionpool.handler.auth;
 
 import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
-import com.lantromipis.connectionpool.model.ConnectionInfo;
+import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.ScramAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolScramConstants;
-import com.lantromipis.postgresprotocol.decoder.ServerPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.encoder.ClientPostgreSqlProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.AuthenticationSASLContinue;
 import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
@@ -38,16 +38,16 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
 
     private ScramAuthInfo scramAuthInfo;
-    private ConnectionInfo connectionInfo;
+    private StartupMessageInfo startupMessageInfo;
     private Function<Boolean, Void> callbackFunction;
 
     private SaslAuthStatus authStatus = SaslAuthStatus.NOT_STARTED;
 
-    public PgChannelSaslScramSha256AuthHandler(ScramAuthInfo scramAuthInfo, ConnectionInfo connectionInfo, Function<Boolean, Void> callbackFunction) {
+    public PgChannelSaslScramSha256AuthHandler(ScramAuthInfo scramAuthInfo, StartupMessageInfo startupMessageInfo, Function<Boolean, Void> callbackFunction) {
         this.clientNonce = UUID.randomUUID().toString();
 
         this.scramAuthInfo = scramAuthInfo;
-        this.connectionInfo = connectionInfo;
+        this.startupMessageInfo = startupMessageInfo;
         this.callbackFunction = callbackFunction;
     }
 
@@ -61,7 +61,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
                 .saslMechanismSpecificData(PostgreSQLProtocolScramConstants.GS2_HEADER + clientFirstMessageBare)
                 .build();
 
-        ByteBuf message = ClientPostgreSqlProtocolMessageEncoder.encodeSaslInitialResponseMessage(saslInitialResponse);
+        ByteBuf message = ClientPostgresProtocolMessageEncoder.encodeSaslInitialResponseMessage(saslInitialResponse);
 
         ctx.channel().writeAndFlush(message);
         authStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_SENT;
@@ -74,7 +74,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
         if (SaslAuthStatus.FIRST_CLIENT_MESSAGE_SENT.equals(authStatus)) {
 
-            AuthenticationSASLContinue saslContinue = ServerPostgreSqlProtocolMessageDecoder.decodeAuthSaslContinueMessage(message);
+            AuthenticationSASLContinue saslContinue = ServerPostgresProtocolMessageDecoder.decodeAuthSaslContinueMessage(message);
 
             Pattern serverFirstMessagePattern = PostgreSQLProtocolScramConstants.SERVER_FIRST_MESSAGE_PATTERN;
             Matcher serverFirstMessageMatcher = serverFirstMessagePattern.matcher(saslContinue.getSaslMechanismSpecificData());
@@ -121,7 +121,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
                     .saslMechanismSpecificData(clientFinalMessage)
                     .build();
 
-            ByteBuf response = ClientPostgreSqlProtocolMessageEncoder.encodeSaslResponseMessage(saslResponse);
+            ByteBuf response = ClientPostgresProtocolMessageEncoder.encodeSaslResponseMessage(saslResponse);
 
             ctx.channel().writeAndFlush(response);
             authStatus = SaslAuthStatus.LAST_CLIENT_MESSAGE_SENT;

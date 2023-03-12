@@ -2,7 +2,6 @@ package com.lantromipis.proxy.producer;
 
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
-import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
@@ -10,18 +9,15 @@ import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
-import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
 import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
-import com.lantromipis.proxy.handler.proxy.database.SimpleDatabaseMasterConnectionClientChannelHandler;
+import com.lantromipis.proxy.handler.proxy.database.SimpleDatabasePrimaryConnectionClientChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.Channel;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import java.util.UUID;
-import java.util.function.Supplier;
 
 @ApplicationScoped
 public class ProxyChannelHandlersProducer {
@@ -113,7 +109,7 @@ public class ProxyChannelHandlersProducer {
         return handler;
     }
 
-    public SimpleDatabaseMasterConnectionClientChannelHandler createNewSimpleDatabaseMasterConnectionHandler(Channel clientConnection) {
-        return new SimpleDatabaseMasterConnectionClientChannelHandler(clientConnection);
+    public SimpleDatabasePrimaryConnectionClientChannelHandler createNewSimpleDatabasePrimaryConnectionHandler(Channel clientConnection) {
+        return new SimpleDatabasePrimaryConnectionClientChannelHandler(clientConnection);
     }
 }
