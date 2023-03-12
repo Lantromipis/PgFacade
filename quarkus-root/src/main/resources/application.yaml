@@ -17,7 +17,7 @@ pg-facade:
       inactive-connection-timeout: PT3M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
       check-interval: PT15S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   orchestration:
-    adapter: docker
+    adapter: no_adapter
     postgres-cluster-restore:
       auto-restore-if-no-instances-on-startup: true
       allow-creating-new-empty-primary-if-restore-on-startup-failed: false
@@ -105,9 +105,9 @@ quarkus:
       format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] - %s%e%n"
     category:
       "com.lantromipis.proxy":
-        level: INFO
+        level: DEBUG
       "com.lantromipis.connectionpool" :
-        level: INFO
+        level: DEBUG
       "org.apache.hc" :
         level: ERROR
   banner:

@@ -11,7 +11,7 @@ import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
 import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
-import com.lantromipis.proxy.handler.proxy.database.SimpleDatabasePrimaryConnectionClientChannelHandler;
+import com.lantromipis.proxy.handler.proxy.database.SimpleProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.Channel;
@@ -109,7 +109,7 @@ public class ProxyChannelHandlersProducer {
         return handler;
     }
 
-    public SimpleDatabasePrimaryConnectionClientChannelHandler createNewSimpleDatabasePrimaryConnectionHandler(Channel clientConnection) {
-        return new SimpleDatabasePrimaryConnectionClientChannelHandler(clientConnection);
+    public SimpleProxyDatabaseChannelHandler createNewSimpleDatabasePrimaryConnectionHandler(Channel clientConnection, Runnable realDatabaseConnectionClosedCallback) {
+        return new SimpleProxyDatabaseChannelHandler(clientConnection, realDatabaseConnectionClosedCallback);
     }
 }

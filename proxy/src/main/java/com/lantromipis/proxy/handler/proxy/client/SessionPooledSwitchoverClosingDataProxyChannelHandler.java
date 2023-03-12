@@ -57,8 +57,12 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         }
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
-                proxyChannelHandlersProducer.createNewSimpleDatabasePrimaryConnectionHandler(ctx.channel())
+                proxyChannelHandlersProducer.createNewSimpleDatabasePrimaryConnectionHandler(
+                        ctx.channel(),
+                        () -> closeClientConnectionExceptionally(ctx)
+                )
         );
+        // read first message
         super.handlerAdded(ctx);
     }
 

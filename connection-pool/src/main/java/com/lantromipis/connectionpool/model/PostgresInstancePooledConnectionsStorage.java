@@ -4,6 +4,7 @@ import io.netty.channel.Channel;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -90,7 +91,7 @@ public class PostgresInstancePooledConnectionsStorage {
     }
 
     /**
-     * Finds and returns free connection based on startup info. Returned connection will be marked as 'taken'.
+     * Finds and returns free and open connection based on provided startup info. Returned connection will be marked as 'taken'.
      *
      * @param startupMessageInfo criteria to search for connection
      * @return PooledConnection marked as 'taken' or null if no connection matching criteria was found.
@@ -109,16 +110,16 @@ public class PostgresInstancePooledConnectionsStorage {
         }
 
         // mark connection as taken to prevent it from being removed if cleaner is working concurrently now
-        if (pooledConnectionInternalInfo.getTaken().compareAndSet(false, true)) {
+        if (pooledConnectionInternalInfo.getRealPostgresConnection().isActive() && pooledConnectionInternalInfo.getTaken().compareAndSet(false, true)) {
             return pooledConnectionInternalInfo;
         }
 
-        // corner case: taken connection was removed by cleaner
+        // corner case: taken connection was removed by cleaner or was closed by postgres
         return getFreeConnection(startupMessageInfo);
     }
 
     /**
-     * Removes unneeded connections that was not in use for some period of time. Only this method can really remove connection from storage.
+     * Removes unneeded or closed connections that was not in use for some period of time. Only this method can really remove connection from storage.
      * Only connections marked as 'free' are removed.
      * Concurrent calls of this method is forbidden!
      *
@@ -126,7 +127,7 @@ public class PostgresInstancePooledConnectionsStorage {
      * @return list of freed connections
      */
     public List<Channel> removeRedundantConnections(long lastTimestamp, long maxAgeMillis) {
-        return freeConnections.values()
+        List<Channel> freedChannels = freeConnections.values()
                 .stream()
                 .flatMap(Collection::stream)
                 .filter(connection -> {
@@ -146,6 +147,26 @@ public class PostgresInstancePooledConnectionsStorage {
                 })
                 .map(PooledConnectionInternalInfo::getRealPostgresConnection)
                 .collect(Collectors.toList());
+
+        // remove all 'dead' connections
+        freedChannels.addAll(
+                allConnections.values()
+                        .stream()
+                        .flatMap(Collection::stream)
+                        .filter(connection -> {
+                            // check if connection is closed
+                            if (!connection.getRealPostgresConnection().isActive()) {
+                                removeConnection(connection);
+                                return true;
+                            }
+
+                            return false;
+                        })
+                        .map(PooledConnectionInternalInfo::getRealPostgresConnection)
+                        .toList()
+        );
+
+        return freedChannels;
     }
 
     private void addConnectionToMap(StartupMessageInfo startupMessageInfo, PooledConnectionInternalInfo connection, ConcurrentHashMap<StartupMessageInfo, ConcurrentLinkedDeque<PooledConnectionInternalInfo>> map) {
@@ -164,7 +185,7 @@ public class PostgresInstancePooledConnectionsStorage {
     private void removeConnection(PooledConnectionInternalInfo connection) {
         StartupMessageInfo startupMessageInfo = connection.getStartupMessageInfo();
 
-        freeConnections.get(startupMessageInfo).remove(connection);
-        allConnections.get(startupMessageInfo).remove(connection);
+        Optional.ofNullable(freeConnections.get(startupMessageInfo)).map(queue -> queue.remove(connection));
+        Optional.ofNullable(allConnections.get(startupMessageInfo)).map(queue -> queue.remove(connection));
     }
 }

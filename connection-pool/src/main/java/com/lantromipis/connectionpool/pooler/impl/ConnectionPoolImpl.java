@@ -24,9 +24,11 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Observes;
+import javax.enterprise.event.Reception;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.util.List;
@@ -50,6 +52,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     @Inject
     ProxyProperties proxyProperties;
+
+    @Inject
+    ManagedExecutor managedExecutor;
 
     private Bootstrap primaryBootstrap;
 
@@ -79,7 +84,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 if (CollectionUtils.isNotEmpty(redundantChannels)) {
                     redundantChannels
                             .forEach(channel -> HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()));
-                    log.debug("Closed and removed from pool {} redundant connections because they were not required for too long or reached max-age.", redundantChannels.size());
+                    log.debug("Closed and removed from pool {} redundant connections because they were not required for too long, reached max-age or was already closed.", redundantChannels.size());
                 }
             } finally {
                 clearUnneededConnectionsInProgress.set(false);
@@ -169,21 +174,27 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
     }
 
-    public void listenToSwitchoverStartedEvent(@Observes SwitchoverStartedEvent switchoverStartedEvent) {
+    public void listenToSwitchoverStartedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverStartedEvent switchoverStartedEvent) {
         switchoverLatch = new CountDownLatch(1);
+        poolActive.set(false);
     }
 
-    public void listenToSwitchoverCompletedEvent(@Observes SwitchoverCompletedEvent switchoverCompletedEvent) {
+    public void listenToSwitchoverCompletedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverCompletedEvent switchoverCompletedEvent) {
         if (switchoverCompletedEvent.isSuccess()) {
             primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
         }
         switchoverLatch.countDown();
+        poolActive.set(true);
     }
 
     private PooledConnectionWrapper wrapPooledConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo, PostgresInstancePooledConnectionsStorage storage) {
         return new PooledConnectionWrapper(
                 pooledConnectionInternalInfo.getRealPostgresConnection(),
                 () -> {
+                    if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
+                        log.debug("Tried to return connection to pool but it is already closed. Not returning it.");
+                        return;
+                    }
                     HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
                     Channel channel = storage.returnTakenConnectionAndCheckAge(
                             pooledConnectionInternalInfo,

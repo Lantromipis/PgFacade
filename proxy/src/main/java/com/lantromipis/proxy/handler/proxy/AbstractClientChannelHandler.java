@@ -62,7 +62,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     }
 
     /**
-     * Auto-read is disabled, so we must read channel when handler is added.
+     * Initializes custom handler and reads from channel. Auto-read is disabled, so we must read channel when handler is added.
      *
      * @param ctx channel handler context
      * @throws Exception when something wants wrong
