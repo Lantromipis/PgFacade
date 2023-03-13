@@ -1,6 +1,6 @@
 package com.lantromipis.postgresprotocol.constant;
 
-public class PostgreSQLProtocolGeneralConstants {
+public class PostgresProtocolGeneralConstants {
     public static final byte DELIMITER_BYTE = 0;
     public static final String DELIMITER_BYTE_CHAR = "\0";
     public static final int INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT = 8;

@@ -3,10 +3,10 @@ package com.lantromipis.connectionpool.handler.auth;
 import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.ScramAuthInfo;
-import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolScramConstants;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.AuthenticationSASLContinue;
 import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.SaslResponse;
@@ -53,12 +53,12 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        clientFirstMessageBare = String.format(PostgreSQLProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_FORMAT, "*", clientNonce);
+        clientFirstMessageBare = String.format(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_FORMAT, "*", clientNonce);
 
         SaslInitialResponse saslInitialResponse = SaslInitialResponse
                 .builder()
-                .nameOfSaslAuthMechanism(AuthenticationMethod.SCRAM_SHA256.getProtocolMethodName())
-                .saslMechanismSpecificData(PostgreSQLProtocolScramConstants.GS2_HEADER + clientFirstMessageBare)
+                .nameOfSaslAuthMechanism(PostgresProtocolAuthenticationMethod.SCRAM_SHA256.getProtocolMethodName())
+                .saslMechanismSpecificData(PostgresProtocolScramConstants.GS2_HEADER + clientFirstMessageBare)
                 .build();
 
         ByteBuf message = ClientPostgresProtocolMessageEncoder.encodeSaslInitialResponseMessage(saslInitialResponse);
@@ -76,24 +76,24 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
             AuthenticationSASLContinue saslContinue = ServerPostgresProtocolMessageDecoder.decodeAuthSaslContinueMessage(message);
 
-            Pattern serverFirstMessagePattern = PostgreSQLProtocolScramConstants.SERVER_FIRST_MESSAGE_PATTERN;
+            Pattern serverFirstMessagePattern = PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_PATTERN;
             Matcher serverFirstMessageMatcher = serverFirstMessagePattern.matcher(saslContinue.getSaslMechanismSpecificData());
             serverFirstMessageMatcher.matches();
 
-            String serverNonce = serverFirstMessageMatcher.group(PostgreSQLProtocolScramConstants.SERVER_FIRST_MESSAGE_SERVER_NONCE_MATCHER_GROUP);
+            String serverNonce = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_SERVER_NONCE_MATCHER_GROUP);
 
             if (!serverNonce.startsWith(clientNonce)) {
                 failConnectionAuth(ctx);
                 return;
             }
 
-            String salt = serverFirstMessageMatcher.group(PostgreSQLProtocolScramConstants.SERVER_FIRST_MESSAGE_SALT_MATCHER_GROUP);
-            String iterationCount = serverFirstMessageMatcher.group(PostgreSQLProtocolScramConstants.SERVER_FIRST_MESSAGE_ITERATION_COUNT_MATCHER_GROUP);
+            String salt = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_SALT_MATCHER_GROUP);
+            String iterationCount = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_ITERATION_COUNT_MATCHER_GROUP);
 
-            String g2HeaderEncoded = new String(Base64.getEncoder().encode(PostgreSQLProtocolScramConstants.GS2_HEADER.getBytes()));
+            String g2HeaderEncoded = new String(Base64.getEncoder().encode(PostgresProtocolScramConstants.GS2_HEADER.getBytes()));
 
             String clientFinalMessageWithoutProof = String.format(
-                    PostgreSQLProtocolScramConstants.CLIENT_FINAL_MESSAGE_WITHOUT_PROOF_FORMAT,
+                    PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_WITHOUT_PROOF_FORMAT,
                     g2HeaderEncoded,
                     serverNonce
             );
@@ -102,7 +102,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
             byte[] clientKey = scramAuthInfo.getClientKey();
             byte[] storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
 
-            byte[] clientSignature = ScramUtils.computeHmac(storedKey, PostgreSQLProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
+            byte[] clientSignature = ScramUtils.computeHmac(storedKey, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
 
             byte[] clientProof = clientKey.clone();
             for (int i = 0; i < clientProof.length; i++) {
@@ -110,7 +110,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
             }
 
             String clientFinalMessage = String.format(
-                    PostgreSQLProtocolScramConstants.CLIENT_FINAL_MESSAGE_FORMAT,
+                    PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_FORMAT,
                     g2HeaderEncoded,
                     serverNonce,
                     new String(Base64.getEncoder().encode(clientProof))

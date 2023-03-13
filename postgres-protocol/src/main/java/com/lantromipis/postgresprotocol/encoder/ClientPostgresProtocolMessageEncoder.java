@@ -1,6 +1,6 @@
 package com.lantromipis.postgresprotocol.encoder;
 
-import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.SaslResponse;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
@@ -12,7 +12,7 @@ public class ClientPostgresProtocolMessageEncoder {
     public static ByteBuf encodeClientTerminateMessage() {
         ByteBuf buf = Unpooled.buffer(5);
 
-        buf.writeByte(PostgreSQLProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR);
+        buf.writeByte(PostgresProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR);
         buf.writeInt(4);
 
         return buf;
@@ -29,9 +29,9 @@ public class ClientPostgresProtocolMessageEncoder {
             byte[] paramValueBytes = e.getValue().getBytes();
 
             paramsBuf.writeBytes(paramNameBytes);
-            paramsBuf.writeByte(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE);
+            paramsBuf.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
             paramsBuf.writeBytes(paramValueBytes);
-            paramsBuf.writeByte(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE);
+            paramsBuf.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
 
             length += paramNameBytes.length;
             length += paramValueBytes.length;
@@ -39,7 +39,7 @@ public class ClientPostgresProtocolMessageEncoder {
             length += 2;
         }
 
-        paramsBuf.writeByte(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE);
+        paramsBuf.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
 
         ByteBuf buf = Unpooled.buffer(length + 1);
 
@@ -60,10 +60,10 @@ public class ClientPostgresProtocolMessageEncoder {
 
         ByteBuf buf = Unpooled.buffer(length + 1);
 
-        buf.writeByte(PostgreSQLProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR);
+        buf.writeByte(PostgresProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR);
         buf.writeInt(length);
         buf.writeBytes(mechanismNameBytes);
-        buf.writeByte(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE);
+        buf.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
         buf.writeInt(saslSpecificData.length);
         buf.writeBytes(saslSpecificData);
 
@@ -78,7 +78,7 @@ public class ClientPostgresProtocolMessageEncoder {
 
         ByteBuf buf = Unpooled.buffer(length + 1);
 
-        buf.writeByte(PostgreSQLProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR);
+        buf.writeByte(PostgresProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR);
         buf.writeInt(length);
         buf.writeBytes(saslSpecificData);
 

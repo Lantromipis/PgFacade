@@ -2,7 +2,7 @@ package com.lantromipis.usermanagement.provider.impl;
 
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -64,18 +64,18 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
     }
 
     @Override
-    public AuthenticationMethod getAuthMethodForUser(String username) {
+    public PostgresProtocolAuthenticationMethod getAuthMethodForUser(String username) {
         PgShadowTableRow pgShadowTableRow = pgShadowTableRowsMap.get(username);
         if (pgShadowTableRow == null) {
             return null;
         }
 
         if (StringUtils.startsWith("md5", pgShadowTableRow.getPasswd())) {
-            return AuthenticationMethod.MD5;
+            return PostgresProtocolAuthenticationMethod.MD5;
         } else if (StringUtils.startsWith(pgShadowTableRow.getPasswd(), "SCRAM-SHA-256")) {
-            return AuthenticationMethod.SCRAM_SHA256;
+            return PostgresProtocolAuthenticationMethod.SCRAM_SHA256;
         } else {
-            return AuthenticationMethod.PLAIN_TEXT;
+            return PostgresProtocolAuthenticationMethod.PLAIN_TEXT;
         }
     }
 

@@ -1,7 +1,7 @@
 package com.lantromipis.connectionpool.model;
 
 import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
-import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,7 +16,7 @@ public class ScramAuthInfo implements AuthAdditionalInfo {
     private String storedKeyBase64;
 
     @Override
-    public AuthenticationMethod getExpectedAuthMethod() {
-        return AuthenticationMethod.SCRAM_SHA256;
+    public PostgresProtocolAuthenticationMethod getExpectedAuthMethod() {
+        return PostgresProtocolAuthenticationMethod.SCRAM_SHA256;
     }
 }

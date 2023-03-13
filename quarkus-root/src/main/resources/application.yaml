@@ -105,9 +105,11 @@ quarkus:
       format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] - %s%e%n"
     category:
       "com.lantromipis.proxy":
-        level: DEBUG
+        level: INFO
+      "com.lantromipis.proxy.initializer":
+        level: INFO
       "com.lantromipis.connectionpool" :
-        level: DEBUG
+        level: INFO
       "org.apache.hc" :
         level: ERROR
   banner:

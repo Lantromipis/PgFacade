@@ -3,7 +3,7 @@ package com.lantromipis.quarkusroot;
 import com.lantromipis.configuration.properties.predefined.ShutdownProperties;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
-import com.lantromipis.proxy.PgProxyServiceImpl;
+import com.lantromipis.proxy.service.impl.PgProxyServiceImpl;
 import com.lantromipis.quarkusroot.validator.ConfigurationValidator;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.EventLoopGroup;

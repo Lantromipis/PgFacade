@@ -30,7 +30,7 @@ public class UnpooledProxyChannelInitializer extends ChannelInitializer<Channel>
         log.debug("Established new connection with client.");
 
         if (log.isDebugEnabled()) {
-            channel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
+            channel.pipeline().addLast(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
         }
 
         channel.pipeline().addLast(

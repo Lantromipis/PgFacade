@@ -1,12 +1,7 @@
 package com.lantromipis.proxy.handler.proxy.client;
 
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
-import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
-import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
-import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
@@ -21,38 +16,20 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
 
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
+    private final PooledConnectionWrapper primaryConnectionWrapper;
 
-    private PooledConnectionWrapper primaryConnectionWrapper;
-
-    private final StartupMessageInfo startupMessageInfo;
-    private final ConnectionPool connectionPool;
-    private final AuthAdditionalInfo authAdditionalInfo;
-
-    public SessionPooledSwitchoverClosingDataProxyChannelHandler(final ConnectionPool connectionPool,
-                                                                 final StartupMessage startupMessage,
-                                                                 final AuthAdditionalInfo authAdditionalInfo,
+    public SessionPooledSwitchoverClosingDataProxyChannelHandler(final PooledConnectionWrapper primaryConnectionWrapper,
                                                                  final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
                                                                  final ClientConnectionsManagementService clientConnectionsManagementService) {
-        super();
-        this.startupMessageInfo =
-                StartupMessageInfo
-                        .builder()
-                        .username(startupMessage.getParameters().get(PostgreSQLProtocolGeneralConstants.STARTUP_PARAMETER_USER))
-                        .database(startupMessage.getParameters().get(PostgreSQLProtocolGeneralConstants.STARTUP_PARAMETER_DATABASE))
-                        .parameters(startupMessage.getParameters())
-                        .build();
-        this.authAdditionalInfo = authAdditionalInfo;
-        this.connectionPool = connectionPool;
+        this.primaryConnectionWrapper = primaryConnectionWrapper;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        primaryConnectionWrapper = connectionPool.getPrimaryConnection(startupMessageInfo, authAdditionalInfo);
-
         if (primaryConnectionWrapper == null) {
-            forceCloseConnectionWithError();
+            forceCloseConnectionWithEmptyError();
             return;
         }
 

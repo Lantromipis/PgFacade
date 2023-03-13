@@ -10,6 +10,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AuthenticationRequestMessage {
-    private AuthenticationMethod method;
+    private PostgresProtocolAuthenticationMethod method;
     private String specificData;
 }

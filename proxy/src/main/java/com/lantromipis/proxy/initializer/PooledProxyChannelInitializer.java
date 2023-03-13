@@ -9,6 +9,8 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Slf4j
 public class PooledProxyChannelInitializer extends ChannelInitializer<Channel> {
@@ -27,7 +29,7 @@ public class PooledProxyChannelInitializer extends ChannelInitializer<Channel> {
         log.debug("Established new connection with client.");
 
         if (log.isDebugEnabled()) {
-            channel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
+            channel.pipeline().addLast(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
         }
 
         channel.pipeline().addLast(

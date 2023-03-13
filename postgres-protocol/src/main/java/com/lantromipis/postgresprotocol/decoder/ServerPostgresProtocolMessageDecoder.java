@@ -1,8 +1,8 @@
 package com.lantromipis.postgresprotocol.decoder;
 
-import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.exception.MessageDecodingException;
-import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.AuthenticationRequestMessage;
 import com.lantromipis.postgresprotocol.model.AuthenticationSASLContinue;
 import io.netty.buffer.ByteBuf;
@@ -16,11 +16,11 @@ public class ServerPostgresProtocolMessageDecoder {
             int length = byteBuf.readInt();
             int methodMarker = byteBuf.readInt();
 
-            AuthenticationMethod authenticationMethod = null;
+            PostgresProtocolAuthenticationMethod postgresProtocolAuthenticationMethod = null;
 
-            for (AuthenticationMethod method : AuthenticationMethod.values()) {
+            for (PostgresProtocolAuthenticationMethod method : PostgresProtocolAuthenticationMethod.values()) {
                 if (method.getProtocolMethodMarker() == methodMarker) {
-                    authenticationMethod = method;
+                    postgresProtocolAuthenticationMethod = method;
                     break;
                 }
             }
@@ -35,7 +35,7 @@ public class ServerPostgresProtocolMessageDecoder {
 
             return AuthenticationRequestMessage
                     .builder()
-                    .method(authenticationMethod)
+                    .method(postgresProtocolAuthenticationMethod)
                     .specificData(parametersSpecificDataString)
                     .build();
 
@@ -50,7 +50,7 @@ public class ServerPostgresProtocolMessageDecoder {
         try {
             byte marker = byteBuf.readByte();
 
-            if (marker != PostgreSQLProtocolGeneralConstants.AUTH_REQUEST_START_CHAR) {
+            if (marker != PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR) {
                 throw new MessageDecodingException("Received message with wrong start char.");
             }
 
@@ -58,7 +58,7 @@ public class ServerPostgresProtocolMessageDecoder {
             int length = byteBuf.readInt() - 8;
             int saslChallengeMarker = byteBuf.readInt();
 
-            if (saslChallengeMarker != PostgreSQLProtocolGeneralConstants.SASL_AUTH_CHALLENGE_MARKER) {
+            if (saslChallengeMarker != PostgresProtocolGeneralConstants.SASL_AUTH_CHALLENGE_MARKER) {
                 throw new MessageDecodingException("Not a SASL challenge message.");
             }
 

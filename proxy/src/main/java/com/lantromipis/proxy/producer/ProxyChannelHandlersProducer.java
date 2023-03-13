@@ -3,8 +3,10 @@ package com.lantromipis.proxy.producer;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
@@ -60,10 +62,15 @@ public class ProxyChannelHandlersProducer {
     }
 
     public SessionPooledSwitchoverClosingDataProxyChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo) {
+        StartupMessageInfo startupMessageInfo = StartupMessageInfo
+                .builder()
+                .username(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER))
+                .database(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_DATABASE))
+                .parameters(startupMessage.getParameters())
+                .build();
+
         SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
-                connectionPool,
-                startupMessage,
-                authAdditionalInfo,
+                connectionPool.getPrimaryConnection(startupMessageInfo, authAdditionalInfo),
                 this,
                 clientConnectionsManagementService
         );

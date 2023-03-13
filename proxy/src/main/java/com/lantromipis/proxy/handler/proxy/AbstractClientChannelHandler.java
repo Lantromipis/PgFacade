@@ -12,7 +12,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Abstract Netty connection handler for all proxy connections.
+ * Abstract Netty connection handler for all proxy connections. This class must be a superclass for all handlers, which are used by proxy.
+ * When any child class object is created, such object must be registered in some connection manager. This allows PgFacade to track any client connections.
  */
 public abstract class AbstractClientChannelHandler extends ChannelInboundHandlerAdapter {
     /**
@@ -24,15 +25,20 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     /**
      * ChannelHandlerContext, must be captured when handler initialized.
      * This can be used, for example, for closing inactive connection.
+     * Because this field exists, a new unique handler must be created for each channel
      */
     @Getter
     @Setter
     private ChannelHandlerContext initialChannelHandlerContext;
+
+    /**
+     * Contains timestamp when channel was last in-use. Can be used by reaper-service to close inactive connections.
+     */
     private long lastTimeAccessed = 0;
 
     /**
-     * True if handler is working, false when not. For example, after forceDisconnect() called, this field must become false.
-     * It is important to set this field to false when connection with client is closed, because special reaper-scheduler uses it.
+     * True if handler is in use, false when not. For example, after forceDisconnect() called, this field must become false.
+     * It is important to set this field to false when connection with client is closed, because special reaper-service uses this field.
      */
     @Getter
     @Setter(AccessLevel.PROTECTED)
@@ -57,12 +63,12 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      * For example, this method is called when PgFacade is shutting down, or when client was inactive for too long.
      */
     public void forceDisconnect() {
-        forceCloseConnectionWithError();
+        forceCloseConnectionWithEmptyError();
         active = false;
     }
 
     /**
-     * Initializes custom handler and reads from channel. Auto-read is disabled, so we must read channel when handler is added.
+     * Initializes custom handler and reads from channel. Auto-read is disabled by PgFacade design, so we must read channel when handler is added.
      *
      * @param ctx channel handler context
      * @throws Exception when something wants wrong
@@ -88,7 +94,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        forceCloseConnectionWithError();
+        forceCloseConnectionWithEmptyError();
     }
 
     /**
@@ -96,11 +102,8 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      *
      * @param ctx ChannelHandlerContext of connection that will be closed.
      */
-    protected void forceCloseConnectionWithError() {
-        initialChannelHandlerContext.channel().writeAndFlush(
-                ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage()
-        );
-        HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel());
+    protected void forceCloseConnectionWithEmptyError() {
+        HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
         active = false;
     }
 
@@ -121,6 +124,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     private void initialize(ChannelHandlerContext ctx) {
         initialChannelHandlerContext = ctx;
         active = true;
+        lastTimeAccessed = System.currentTimeMillis();
     }
 
     @Override
@@ -129,6 +133,12 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
         if (o == null || getClass() != o.getClass()) return false;
         AbstractClientChannelHandler that = (AbstractClientChannelHandler) o;
         return that.getEqualsAndHashcodeId().equals(equalsAndHashcodeId);
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        active = false;
+        super.channelInactive(ctx);
     }
 
     @Override

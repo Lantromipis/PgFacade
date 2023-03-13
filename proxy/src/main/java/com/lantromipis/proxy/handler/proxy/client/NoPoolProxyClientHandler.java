@@ -1,8 +1,8 @@
 package com.lantromipis.proxy.handler.proxy.client;
 
+import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.proxy.handler.proxy.database.NoPoolProxyDatabaseChannelHandler;
-import com.lantromipis.proxy.model.ProxyScramSaslAuthState;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import lombok.extern.slf4j.Slf4j;
@@ -19,12 +19,11 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
         this.remotePort = remotePort;
     }
 
-    private ProxyScramSaslAuthState proxyScramSaslAuthState = ProxyScramSaslAuthState.NOT_STARTED;
-
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         final Channel inboundChannel = ctx.channel();
 
+        //TODO move away
         Bootstrap b = new Bootstrap();
         b.group(inboundChannel.eventLoop())
                 .channel(ctx.channel().getClass())
@@ -32,6 +31,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
                 .option(ChannelOption.AUTO_READ, false);
         ChannelFuture f = b.connect(remoteHost, remotePort);
         postgreSqlChannel = f.channel();
+
         f.addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) {
@@ -67,7 +67,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (postgreSqlChannel != null) {
-            HandlerUtils.closeOnFlush(postgreSqlChannel);
+            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
         }
     }
 
@@ -79,7 +79,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
 
     @Override
     public void handleSwitchoverStarted() {
-        forceCloseConnectionWithError();
+        forceCloseConnectionWithEmptyError();
     }
 
     @Override
