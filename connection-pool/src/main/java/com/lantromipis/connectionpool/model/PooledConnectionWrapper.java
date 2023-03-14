@@ -14,6 +14,13 @@ public class PooledConnectionWrapper {
      */
     @Getter
     private Channel realPostgresConnection;
+
+    /**
+     * Contains messages describing server parameters. Should be sent in first message to client
+     */
+    @Getter
+    private byte[] serverParameterMessagesBytes;
+
     /**
      * Runnable to called when it is time to return connection back to pool
      */

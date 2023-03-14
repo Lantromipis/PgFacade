@@ -10,7 +10,6 @@ import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
-import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
@@ -37,7 +36,6 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
     //dependencies
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
-    private final ProtocolUtils protocolUtils;
 
     //server props
     private final int iterationCount;
@@ -56,10 +54,9 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     private SaslAuthStatus saslAuthStatus;
     private final StartupMessage startupMessage;
 
-    public SaslScramSha256AuthClientChannelHandler(StartupMessage startupMessage, UserAuthInfoProvider userAuthInfoProvider, ProxyChannelHandlersProducer proxyChannelHandlersProducer, ProtocolUtils protocolUtils) {
+    public SaslScramSha256AuthClientChannelHandler(StartupMessage startupMessage, UserAuthInfoProvider userAuthInfoProvider, ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
         this.startupMessage = startupMessage;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
-        this.protocolUtils = protocolUtils;
         this.saslAuthStatus = SaslAuthStatus.NOT_STARTED;
 
         username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
@@ -178,11 +175,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
 
             ByteBuf finalSaslResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationSASLFinalMessage(saslServerFinalMessage);
             ByteBuf authOkResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationOkMessage();
-            ByteBuf serverParametersStatusResponse = protocolUtils.getServerParametersStatusMessage();
-            ByteBuf readyForQueryResponse = ServerPostgresProtocolMessageEncoder.encodeReadyForQueryMessage();
-
-            ByteBuf combinedMessage = Unpooled.copiedBuffer(finalSaslResponse, authOkResponse, serverParametersStatusResponse, readyForQueryResponse);
-            ctx.channel().writeAndFlush(combinedMessage);
+            ByteBuf combinedMessage = Unpooled.copiedBuffer(finalSaslResponse, authOkResponse);
 
             ctx.channel().pipeline().addLast(
                     proxyChannelHandlersProducer.createNewSessionPooledConnectionHandler(
@@ -191,7 +184,8 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
                                     .builder()
                                     .clientKey(computedClientKey)
                                     .storedKeyBase64(storedKey)
-                                    .build()
+                                    .build(),
+                            combinedMessage
                     )
             );
 

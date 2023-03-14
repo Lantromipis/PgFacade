@@ -8,14 +8,14 @@ import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
-import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
-import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
+import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
 import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
 import com.lantromipis.proxy.handler.proxy.database.SimpleProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -28,9 +28,6 @@ public class ProxyChannelHandlersProducer {
 
     @Inject
     ConnectionPool connectionPool;
-
-    @Inject
-    ProtocolUtils protocolUtils;
 
     @Inject
     ClientConnectionsManagementService clientConnectionsManagementService;
@@ -54,22 +51,25 @@ public class ProxyChannelHandlersProducer {
         SaslScramSha256AuthClientChannelHandler handler = new SaslScramSha256AuthClientChannelHandler(
                 startupMessage,
                 userAuthInfoProvider,
-                this,
-                protocolUtils
+                this
         );
         clientConnectionsManagementService.registerNewClientChannelHandler(handler);
         return handler;
     }
 
-    public SessionPooledSwitchoverClosingDataProxyChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo) {
+    public SessionPooledSwitchoverClosingDataProxyChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo, ByteBuf authMessagesCombined) {
+        String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
+
         StartupMessageInfo startupMessageInfo = StartupMessageInfo
                 .builder()
-                .username(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER))
+                .username(username)
                 .database(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_DATABASE))
                 .parameters(startupMessage.getParameters())
                 .build();
 
         SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
+                username,
+                authMessagesCombined,
                 connectionPool.getPrimaryConnection(startupMessageInfo, authAdditionalInfo),
                 this,
                 clientConnectionsManagementService

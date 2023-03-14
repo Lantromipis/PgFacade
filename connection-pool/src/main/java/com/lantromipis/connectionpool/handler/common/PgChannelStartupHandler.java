@@ -66,7 +66,6 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
             return;
         }
 
-        ctx.channel().pipeline().addLast(new LoggingHandler(LogLevel.ERROR));
         ctx.channel().pipeline().addLast(
                 connectionPoolChannelHandlerProducer.createNewSaslScramSha256AuthHandler(
                         (ScramAuthInfo) authAdditionalInfo,

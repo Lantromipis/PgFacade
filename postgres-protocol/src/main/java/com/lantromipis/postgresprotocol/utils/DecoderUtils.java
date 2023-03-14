@@ -1,5 +1,6 @@
 package com.lantromipis.postgresprotocol.utils;
 
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import com.lantromipis.postgresprotocol.model.internal.SplitResult;
 import io.netty.buffer.ByteBuf;
@@ -9,6 +10,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DecoderUtils {
+
+    public static boolean checkIfMessageIsTermination(ByteBuf buf) {
+        byte startChar = buf.readByte();
+        buf.resetReaderIndex();
+
+        return startChar == PostgresProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR;
+    }
 
     public static boolean containsMessageOfType(List<MessageInfo> messageInfos, byte targetMessageStartByte) {
         return messageInfos.stream()

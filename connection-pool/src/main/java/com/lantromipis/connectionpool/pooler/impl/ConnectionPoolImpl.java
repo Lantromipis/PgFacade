@@ -205,6 +205,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     private PooledConnectionWrapper wrapPooledConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo, PostgresInstancePooledConnectionsStorage storage) {
         return new PooledConnectionWrapper(
                 pooledConnectionInternalInfo.getRealPostgresConnection(),
+                pooledConnectionInternalInfo.getServerParameters(),
                 () -> {
                     if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
                         log.debug("Tried to return connection to pool but it is already closed. Not returning it.");
@@ -223,7 +224,6 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         log.debug("Returned connection to pool.");
                     }
                 }
-
         );
     }
 
