@@ -59,7 +59,8 @@ public class DecoderUtils {
             int entireMessageLength = length + 1;
 
             if (packet.readableBytes() < entireMessageLength) {
-                leftovers = packet.readBytes(packet.readableBytes());
+                leftovers = Unpooled.buffer(packet.readableBytes());
+                leftovers.writeBytes(packet, packet.readableBytes());
                 break;
             }
 
@@ -103,41 +104,38 @@ public class DecoderUtils {
         if (previousPacketLastIncompleteMessage != null && previousPacketLastIncompleteMessage.readableBytes() > 0) {
             byte prevMsgStartByte;
             int prevMsgLength;
-            ByteBuf prevMsgAvailableData;
 
-            int prevMessageBytes = previousPacketLastIncompleteMessage.readableBytes();
+            int prevAvailableMessageBytes = previousPacketLastIncompleteMessage.readableBytes();
 
             // mark message beginning
             previousPacketLastIncompleteMessage.markReaderIndex();
+            packet.markReaderIndex();
 
             // enough data to get message info
-            if (prevMessageBytes >= 5) {
-                prevMsgStartByte = packet.readByte();
-                prevMsgLength = packet.readInt();
+            if (prevAvailableMessageBytes >= 5) {
+                prevMsgStartByte = previousPacketLastIncompleteMessage.readByte();
+                prevMsgLength = previousPacketLastIncompleteMessage.readInt();
 
                 previousPacketLastIncompleteMessage.resetReaderIndex();
-
-                prevMsgAvailableData = Unpooled.buffer(prevMessageBytes);
-                previousPacketLastIncompleteMessage.readBytes(prevMsgAvailableData, prevMessageBytes);
             } else {
                 ByteBuf buf = Unpooled.buffer();
-                previousPacketLastIncompleteMessage.readBytes(buf, prevMessageBytes);
-                packet.readBytes(buf, 5 - prevMessageBytes);
+                buf.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
+                buf.writeBytes(packet, 5 - prevAvailableMessageBytes);
 
-                buf.markReaderIndex();
+                previousPacketLastIncompleteMessage.resetReaderIndex();
+                packet.resetReaderIndex();
 
                 prevMsgStartByte = buf.readByte();
                 prevMsgLength = buf.readInt();
-
-                buf.resetReaderIndex();
-
-                prevMsgAvailableData = Unpooled.buffer(5);
-                buf.readBytes(prevMsgAvailableData, buf.readableBytes());
             }
 
-            if (packet.readableBytes() <= prevMsgLength) {
+            int needToReadFromPacket = prevMsgLength - prevAvailableMessageBytes + 1;
+
+            if (packet.readableBytes() >= needToReadFromPacket) {
                 ByteBuf message = Unpooled.buffer(prevMsgLength + 1);
-                prevMsgAvailableData.readBytes(message, prevMsgAvailableData.readableBytes());
+
+                message.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
+                message.writeBytes(packet, needToReadFromPacket);
 
                 messageInfos.add(
                         MessageInfo
@@ -150,9 +148,9 @@ public class DecoderUtils {
 
             } else {
                 // new packet is incomplete too. All data to leftovers
-                leftovers = Unpooled.buffer();
-                prevMsgAvailableData.readBytes(leftovers, prevMsgAvailableData.readableBytes());
-                packet.readBytes(leftovers, packet.readableBytes());
+                leftovers = Unpooled.buffer(prevAvailableMessageBytes + packet.readableBytes());
+                leftovers.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
+                leftovers.writeBytes(packet, packet.readableBytes());
 
                 packet.readerIndex(0);
 
