@@ -124,6 +124,10 @@ quarkus:
       postgres-cluster-restore:
         allow-creating-new-empty-primary-if-restore-on-startup-failed: true
   quarkus:
+    log:
+      category:
+        "com.lantromipis.proxy.initializer":
+          min-level: TRACE
     devservices:
       enabled: false
     test:

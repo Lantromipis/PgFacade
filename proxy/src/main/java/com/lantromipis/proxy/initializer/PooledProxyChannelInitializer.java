@@ -26,8 +26,8 @@ public class PooledProxyChannelInitializer extends ChannelInitializer<Channel> {
     protected void initChannel(Channel channel) throws Exception {
         log.debug("Established new connection with client.");
 
-        if (log.isDebugEnabled()) {
-            channel.pipeline().addLast(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
+        if (log.isTraceEnabled()) {
+            channel.pipeline().addLast(new LoggingHandler(this.getClass(), LogLevel.TRACE));
         }
 
         channel.pipeline().addLast(
