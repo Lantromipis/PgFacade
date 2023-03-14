@@ -2,16 +2,16 @@ package com.lantromipis.postgresprotocol.decoder;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.exception.MessageDecodingException;
-import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
-import com.lantromipis.postgresprotocol.model.SaslResponse;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
+import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import io.netty.buffer.ByteBuf;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
-public class clientPostgresProtocolMessageDecoder {
+public class ClientPostgresProtocolMessageDecoder {
 
     public static StartupMessage decodeStartupMessage(ByteBuf byteBuf) throws MessageDecodingException {
         try {

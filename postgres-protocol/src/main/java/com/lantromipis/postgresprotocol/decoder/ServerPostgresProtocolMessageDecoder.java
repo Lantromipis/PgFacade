@@ -2,9 +2,9 @@ package com.lantromipis.postgresprotocol.decoder;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.exception.MessageDecodingException;
-import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
-import com.lantromipis.postgresprotocol.model.AuthenticationRequestMessage;
-import com.lantromipis.postgresprotocol.model.AuthenticationSASLContinue;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
+import com.lantromipis.postgresprotocol.model.protocol.AuthenticationSASLContinue;
 import io.netty.buffer.ByteBuf;
 
 import java.nio.charset.StandardCharsets;

@@ -1,6 +1,6 @@
 package com.lantromipis.usermanagement.provider.api;
 
-import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 
 public interface UserAuthInfoProvider {
 

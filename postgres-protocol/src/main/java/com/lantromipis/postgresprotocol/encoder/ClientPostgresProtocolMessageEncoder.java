@@ -1,9 +1,9 @@
 package com.lantromipis.postgresprotocol.encoder;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
-import com.lantromipis.postgresprotocol.model.SaslResponse;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
+import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 

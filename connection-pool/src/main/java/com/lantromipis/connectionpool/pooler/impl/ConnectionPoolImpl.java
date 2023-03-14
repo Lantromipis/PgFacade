@@ -6,16 +6,17 @@ import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.EmptyHandler;
-import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
-import com.lantromipis.connectionpool.model.PooledConnectionInternalInfo;
-import com.lantromipis.connectionpool.model.PostgresInstancePooledConnectionsStorage;
-import com.lantromipis.connectionpool.model.StartupMessageInfo;
+import com.lantromipis.connectionpool.handler.common.EmptyHandler;
+import com.lantromipis.connectionpool.model.*;
 import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @ApplicationScoped
@@ -128,7 +130,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         } catch (NoSuchElementException ignored) {
         }
 
-        AtomicBoolean success = new AtomicBoolean();
+        AtomicReference<PgChannelAuthResult> authResult = new AtomicReference<>();
         CountDownLatch finishedLatch = new CountDownLatch(1);
 
         newChannel.pipeline().addLast(
@@ -136,7 +138,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         authAdditionalInfo,
                         startupMessageInfo,
                         result -> {
-                            success.set(result);
+                            authResult.set(result);
                             finishedLatch.countDown();
                             return null;
                         }
@@ -150,10 +152,23 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 return null;
             }
 
-            if (success.get()) {
+            if (authResult.get() != null && authResult.get().isSuccess()) {
+                ByteBuf serverParameterMessagesBuf = Unpooled.buffer(512);
+
+                authResult.get().getServerStartMessagesInfos()
+                        .stream()
+                        .filter(messageInfo -> messageInfo.getStartByte() == PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR)
+                        .forEach(messageInfo ->
+                                serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), messageInfo.getEntireMessage().readableBytes())
+                        );
+
+                byte[] serverParameterMessagesBytes = new byte[serverParameterMessagesBuf.readableBytes()];
+                serverParameterMessagesBuf.readBytes(serverParameterMessagesBytes);
+
                 pooledConnectionInternalInfo = storage.addNewChannelAndMarkAsTaken(
                         startupMessageInfo,
-                        newChannel
+                        newChannel,
+                        serverParameterMessagesBytes
                 );
                 log.debug("Successfully established new real primary connection. Connection added to pool and returned to client.");
 

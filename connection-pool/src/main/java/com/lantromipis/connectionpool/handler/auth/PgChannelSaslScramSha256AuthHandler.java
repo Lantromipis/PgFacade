@@ -1,15 +1,19 @@
 package com.lantromipis.connectionpool.handler.auth;
 
+import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
+import com.lantromipis.connectionpool.model.PgChannelAuthResult;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.ScramAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
-import com.lantromipis.postgresprotocol.model.AuthenticationSASLContinue;
-import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
-import com.lantromipis.postgresprotocol.model.SaslResponse;
+import com.lantromipis.postgresprotocol.model.internal.SplitResult;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.AuthenticationSASLContinue;
+import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
+import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import io.netty.buffer.ByteBuf;
@@ -36,16 +40,20 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
     private String clientNonce;
     private String clientFirstMessageBare;
 
-
+    private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
     private ScramAuthInfo scramAuthInfo;
     private StartupMessageInfo startupMessageInfo;
-    private Function<Boolean, Void> callbackFunction;
+    private Function<PgChannelAuthResult, Void> callbackFunction;
 
     private SaslAuthStatus authStatus = SaslAuthStatus.NOT_STARTED;
 
-    public PgChannelSaslScramSha256AuthHandler(ScramAuthInfo scramAuthInfo, StartupMessageInfo startupMessageInfo, Function<Boolean, Void> callbackFunction) {
+    public PgChannelSaslScramSha256AuthHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
+                                               final ScramAuthInfo scramAuthInfo,
+                                               final StartupMessageInfo startupMessageInfo,
+                                               final Function<PgChannelAuthResult, Void> callbackFunction) {
         this.clientNonce = UUID.randomUUID().toString();
 
+        this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
         this.scramAuthInfo = scramAuthInfo;
         this.startupMessageInfo = startupMessageInfo;
         this.callbackFunction = callbackFunction;
@@ -87,9 +95,6 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
                 return;
             }
 
-            String salt = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_SALT_MATCHER_GROUP);
-            String iterationCount = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_ITERATION_COUNT_MATCHER_GROUP);
-
             String g2HeaderEncoded = new String(Base64.getEncoder().encode(PostgresProtocolScramConstants.GS2_HEADER.getBytes()));
 
             String clientFinalMessageWithoutProof = String.format(
@@ -125,13 +130,13 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
             ctx.channel().writeAndFlush(response);
             authStatus = SaslAuthStatus.LAST_CLIENT_MESSAGE_SENT;
-            ctx.channel().read();
-        } else {
-            //TODO check response OK
-            ctx.channel().pipeline().remove(this);
 
-            callbackFunction.apply(true);
-            ctx.channel().read();
+            ctx.channel().pipeline().addLast(
+                    connectionPoolChannelHandlerProducer.createAfterAuthHandler(
+                            callbackFunction
+                    )
+            );
+            ctx.channel().pipeline().remove(this);
         }
     }
 
@@ -143,6 +148,6 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
     private void failConnectionAuth(ChannelHandlerContext ctx) {
         HandlerUtils.closeOnFlush(ctx.channel());
-        callbackFunction.apply(false);
+        callbackFunction.apply(new PgChannelAuthResult(false));
     }
 }

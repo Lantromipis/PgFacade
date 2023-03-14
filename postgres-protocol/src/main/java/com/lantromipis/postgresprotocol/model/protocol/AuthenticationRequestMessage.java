@@ -1,4 +1,4 @@
-package com.lantromipis.postgresprotocol.model;
+package com.lantromipis.postgresprotocol.model.protocol;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

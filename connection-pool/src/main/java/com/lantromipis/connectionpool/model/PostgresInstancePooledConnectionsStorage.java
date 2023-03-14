@@ -29,7 +29,7 @@ public class PostgresInstancePooledConnectionsStorage {
      * @param channel            representation of real connection to primary
      * @return a new pooled connection marked as 'free'
      */
-    public PooledConnectionInternalInfo addNewChannel(StartupMessageInfo startupMessageInfo, Channel channel) {
+    public PooledConnectionInternalInfo addNewChannel(StartupMessageInfo startupMessageInfo, Channel channel, byte[] serverParameterMessagesBytes) {
         long timestamp = System.currentTimeMillis();
         PooledConnectionInternalInfo pooledConnectionInternalInfo = PooledConnectionInternalInfo
                 .builder()
@@ -38,6 +38,7 @@ public class PostgresInstancePooledConnectionsStorage {
                 .lastFreeTimestamp(timestamp)
                 .createdTimestamp(timestamp)
                 .realPostgresConnection(channel)
+                .serverParameters(serverParameterMessagesBytes)
                 .build();
 
         addConnectionToMap(startupMessageInfo, pooledConnectionInternalInfo, allConnections);
@@ -53,7 +54,7 @@ public class PostgresInstancePooledConnectionsStorage {
      * @param channel            representation of real connection to primary
      * @return a new pooled connection marked as 'taken'
      */
-    public PooledConnectionInternalInfo addNewChannelAndMarkAsTaken(StartupMessageInfo startupMessageInfo, Channel channel) {
+    public PooledConnectionInternalInfo addNewChannelAndMarkAsTaken(StartupMessageInfo startupMessageInfo, Channel channel, byte[] serverParameterMessagesBytes) {
         long timestamp = System.currentTimeMillis();
         PooledConnectionInternalInfo pooledConnectionInternalInfo = PooledConnectionInternalInfo
                 .builder()
@@ -62,6 +63,7 @@ public class PostgresInstancePooledConnectionsStorage {
                 .lastFreeTimestamp(timestamp)
                 .createdTimestamp(timestamp)
                 .realPostgresConnection(channel)
+                .serverParameters(serverParameterMessagesBytes)
                 .build();
 
         addConnectionToMap(startupMessageInfo, pooledConnectionInternalInfo, allConnections);

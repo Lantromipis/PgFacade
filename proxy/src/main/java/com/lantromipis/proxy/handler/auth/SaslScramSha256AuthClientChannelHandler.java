@@ -3,11 +3,11 @@ package com.lantromipis.proxy.handler.auth;
 import com.lantromipis.connectionpool.model.ScramAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
-import com.lantromipis.postgresprotocol.decoder.clientPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
-import com.lantromipis.postgresprotocol.model.SaslResponse;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
+import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ProtocolUtils;
@@ -91,7 +91,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     }
 
     private void processFirstMessage(ChannelHandlerContext ctx, Object msg) {
-        SaslInitialResponse saslInitialResponse = clientPostgresProtocolMessageDecoder.decodeSaslInitialResponse((ByteBuf) msg);
+        SaslInitialResponse saslInitialResponse = ClientPostgresProtocolMessageDecoder.decodeSaslInitialResponse((ByteBuf) msg);
 
         if (!saslInitialResponse.getNameOfSaslAuthMechanism().equals(PostgresProtocolScramConstants.SASL_SHA_256_AUTH_MECHANISM_NAME)) {
             log.error("SCRAM-SAH-256 was not chosen by client as SASL mechanism, but was expected to.");
@@ -122,7 +122,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     }
 
     private void processFinalMessage(ChannelHandlerContext ctx, Object msg) {
-        SaslResponse saslResponse = clientPostgresProtocolMessageDecoder.decodeSaslResponse((ByteBuf) msg);
+        SaslResponse saslResponse = ClientPostgresProtocolMessageDecoder.decodeSaslResponse((ByteBuf) msg);
 
         Pattern saslFinalMessagePattern = PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_PATTERN;
         Matcher saslFinalMessageMatcher = saslFinalMessagePattern.matcher(saslResponse.getSaslMechanismSpecificData());

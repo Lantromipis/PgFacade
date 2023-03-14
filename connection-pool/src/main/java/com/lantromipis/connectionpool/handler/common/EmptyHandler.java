@@ -1,4 +1,4 @@
-package com.lantromipis.connectionpool.handler;
+package com.lantromipis.connectionpool.handler.common;
 
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInboundHandlerAdapter;

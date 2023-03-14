@@ -1,11 +1,10 @@
 package com.lantromipis.postgresprotocol.encoder;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
@@ -91,7 +90,7 @@ public class ServerPostgresProtocolMessageEncoder {
         buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         // 4 bytes length + 4 bytes marker
         buf.writeInt(8);
-        buf.writeInt(PostgresProtocolGeneralConstants.AUTH_OK);
+        buf.writeInt(PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA);
 
         return buf;
     }

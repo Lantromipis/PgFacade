@@ -1,4 +1,4 @@
-package com.lantromipis.postgresprotocol.model;
+package com.lantromipis.postgresprotocol.model.protocol;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;

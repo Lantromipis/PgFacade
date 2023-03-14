@@ -2,7 +2,7 @@ package com.lantromipis.usermanagement.provider.impl;
 
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.usermanagement.model.PgShadowTableRow;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import lombok.extern.slf4j.Slf4j;

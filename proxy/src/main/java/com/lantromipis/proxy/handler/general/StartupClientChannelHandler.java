@@ -1,10 +1,10 @@
 package com.lantromipis.proxy.handler.general;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.decoder.clientPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.PostgresProtocolAuthenticationMethod;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
@@ -41,7 +41,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             ctx.channel().read();
         } else {
             message.resetReaderIndex();
-            StartupMessage startupMessage = clientPostgresProtocolMessageDecoder.decodeStartupMessage(message);
+            StartupMessage startupMessage = ClientPostgresProtocolMessageDecoder.decodeStartupMessage(message);
 
             if (startupMessage == null) {
                 log.error("Error decoding client startup message. Closing connection.");
