@@ -39,6 +39,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     /**
      * True if handler is in use, false when not. For example, after forceDisconnect() called, this field must become false.
      * It is important to set this field to false when connection with client is closed, because special reaper-service uses this field.
+     * If fields is false, then all resources used by handler must already be closed and cleaned!
      */
     @Getter
     @Setter(AccessLevel.PROTECTED)
@@ -94,7 +95,7 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
      */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        forceCloseConnectionWithEmptyError();
+        forceDisconnect();
     }
 
     /**

@@ -1,6 +1,8 @@
 package com.lantromipis.connectionpool.model;
 
 import io.netty.channel.Channel;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.Collection;
 import java.util.List;
@@ -8,22 +10,57 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
  * Storage class for connection pool to help manage connection which belong to one Postgres instance.
  */
 public class PostgresInstancePooledConnectionsStorage {
+
+    @Setter
+    @Getter
+    private int maxConnections;
     private ConcurrentHashMap<StartupMessageInfo, ConcurrentLinkedDeque<PooledConnectionInternalInfo>> allConnections;
     private ConcurrentHashMap<StartupMessageInfo, ConcurrentLinkedDeque<PooledConnectionInternalInfo>> freeConnections;
+    private AtomicInteger connectionsCount;
 
-    public PostgresInstancePooledConnectionsStorage() {
+    public PostgresInstancePooledConnectionsStorage(int maxConnections) {
+        this.maxConnections = maxConnections;
         allConnections = new ConcurrentHashMap<>();
         freeConnections = new ConcurrentHashMap<>();
+        connectionsCount = new AtomicInteger(0);
     }
 
     /**
-     * Adds new connection to storage and marks it as free.
+     * This method allows to check if storage is full and or not.
+     * If not full, then internal storage counter will be incremented, which allows safely adding new connection sometime in the future without check if storage is full.
+     * Main purpose to increase performance: first reserve place, then, if reservation was successful, create new connection with Postgres.
+     *
+     * @return true if reserved place and false if not
+     */
+    public boolean reserveSpaceForNewChannel() {
+        while (true) {
+            int value = connectionsCount.get();
+            if (value >= maxConnections) {
+                return false;
+            }
+            if (connectionsCount.compareAndSet(value, value + 1)) {
+                return true;
+            }
+        }
+    }
+
+    /**
+     * This method simply decreases the internal storage counter.
+     * Must always be called after reserveSpaceForNewChannel(), so storage counter won't be broken.
+     */
+    public void cancelReservation() {
+        connectionsCount.decrementAndGet();
+    }
+
+    /**
+     * Adds new connection to storage and marks it as free. Space for connection must already be reserved.
      *
      * @param startupMessageInfo info about connection that was received from client in startup message
      * @param channel            representation of real connection to primary
@@ -48,7 +85,7 @@ public class PostgresInstancePooledConnectionsStorage {
     }
 
     /**
-     * Adds new connection to storage and marks it as taken
+     * Adds new connection to storage and marks it as taken. Space for connection must already be reserved.
      *
      * @param startupMessageInfo info about connection that was received from client in startup message
      * @param channel            representation of real connection to primary
@@ -116,7 +153,7 @@ public class PostgresInstancePooledConnectionsStorage {
             return pooledConnectionInternalInfo;
         }
 
-        // corner case: taken connection was removed by cleaner or was closed by postgres
+        // corner case: taken connection was removed by cleaner or was closed by postgres. No need to return it to queue, it will be removed anyway.
         return getFreeConnection(startupMessageInfo);
     }
 
@@ -187,7 +224,11 @@ public class PostgresInstancePooledConnectionsStorage {
     private void removeConnection(PooledConnectionInternalInfo connection) {
         StartupMessageInfo startupMessageInfo = connection.getStartupMessageInfo();
 
-        Optional.ofNullable(freeConnections.get(startupMessageInfo)).map(queue -> queue.remove(connection));
-        Optional.ofNullable(allConnections.get(startupMessageInfo)).map(queue -> queue.remove(connection));
+        Optional.ofNullable(freeConnections.get(startupMessageInfo)).ifPresent(queue -> queue.remove(connection));
+        Optional.ofNullable(allConnections.get(startupMessageInfo)).ifPresent(queue -> {
+            if (queue.remove(connection)) {
+                connectionsCount.decrementAndGet();
+            }
+        });
     }
 }

@@ -50,7 +50,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         response.writeBytes(ServerPostgresProtocolMessageEncoder.encodeReadyForQueryMessage());
 
         ctx.writeAndFlush(response);
-        
+
         authOkCombined.clear();
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
@@ -104,7 +104,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("Exception in client connection handler. Connection will be closed ", cause);
-        super.exceptionCaught(ctx, cause);
+        closeClientConnectionExceptionally(ctx);
     }
 
     @Override

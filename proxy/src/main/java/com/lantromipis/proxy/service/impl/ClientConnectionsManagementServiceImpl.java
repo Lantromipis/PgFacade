@@ -14,6 +14,7 @@ import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -78,7 +79,9 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
                 unregisterClientChannelHandler(client);
                 continue;
             }
-            if (client.getLastActiveTimeMilliseconds() > 0 && client.getLastActiveTimeMilliseconds() < endTime) {
+
+            boolean channelClosed = !Optional.ofNullable(client.getInitialChannelHandlerContext()).map(ctx -> ctx.channel().isActive()).orElse(true);
+            if ((client.getLastActiveTimeMilliseconds() > 0 && client.getLastActiveTimeMilliseconds() < endTime) || channelClosed) {
                 client.forceDisconnect();
                 unregisterClientChannelHandler(client);
                 inactiveCount++;

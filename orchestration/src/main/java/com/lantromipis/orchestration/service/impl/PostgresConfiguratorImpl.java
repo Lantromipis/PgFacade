@@ -45,9 +45,6 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
-    @Inject
-    PostgresPersistedProperties postgresPersistedProperties;
-
     @Override
     public void initialize() {
         try {

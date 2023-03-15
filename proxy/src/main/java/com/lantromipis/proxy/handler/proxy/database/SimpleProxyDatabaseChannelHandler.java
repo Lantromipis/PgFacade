@@ -1,16 +1,11 @@
 package com.lantromipis.proxy.handler.proxy.database;
 
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
-import com.lantromipis.postgresprotocol.model.internal.SplitResult;
-import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.extern.slf4j.Slf4j;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 public class SimpleProxyDatabaseChannelHandler extends ChannelInboundHandlerAdapter {

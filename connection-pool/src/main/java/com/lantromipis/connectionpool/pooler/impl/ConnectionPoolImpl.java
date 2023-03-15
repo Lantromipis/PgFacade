@@ -3,6 +3,8 @@ package com.lantromipis.connectionpool.pooler.impl;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
+import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
+import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
@@ -62,12 +64,13 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     private CountDownLatch switchoverLatch = new CountDownLatch(0);
 
-    private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage = new PostgresInstancePooledConnectionsStorage();
+    private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
 
     @Override
     public void initialize() {
+        primaryConnectionsStorage = new PostgresInstancePooledConnectionsStorage(clusterRuntimeConfiguration.getMaxPostgresConnections());
         primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
         poolActive.set(true);
     }
@@ -116,10 +119,22 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
         log.debug("No free primary connections in pool. Creating a new one...");
 
+        // reserve space
+        if (!storage.reserveSpaceForNewChannel()) {
+            log.warn("Reached Postgres max connections limit and there are no free connections in pool. " +
+                            "New connection can not be added. Consider increasing 'max_connections' Postgres setting using REST API. " +
+                            "Current max_connections: {} ({} of them are reserved by PgFacade for internal needs)",
+                    storage.getMaxConnections() + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT,
+                    PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT
+            );
+            return null;
+        }
+
         ChannelFuture channelFuture = instanceBootstrap.connect();
         if (!channelFuture.awaitUninterruptibly(proxyProperties.connectionPool().acquireRealConnectionTimeout().toMillis())) {
             channelFuture.cancel(true);
             log.debug("Failed to acquire primary connection.");
+            storage.cancelReservation();
             return null;
         }
 
@@ -149,6 +164,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
             if (!finishedLatch.await(proxyProperties.connectionPool().realConnectionAuthTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
                 HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
                 log.debug("Failed to preform auth for new real primary connection. Timeout reached.");
+                storage.cancelReservation();
                 return null;
             }
 
@@ -179,12 +195,14 @@ public class ConnectionPoolImpl implements ConnectionPool {
             } else {
                 HandlerUtils.closeOnFlush(newChannel);
                 log.debug("Failed to preform auth for new real primary connection.");
+                storage.cancelReservation();
                 return null;
             }
 
         } catch (Exception e) {
             log.error("Failed to preform auth for new real primary connection. Error while waiting for connection to be ready.", e);
             HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+            storage.cancelReservation();
             return null;
         }
     }
@@ -197,6 +215,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     public void listenToSwitchoverCompletedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverCompletedEvent switchoverCompletedEvent) {
         if (switchoverCompletedEvent.isSuccess()) {
             primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
+            primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
         }
         switchoverLatch.countDown();
         poolActive.set(true);
