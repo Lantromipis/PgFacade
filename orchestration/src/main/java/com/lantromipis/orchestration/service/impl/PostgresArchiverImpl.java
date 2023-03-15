@@ -305,6 +305,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                             }
                         } catch (InterruptedException e) {
                             log.error("Failed to activate streaming replication. Will retry later...");
+                            Thread.currentThread().interrupt();
                             return;
                         }
                         log.info("Restarting WAL stream due to switchover.");

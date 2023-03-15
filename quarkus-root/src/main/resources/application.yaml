@@ -7,6 +7,8 @@ pg-facade:
     max-connections: 500
     connection-pool:
       enabled: true
+      await-connection-when-pool-empty: true
+      await-connection-when-pool-empty-timeout: PT10S
       acquire-real-connection-timeout: PT1S
       real-connection-auth-timeout: PT0.5S
       pool-cleanup-interval: PT15S

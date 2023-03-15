@@ -7,8 +7,10 @@ import lombok.Setter;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -24,12 +26,18 @@ public class PostgresInstancePooledConnectionsStorage {
     private ConcurrentHashMap<StartupMessageInfo, ConcurrentLinkedDeque<PooledConnectionInternalInfo>> allConnections;
     private ConcurrentHashMap<StartupMessageInfo, ConcurrentLinkedDeque<PooledConnectionInternalInfo>> freeConnections;
     private AtomicInteger connectionsCount;
+    private ConcurrentLinkedQueue<StorageAwaitRequest> awaitQueue;
 
     public PostgresInstancePooledConnectionsStorage(int maxConnections) {
         this.maxConnections = maxConnections;
         allConnections = new ConcurrentHashMap<>();
         freeConnections = new ConcurrentHashMap<>();
         connectionsCount = new AtomicInteger(0);
+        awaitQueue = new ConcurrentLinkedQueue<>();
+    }
+
+    public void waitForConnection(StorageAwaitRequest awaitRequest) {
+        awaitQueue.add(awaitRequest);
     }
 
     /**
@@ -109,8 +117,9 @@ public class PostgresInstancePooledConnectionsStorage {
     }
 
     /**
-     * If connection has not reached its max-age, then this method returns connection back to storage and marks it as 'free'. Such connection must have been added earlier and marked as 'taken'.
+     * Returns connection after client stopped using it.
      * If connection has reached its max-age, then such connection is removed from storage.
+     * If connection has not reached its max-age, then this method checks if there are some connection await requests. If yes, then return connection to awaiting caller. If no, then method returns connection back to storage and marks it as 'free'. Such connection must have been added earlier and marked as 'taken'.
      * There are NO checks if connection was really added previously or marked as 'taken'! Checks are not included to improve performance.
      *
      * @param pooledConnectionInternalInfo polled connection that was taken from the pool
@@ -124,6 +133,26 @@ public class PostgresInstancePooledConnectionsStorage {
         }
 
         pooledConnectionInternalInfo.setLastFreeTimestamp(System.currentTimeMillis());
+
+        while (true) {
+            StorageAwaitRequest storageAwaitRequest = awaitQueue.poll();
+            if (storageAwaitRequest == null) {
+                break;
+            }
+
+            storageAwaitRequest.setAwaitResult(pooledConnectionInternalInfo);
+
+            // try to tell caller that await request was successful
+            if (storageAwaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
+                // caller still waiting, notify
+                storageAwaitRequest.getCallerLatch().countDown();
+                return null;
+            } else {
+                // caller not waiting anymore, remove result and proceed to another caller
+                storageAwaitRequest.setAwaitResult(null);
+            }
+        }
+
         pooledConnectionInternalInfo.getTaken().set(false);
         addConnectionToMap(pooledConnectionInternalInfo.getStartupMessageInfo(), pooledConnectionInternalInfo, freeConnections);
         return null;

@@ -26,6 +26,10 @@ public interface ProxyProperties {
     interface ConnectionPoolProperties {
         boolean enabled();
 
+        boolean awaitConnectionWhenPoolEmpty();
+
+        Duration awaitConnectionWhenPoolEmptyTimeout();
+
         Duration acquireRealConnectionTimeout();
 
         Duration realConnectionAuthTimeout();

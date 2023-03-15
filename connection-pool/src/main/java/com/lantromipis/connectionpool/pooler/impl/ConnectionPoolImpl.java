@@ -103,6 +103,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 switchoverLatch.await();
             } catch (InterruptedException interruptedException) {
                 log.error("Connection pool can not give connection to primary. Error while waiting for switchover to complete.", interruptedException);
+                Thread.currentThread().interrupt();
                 return null;
             }
         }
@@ -127,6 +128,41 @@ public class ConnectionPoolImpl implements ConnectionPool {
                     storage.getMaxConnections() + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT,
                     PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT
             );
+
+            if (proxyProperties.connectionPool().awaitConnectionWhenPoolEmpty()) {
+                StorageAwaitRequest awaitRequest = new StorageAwaitRequest();
+                storage.waitForConnection(awaitRequest);
+
+                try {
+                    if (awaitRequest.getCallerLatch().await(proxyProperties.connectionPool().awaitConnectionWhenPoolEmptyTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                        return wrapPooledConnection(awaitRequest.getAwaitResult(), storage);
+                    } else {
+                        if (!awaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
+                            // unable to set! Storage returned connection after timeout!
+                            return wrapPooledConnection(awaitRequest.getAwaitResult(), storage);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Failed while waiting for connection in pool!");
+                    if (!awaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
+                        // storage returned connection, but exception happened. Return back to pool.
+                        Channel channel = storage.returnTakenConnectionAndCheckAge(
+                                awaitRequest.getAwaitResult(),
+                                proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                        );
+
+                        if (channel != null) {
+                            log.debug("Connection reached its max-age. Removing it from pool and closing.");
+                            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+                        }
+                    }
+
+                    if (e instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
+
             return null;
         }
 
@@ -203,6 +239,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
             log.error("Failed to preform auth for new real primary connection. Error while waiting for connection to be ready.", e);
             HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
             storage.cancelReservation();
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             return null;
         }
     }
