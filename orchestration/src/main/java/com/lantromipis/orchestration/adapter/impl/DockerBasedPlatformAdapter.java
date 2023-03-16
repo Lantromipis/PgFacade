@@ -24,17 +24,16 @@ import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
-import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
+import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
-import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.input.ObservableInputStream;
 import org.apache.commons.lang3.StringUtils;
-import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -68,9 +67,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Inject
     PostgresPersistedProperties persistedProperties;
-
-    @Inject
-    ManagedExecutor managedExecutor;
 
     @Inject
     PgFacadeIOUtils pgFacadeIOUtils;
@@ -246,7 +242,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .instancePort(5432) //TODO maybe need to change
                     .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                     .health(dockerMapper.toInstanceHealth(inspectResponse))
-                    .master(persistedNodeInfo.isPrimary())
+                    .primary(persistedNodeInfo.isPrimary())
                     .build();
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -271,7 +267,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                 .instancePort(5432)
                                 .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                                 .health(dockerMapper.toInstanceHealth(inspectResponse))
-                                .master(persistedNodeInfo.isPrimary())
+                                .primary(persistedNodeInfo.isPrimary())
                                 .build()
                 );
             } catch (NotFoundException e) {
@@ -322,12 +318,12 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public void updateInstancesAfterSwitchover(UUID newMasterInstanceId, UUID oldMasterInstanceId) {
-        PostgresPersistedNodeInfo newMasterPersistedInfo = persistedProperties.getPostgresNodeInfo(newMasterInstanceId);
-        newMasterPersistedInfo.setPrimary(true);
-        persistedProperties.savePostgresNodeInfo(newMasterPersistedInfo);
-        deletePostgresInstance(oldMasterInstanceId, true);
-        log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newMasterPersistedInfo.getAdapterIdentifier());
+    public void updateInstancesAfterSwitchover(UUID newPrimaryInstanceId, UUID oldPrimaryInstanceId) {
+        PostgresPersistedNodeInfo newPrimaryPersistedInfo = persistedProperties.getPostgresNodeInfo(newPrimaryInstanceId);
+        newPrimaryPersistedInfo.setPrimary(true);
+        persistedProperties.savePostgresNodeInfo(newPrimaryPersistedInfo);
+        deletePostgresInstance(oldPrimaryInstanceId, true);
+        log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newPrimaryPersistedInfo.getAdapterIdentifier());
     }
 
     @Override
@@ -803,7 +799,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             InspectExecResponse inspectBackupExecResponse = dockerClient.inspectExecCmd(backupExecCreateResponse.getId()).exec();
 
-            boolean success = false;
+            boolean success;
 
             if (CollectionUtils.isNotEmpty(okExitCodes)) {
                 success = okExitCodes.contains(inspectBackupExecResponse.getExitCodeLong());

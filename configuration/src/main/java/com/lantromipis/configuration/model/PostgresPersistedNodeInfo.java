@@ -26,7 +26,7 @@ public class PostgresPersistedNodeInfo {
      */
     private String adapterIdentifier;
     /**
-     * Indicates if node is running in master mode.
+     * Indicates if node is primary.
      */
     private boolean primary;
 }

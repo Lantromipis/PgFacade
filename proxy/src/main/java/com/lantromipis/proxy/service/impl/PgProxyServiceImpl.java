@@ -1,4 +1,4 @@
-package com.lantromipis.proxy;
+package com.lantromipis.proxy.service.impl;
 
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.proxy.initializer.PooledProxyChannelInitializer;

@@ -1,5 +1,6 @@
 package com.lantromipis.postgresprotocol.utils;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
@@ -17,7 +18,16 @@ public class HandlerUtils {
         }
     }
 
-    public static void removeAllHandlersFormPipeline(Channel channel) {
+    /**
+     * Closes the specified channel after all queued write requests are flushed.
+     */
+    public static void closeOnFlush(Channel channel, ByteBuf message) {
+        if (channel.isActive()) {
+            channel.writeAndFlush(message).addListener(ChannelFutureListener.CLOSE);
+        }
+    }
+
+    public static void removeAllHandlersFromChannelPipeline(Channel channel) {
         Map<String, ChannelHandler> handlers = channel.pipeline().toMap();
         handlers.forEach((key, value) -> channel.pipeline().remove(value));
     }

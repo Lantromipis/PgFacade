@@ -1,4 +1,4 @@
-package com.lantromipis.postgresprotocol.model;
+package com.lantromipis.postgresprotocol.model.protocol;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,6 +9,6 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SaslResponse {
-    String saslMechanismSpecificData;
+public class AuthenticationSASLContinue {
+    private String saslMechanismSpecificData;
 }

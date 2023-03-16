@@ -7,7 +7,7 @@ import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
-import com.lantromipis.orchestration.exception.NewMasterConfigurationException;
+import com.lantromipis.orchestration.exception.NewPrimaryConfigurationException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
@@ -45,9 +45,6 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
-    @Inject
-    PostgresPersistedProperties postgresPersistedProperties;
-
     @Override
     public void initialize() {
         try {
@@ -72,8 +69,8 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     @Override
-    public void configureNewlyCreatedMaster() {
-        log.info("Executing required start-up SQL statements on new master.");
+    public void configureNewlyCreatedPrimary() {
+        log.info("Executing required start-up SQL statements on new primary.");
         try {
             Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().superuser().database(), postgresProperties.users().superuser().username(), postgresProperties.users().superuser().password());
 
@@ -137,10 +134,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             // finished configuration
             pgfacadeUserConnection.close();
 
-            log.info("Finished executing required start-up SQL statements on new master.");
+            log.info("Finished executing required start-up SQL statements on new primary.");
 
         } catch (Exception e) {
-            throw new NewMasterConfigurationException("Failed to execute required start-up SQL for newly created master.", e);
+            throw new NewPrimaryConfigurationException("Failed to execute required start-up SQL for newly created primary.", e);
         }
     }
 

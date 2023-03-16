@@ -11,7 +11,7 @@ public interface PostgresOrchestrator {
 
     void shutdown();
 
-    boolean switchover(UUID newMasterInstanceId) throws OrchestratorNotReadyException;
+    boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException;
 
     void changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationChangeException, OrchestratorNotReadyException;
 }

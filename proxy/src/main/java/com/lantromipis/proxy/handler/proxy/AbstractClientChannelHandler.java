@@ -1,19 +1,19 @@
 package com.lantromipis.proxy.handler.proxy;
 
-import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Abstract Netty connection handler for all proxy connections.
+ * Abstract Netty connection handler for all proxy connections. This class must be a superclass for all handlers, which are used by proxy.
+ * When any child class object is created, such object must be registered in some connection manager. This allows PgFacade to track any client connections.
  */
 public abstract class AbstractClientChannelHandler extends ChannelInboundHandlerAdapter {
     /**
@@ -25,15 +25,21 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     /**
      * ChannelHandlerContext, must be captured when handler initialized.
      * This can be used, for example, for closing inactive connection.
+     * Because this field exists, a new unique handler must be created for each channel
      */
     @Getter
     @Setter
     private ChannelHandlerContext initialChannelHandlerContext;
+
+    /**
+     * Contains timestamp when channel was last in-use. Can be used by reaper-service to close inactive connections.
+     */
     private long lastTimeAccessed = 0;
 
     /**
-     * True if handler is working, false when not. For example, after forceDisconnect() called, this field must become false.
-     * It is important to set this field to false when connection with client is closed, because special reaper-scheduler uses it.
+     * True if handler is in use, false when not. For example, after forceDisconnect() called, this field must become false.
+     * It is important to set this field to false when connection with client is closed, because special reaper-service uses this field.
+     * If fields is false, then all resources used by handler must already be closed and cleaned!
      */
     @Getter
     @Setter(AccessLevel.PROTECTED)
@@ -53,21 +59,13 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     }
 
     /**
-     * This method will be called when PgFacade needs the underlying client to be disconnected.
-     * If this method is called, handler must close connection with client.
-     * For example, this method is called when PgFacade is shutting down, or when client was inactive for too long.
+     * This method will be called when PgFacade unregisters handler.
+     * If this method is called, handler must close connection with client AND clear or return all used resources.
+     * This method might be called if Netty channel is already closed, but resources must be freed anyway.
+     * Also, this method might be called multiple times. Handler implementation must be ready for that and track if resources are already freed. For example, no need to return connection to pool multiple times.
      */
-    public void forceDisconnect() {
-        forceCloseConnectionWithError();
-        active = false;
-    }
+    public abstract void forceDisconnectAndClearResources();
 
-    /**
-     * Auto-read is disabled, so we must read channel when handler is added.
-     *
-     * @param ctx channel handler context
-     * @throws Exception when something wants wrong
-     */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         initialize(ctx);
@@ -80,28 +78,9 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
         lastTimeAccessed = System.currentTimeMillis();
     }
 
-    /**
-     * Default handler for exceptions.
-     *
-     * @param ctx   channel handler context
-     * @param cause throwable which occurred during connection handling
-     * @throws Exception when something wants wrong
-     */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        forceCloseConnectionWithError();
-    }
-
-    /**
-     * Default method to call when connection must be closed. Closes connection with error.
-     *
-     * @param ctx ChannelHandlerContext of connection that will be closed.
-     */
-    protected void forceCloseConnectionWithError() {
-        initialChannelHandlerContext.channel().writeAndFlush(
-                ServerPostgreSqlProtocolMessageEncoder.createEmptyErrorMessage()
-        );
-        HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel());
+        forceDisconnectAndClearResources();
         active = false;
     }
 
@@ -119,9 +98,11 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
         super.channelActive(ctx);
     }
 
-    private void initialize(ChannelHandlerContext ctx) {
-        initialChannelHandlerContext = ctx;
-        active = true;
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        forceDisconnectAndClearResources();
+        active = false;
+        super.channelInactive(ctx);
     }
 
     @Override
@@ -135,5 +116,11 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     @Override
     public int hashCode() {
         return Objects.hash(equalsAndHashcodeId);
+    }
+
+    protected void initialize(ChannelHandlerContext ctx) {
+        initialChannelHandlerContext = ctx;
+        active = true;
+        lastTimeAccessed = System.currentTimeMillis();
     }
 }

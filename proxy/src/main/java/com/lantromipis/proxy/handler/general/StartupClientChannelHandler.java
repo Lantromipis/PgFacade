@@ -1,10 +1,12 @@
 package com.lantromipis.proxy.handler.general;
 
-import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.encoder.ServerPostgreSqlProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.AuthenticationMethod;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
+import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
+import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -26,46 +28,55 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
     }
 
     @Override
+    public void forceDisconnectAndClearResources() {
+        forceCloseConnectionWithEmptyError();
+    }
+
+    @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
         int firstInt = message.readInt();
 
         //means initial message was GSSENCRequest or SSLRequest
-        if (firstInt == PostgreSQLProtocolGeneralConstants.INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT) {
+        if (firstInt == PostgresProtocolGeneralConstants.INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT) {
             ctx.channel().writeAndFlush(
-                    Unpooled.copiedBuffer(PostgreSQLProtocolGeneralConstants.ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE.getBytes())
+                    Unpooled.copiedBuffer(PostgresProtocolGeneralConstants.ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE.getBytes())
             );
             ctx.channel().read();
         } else {
             message.resetReaderIndex();
-            StartupMessage startupMessage = ClientPostgreSqlProtocolMessageDecoder.decodeStartupMessage(message);
+            StartupMessage startupMessage = ClientPostgresProtocolMessageDecoder.decodeStartupMessage(message);
 
             if (startupMessage == null) {
                 log.error("Error decoding client startup message. Closing connection.");
-                forceCloseConnectionWithError();
+                forceCloseConnectionWithEmptyError();
                 return;
             }
 
             if (startupMessage.getMajorVersion() != 3 && startupMessage.getMinorVersion() != 0) {
-                log.error("Client attempted to connect with wrong protocol version: major=" + startupMessage.getMajorVersion() + "; minor=" + startupMessage.getMinorVersion() + ". Closing connection.");
-                forceCloseConnectionWithError();
+                String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
+                log.error("User with role {} attempted to connect with wrong protocol version: major={}; minor={}. Closing connection.",
+                        username,
+                        startupMessage.getMajorVersion(),
+                        startupMessage.getMinorVersion()
+                );
+                forceCloseConnectionWithEmptyError();
                 return;
             }
 
-            AuthenticationMethod authenticationMethod = userAuthInfoProvider.getAuthMethodForUser(
-                    startupMessage.getParameters().get(PostgreSQLProtocolGeneralConstants.STARTUP_PARAMETER_USER)
+            PostgresProtocolAuthenticationMethod postgresProtocolAuthenticationMethod = userAuthInfoProvider.getAuthMethodForUser(
+                    startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER)
             );
 
-            if (authenticationMethod == null) {
-                log.error("User not found or has unknown authMethod. Closing connection.");
-                forceCloseConnectionWithError();
+            if (postgresProtocolAuthenticationMethod == null) {
+                String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
+                log.error("User with role {} not found or has unknown auth method. Closing connection.", username);
+                forceCloseConnectionWithAuthError(username);
                 return;
             }
 
-            ByteBuf authRequestMessage = ServerPostgreSqlProtocolMessageEncoder.createAuthRequestMessage(authenticationMethod);
-
-            switch (authenticationMethod) {
+            switch (postgresProtocolAuthenticationMethod) {
                 case PLAIN_TEXT -> {
                     //TODO done
                     break;
@@ -75,23 +86,31 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                     break;
                 }
                 case SCRAM_SHA256 -> {
+                    ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSASLMessage());
                     ctx.channel().pipeline().addLast(
                             proxyChannelHandlersProducer.createNewSaslScramSha256AuthHandler(startupMessage)
                     );
                 }
                 default -> {
-                    forceCloseConnectionWithError();
+                    String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
+                    forceCloseConnectionWithAuthError(username);
                     return;
                 }
             }
 
             ctx.channel().pipeline().remove(this);
             setActive(false);
-
-            ctx.channel().writeAndFlush(authRequestMessage);
-            ctx.channel().read();
         }
 
         super.channelRead(ctx, msg);
+    }
+
+    private void forceCloseConnectionWithAuthError(String username) {
+        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+    }
+
+    private void forceCloseConnectionWithEmptyError() {
+        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        setActive(false);
     }
 }

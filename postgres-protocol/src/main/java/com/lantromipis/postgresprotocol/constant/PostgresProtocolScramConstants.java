@@ -2,7 +2,7 @@ package com.lantromipis.postgresprotocol.constant;
 
 import java.util.regex.Pattern;
 
-public class PostgreSQLProtocolScramConstants {
+public class PostgresProtocolScramConstants {
     public static final String SASL_SHA_256_AUTH_MECHANISM_NAME = "SCRAM-SHA-256";
     public static final String SHA256_DIGEST_NAME = "SHA-256";
     public static final String SHA256_HMAC_NAME = "HmacSHA256";

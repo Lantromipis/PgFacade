@@ -18,10 +18,10 @@ public interface PostgresConfigurator {
     void initialize();
 
     /**
-     * Method used to configure new master using superuser credentials from application.yaml
+     * Method used to configure new primary using superuser credentials from application.yaml
      * This method must work BEFORE initialize() is called.
      */
-    void configureNewlyCreatedMaster();
+    void configureNewlyCreatedPrimary();
 
     /**
      * Method is used to validate settings and check if new settings require restart.

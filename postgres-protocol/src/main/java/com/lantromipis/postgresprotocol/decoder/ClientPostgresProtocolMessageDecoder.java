@@ -1,17 +1,17 @@
 package com.lantromipis.postgresprotocol.decoder;
 
-import com.lantromipis.postgresprotocol.constant.PostgreSQLProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.exception.MessageDecodingException;
-import com.lantromipis.postgresprotocol.model.SaslInitialResponse;
-import com.lantromipis.postgresprotocol.model.SaslResponse;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
+import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import io.netty.buffer.ByteBuf;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ClientPostgreSqlProtocolMessageDecoder {
+public class ClientPostgresProtocolMessageDecoder {
 
     public static StartupMessage decodeStartupMessage(ByteBuf byteBuf) throws MessageDecodingException {
         try {
@@ -28,7 +28,7 @@ public class ClientPostgreSqlProtocolMessageDecoder {
             byteBuf.readBytes(parameterBytes, 0, parametersLength);
 
             String parametersString = new String(parameterBytes, StandardCharsets.UTF_8);
-            String[] paramsNamesWithValues = parametersString.split(PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE_CHAR);
+            String[] paramsNamesWithValues = parametersString.split(PostgresProtocolGeneralConstants.DELIMITER_BYTE_CHAR);
 
             for (int i = 0; i < paramsNamesWithValues.length; i += 2) {
                 parameters.put(paramsNamesWithValues[i], paramsNamesWithValues[i + 1]);
@@ -52,7 +52,7 @@ public class ClientPostgreSqlProtocolMessageDecoder {
 
             byte firstByte = byteBuf.readByte();
 
-            if (firstByte != PostgreSQLProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR) {
+            if (firstByte != PostgresProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR) {
                 throw new MessageDecodingException("Received message with wrong start char.");
             }
 
@@ -66,7 +66,7 @@ public class ClientPostgreSqlProtocolMessageDecoder {
 
             int saslMechanismNameEndByteIndex = 0;
             for (int i = 0; i < messageBytes.length; i++) {
-                if (messageBytes[i] == PostgreSQLProtocolGeneralConstants.DELIMITER_BYTE) {
+                if (messageBytes[i] == PostgresProtocolGeneralConstants.DELIMITER_BYTE) {
                     saslMechanismNameEndByteIndex = i;
                     break;
                 }
@@ -110,7 +110,7 @@ public class ClientPostgreSqlProtocolMessageDecoder {
         try {
             byte firstByte = byteBuf.readByte();
 
-            if (firstByte != PostgreSQLProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR) {
+            if (firstByte != PostgresProtocolGeneralConstants.CLIENT_PASSWORD_RESPONSE_START_CHAR) {
                 throw new MessageDecodingException("Received message with wrong start char.");
             }
 

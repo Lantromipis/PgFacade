@@ -1,19 +1,21 @@
-package com.lantromipis.connectionpool.handler;
+package com.lantromipis.connectionpool.handler.common;
 
-import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
-import com.lantromipis.connectionpool.model.ConnectionInfo;
-import com.lantromipis.connectionpool.model.ScramAuthInfo;
-import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
-import com.lantromipis.postgresprotocol.decoder.ServerPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.encoder.ClientPostgreSqlProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.AuthenticationRequestMessage;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
+import com.lantromipis.connectionpool.model.PgChannelAuthResult;
+import com.lantromipis.connectionpool.model.StartupMessageInfo;
+import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
+import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
+import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 @Slf4j
@@ -21,16 +23,16 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
 
     private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
     private AuthAdditionalInfo authAdditionalInfo;
-    private ConnectionInfo connectionInfo;
-    private Function<Boolean, Void> callbackFunction;
+    private StartupMessageInfo startupMessageInfo;
+    private Consumer<PgChannelAuthResult> callbackFunction;
 
     public PgChannelStartupHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
                                    final AuthAdditionalInfo authAdditionalInfo,
-                                   final ConnectionInfo connectionInfo,
-                                   final Function<Boolean, Void> callbackFunction) {
+                                   final StartupMessageInfo startupMessageInfo,
+                                   final Consumer<PgChannelAuthResult> callbackFunction) {
         this.authAdditionalInfo = authAdditionalInfo;
         this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
-        this.connectionInfo = connectionInfo;
+        this.startupMessageInfo = startupMessageInfo;
         this.callbackFunction = callbackFunction;
     }
 
@@ -40,10 +42,10 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
                 .builder()
                 .majorVersion((short) 3)
                 .minorVersion((short) 0)
-                .parameters(connectionInfo.getParameters())
+                .parameters(startupMessageInfo.getParameters())
                 .build();
 
-        ByteBuf buf = ClientPostgreSqlProtocolMessageEncoder.encodeClientStartupMessage(startupMessage);
+        ByteBuf buf = ClientPostgresProtocolMessageEncoder.encodeClientStartupMessage(startupMessage);
 
         ctx.channel().writeAndFlush(buf);
         ctx.channel().read();
@@ -54,7 +56,7 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
-        AuthenticationRequestMessage authenticationRequestMessage = ServerPostgreSqlProtocolMessageDecoder.decodeAuthRequestMessage(message);
+        AuthenticationRequestMessage authenticationRequestMessage = ServerPostgresProtocolMessageDecoder.decodeAuthRequestMessage(message);
 
         if (!Objects.equals(authenticationRequestMessage.getMethod(), authAdditionalInfo.getExpectedAuthMethod())) {
             log.error("Can not create pooled connection. Expected auth method: " + authAdditionalInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
@@ -65,10 +67,11 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
         ctx.channel().pipeline().addLast(
                 connectionPoolChannelHandlerProducer.createNewSaslScramSha256AuthHandler(
                         (ScramAuthInfo) authAdditionalInfo,
-                        connectionInfo,
+                        startupMessageInfo,
                         callbackFunction
                 )
         );
+
         ctx.channel().pipeline().remove(this);
 
         ctx.channel().read();
@@ -81,7 +84,7 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
     }
 
     private void closeConnection(ChannelHandlerContext ctx) {
-        callbackFunction.apply(false);
+        callbackFunction.accept(new PgChannelAuthResult(false));
         HandlerUtils.closeOnFlush(ctx.channel());
     }
 }

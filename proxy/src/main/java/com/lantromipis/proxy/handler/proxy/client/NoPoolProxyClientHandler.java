@@ -1,12 +1,10 @@
 package com.lantromipis.proxy.handler.proxy.client;
 
-import com.lantromipis.postgresprotocol.decoder.ClientPostgreSqlProtocolMessageDecoder;
-import com.lantromipis.postgresprotocol.model.StartupMessage;
+import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
-import com.lantromipis.proxy.handler.testproxy.ProxyDatabaseHandler;
-import com.lantromipis.proxy.model.ProxyScramSaslAuthState;
+import com.lantromipis.proxy.handler.proxy.database.NoPoolProxyDatabaseChannelHandler;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -22,27 +20,24 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
         this.remotePort = remotePort;
     }
 
-    private ProxyScramSaslAuthState proxyScramSaslAuthState = ProxyScramSaslAuthState.NOT_STARTED;
-
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         final Channel inboundChannel = ctx.channel();
 
+        //TODO move away
         Bootstrap b = new Bootstrap();
         b.group(inboundChannel.eventLoop())
                 .channel(ctx.channel().getClass())
-                .handler(new ProxyDatabaseHandler(inboundChannel))
+                .handler(new NoPoolProxyDatabaseChannelHandler(inboundChannel))
                 .option(ChannelOption.AUTO_READ, false);
         ChannelFuture f = b.connect(remoteHost, remotePort);
         postgreSqlChannel = f.channel();
-        f.addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
-                if (future.isSuccess()) {
-                    inboundChannel.read();
-                } else {
-                    inboundChannel.close();
-                }
+
+        f.addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                inboundChannel.read();
+            } else {
+                inboundChannel.close();
             }
         });
 
@@ -70,7 +65,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (postgreSqlChannel != null) {
-            HandlerUtils.closeOnFlush(postgreSqlChannel);
+            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
         }
     }
 
@@ -82,7 +77,8 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
 
     @Override
     public void handleSwitchoverStarted() {
-        forceCloseConnectionWithError();
+        closeRealPostgresConnection();
+        forceCloseConnectionWithEmptyError(getInitialChannelHandlerContext());
     }
 
     @Override
@@ -91,7 +87,24 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     }
 
     @Override
+    public void forceDisconnectAndClearResources() {
+        closeRealPostgresConnection();
+        forceCloseConnectionWithEmptyError(getInitialChannelHandlerContext());
+    }
+
+    @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         // Overriding superclass method so channel.read() won't be called until postgresql connection is ready
+    }
+
+    private void forceCloseConnectionWithEmptyError(ChannelHandlerContext ctx) {
+        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        setActive(false);
+    }
+
+    private void closeRealPostgresConnection() {
+        if (postgreSqlChannel != null) {
+            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+        }
     }
 }

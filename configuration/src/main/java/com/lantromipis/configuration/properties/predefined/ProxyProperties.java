@@ -25,5 +25,21 @@ public interface ProxyProperties {
 
     interface ConnectionPoolProperties {
         boolean enabled();
+
+        boolean awaitConnectionWhenPoolEmpty();
+
+        Duration awaitConnectionWhenPoolEmptyTimeout();
+
+        Duration cleanRealUsedConnectionTimeout();
+
+        Duration acquireRealConnectionTimeout();
+
+        Duration realConnectionAuthTimeout();
+
+        Duration poolCleanupInterval();
+
+        Duration redundantConnectionsLifetime();
+
+        Duration connectionMaxAge();
     }
 }

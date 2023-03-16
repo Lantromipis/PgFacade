@@ -39,5 +39,5 @@ public class PostgresAdapterInstanceInfo {
     /**
      * True if this Instance is current Postgres primary
      */
-    private Boolean master;
+    private Boolean primary;
 }

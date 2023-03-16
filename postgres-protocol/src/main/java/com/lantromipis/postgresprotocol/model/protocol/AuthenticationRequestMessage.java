@@ -1,4 +1,4 @@
-package com.lantromipis.postgresprotocol.model;
+package com.lantromipis.postgresprotocol.model.protocol;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,6 +10,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AuthenticationRequestMessage {
-    private AuthenticationMethod method;
+    private PostgresProtocolAuthenticationMethod method;
     private String specificData;
 }
