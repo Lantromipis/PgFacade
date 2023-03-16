@@ -10,15 +10,16 @@ import io.netty.channel.ChannelHandlerContext;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandler {
 
-    private final Function<PgChannelAuthResult, Void> callbackFunction;
+    private final Consumer<PgChannelAuthResult> callbackFunction;
     private final List<MessageInfo> messageInfos;
     private ByteBuf leftovers = null;
 
-    public PgChannelAfterAuthHandler(final Function<PgChannelAuthResult, Void> callbackFunction) {
+    public PgChannelAfterAuthHandler(final Consumer<PgChannelAuthResult> callbackFunction) {
         this.callbackFunction = callbackFunction;
         this.messageInfos = new ArrayList<>();
     }
@@ -36,7 +37,7 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
         SplitResult splitResult = DecoderUtils.splitToMessages(leftovers, message);
 
         if (DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
-            callbackFunction.apply(
+            callbackFunction.accept(
                     new PgChannelAuthResult(false)
             );
             ctx.channel().pipeline().remove(this);
@@ -63,7 +64,7 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
                     });
 
 
-            callbackFunction.apply(
+            callbackFunction.accept(
                     new PgChannelAuthResult(containsAuthOk, messageInfos)
             );
             ctx.channel().pipeline().remove(this);

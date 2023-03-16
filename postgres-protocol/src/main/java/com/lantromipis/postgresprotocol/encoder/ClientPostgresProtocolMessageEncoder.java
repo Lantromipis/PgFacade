@@ -9,6 +9,23 @@ import io.netty.buffer.Unpooled;
 
 public class ClientPostgresProtocolMessageEncoder {
 
+    public static ByteBuf encodeSimpleQueryMessage(String sqlStatement) {
+        byte[] sqlStatementBytes = sqlStatement.getBytes();
+
+        // 4 bytes length + 1 delimiter byte
+        int length = 5 + sqlStatementBytes.length;
+
+        ByteBuf buf = Unpooled.buffer(length + 1);
+
+        buf.writeByte(PostgresProtocolGeneralConstants.QUERY_MESSAGE_START_BYTE);
+        buf.writeInt(length);
+
+        buf.writeBytes(sqlStatementBytes);
+        buf.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
+
+        return buf;
+    }
+
     public static ByteBuf encodeClientTerminateMessage() {
         ByteBuf buf = Unpooled.buffer(5);
 

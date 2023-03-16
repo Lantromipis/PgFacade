@@ -1,6 +1,6 @@
-package com.lantromipis.connectionpool.model;
+package com.lantromipis.connectionpool.model.auth;
 
-import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

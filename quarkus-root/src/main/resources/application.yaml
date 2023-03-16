@@ -8,9 +8,10 @@ pg-facade:
     connection-pool:
       enabled: true
       await-connection-when-pool-empty: true
-      await-connection-when-pool-empty-timeout: PT10S
+      await-connection-when-pool-empty-timeout: PT3S
+      clean-real-used-connection-timeout: PT1S
       acquire-real-connection-timeout: PT1S
-      real-connection-auth-timeout: PT0.5S
+      real-connection-auth-timeout: PT1S
       pool-cleanup-interval: PT15S
       redundant-connections-lifetime: PT5M
       connection-max-age: PT60M
@@ -107,11 +108,11 @@ quarkus:
       format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] - %s%e%n"
     category:
       "com.lantromipis.proxy":
-        level: INFO
+        level: DEBUG
       "com.lantromipis.proxy.initializer":
-        level: INFO
+        level: TRACE
       "com.lantromipis.connectionpool" :
-        level: INFO
+        level: DEBUG
       "org.apache.hc" :
         level: ERROR
   banner:

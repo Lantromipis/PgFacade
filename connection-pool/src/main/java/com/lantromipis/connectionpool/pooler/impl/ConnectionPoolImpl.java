@@ -3,18 +3,16 @@ package com.lantromipis.connectionpool.pooler.impl;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
-import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.common.EmptyHandler;
 import com.lantromipis.connectionpool.model.*;
-import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -191,7 +189,6 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         result -> {
                             authResult.set(result);
                             finishedLatch.countDown();
-                            return null;
                         }
                 )
         );
@@ -264,22 +261,64 @@ public class ConnectionPoolImpl implements ConnectionPool {
         return new PooledConnectionWrapper(
                 pooledConnectionInternalInfo.getRealPostgresConnection(),
                 pooledConnectionInternalInfo.getServerParameters(),
-                () -> {
-                    if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
-                        log.debug("Tried to return connection to pool but it is already closed. Not returning it.");
-                        return;
-                    }
-                    HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
-                    Channel channel = storage.returnTakenConnectionAndCheckAge(
-                            pooledConnectionInternalInfo,
-                            proxyProperties.connectionPool().connectionMaxAge().toMillis()
-                    );
+                params -> {
+                    try {
+                        if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
+                            log.debug("Tried to return connection to pool but it is already closed. Not returning it.");
+                            return;
+                        }
 
-                    if (channel != null) {
-                        log.debug("Connection reached its max-age. Removing it from pool and closing.");
-                        HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
-                    } else {
-                        log.debug("Returned connection to pool.");
+                        HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
+
+                        if (params.isRollback() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
+                            CountDownLatch cleanAwaitLatch = new CountDownLatch(1);
+                            AtomicBoolean cleanSuccess = new AtomicBoolean(false);
+
+                            pooledConnectionInternalInfo.getRealPostgresConnection().pipeline().addLast(
+                                    connectionPoolChannelHandlerProducer.createChannelCleaningHandler(
+                                            result -> {
+                                                cleanAwaitLatch.countDown();
+                                                cleanSuccess.set(result.isSuccess());
+                                            }
+                                    )
+                            );
+
+                            boolean awaitSuccess = cleanAwaitLatch.await(proxyProperties.connectionPool().cleanRealUsedConnectionTimeout().toMillis(), TimeUnit.MILLISECONDS);
+
+                            if (awaitSuccess && cleanSuccess.get()) {
+                                HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
+                            } else {
+                                HandlerUtils.closeOnFlushAndAwait(pooledConnectionInternalInfo.getRealPostgresConnection(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+                                storage.returnTakenConnectionAndCheckAge(
+                                        pooledConnectionInternalInfo,
+                                        proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                                );
+                                return;
+                            }
+                        }
+
+                        Channel channel = storage.returnTakenConnectionAndCheckAge(
+                                pooledConnectionInternalInfo,
+                                proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                        );
+
+                        if (channel != null) {
+                            log.debug("Connection reached its max-age. Removing it from pool and closing.");
+                            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+                        } else {
+                            log.debug("Returned connection to pool.");
+                        }
+                    } catch (Exception e) {
+                        log.error("Error while returning connection to pool", e);
+                        HandlerUtils.closeOnFlushAndAwait(pooledConnectionInternalInfo.getRealPostgresConnection(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+                        storage.returnTakenConnectionAndCheckAge(
+                                pooledConnectionInternalInfo,
+                                proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                        );
+
+                        if (e instanceof InterruptedException) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }
         );

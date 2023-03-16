@@ -1,11 +1,10 @@
 package com.lantromipis.connectionpool.handler.common;
 
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
 import com.lantromipis.connectionpool.model.PgChannelAuthResult;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.ScramAuthInfo;
-import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
+import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
@@ -13,11 +12,10 @@ import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 @Slf4j
@@ -26,12 +24,12 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
     private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
     private AuthAdditionalInfo authAdditionalInfo;
     private StartupMessageInfo startupMessageInfo;
-    private Function<PgChannelAuthResult, Void> callbackFunction;
+    private Consumer<PgChannelAuthResult> callbackFunction;
 
     public PgChannelStartupHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
                                    final AuthAdditionalInfo authAdditionalInfo,
                                    final StartupMessageInfo startupMessageInfo,
-                                   final Function<PgChannelAuthResult, Void> callbackFunction) {
+                                   final Consumer<PgChannelAuthResult> callbackFunction) {
         this.authAdditionalInfo = authAdditionalInfo;
         this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
         this.startupMessageInfo = startupMessageInfo;
@@ -86,7 +84,7 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
     }
 
     private void closeConnection(ChannelHandlerContext ctx) {
-        callbackFunction.apply(new PgChannelAuthResult(false));
+        callbackFunction.accept(new PgChannelAuthResult(false));
         HandlerUtils.closeOnFlush(ctx.channel());
     }
 }

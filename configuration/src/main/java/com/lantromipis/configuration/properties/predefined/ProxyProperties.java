@@ -30,6 +30,8 @@ public interface ProxyProperties {
 
         Duration awaitConnectionWhenPoolEmptyTimeout();
 
+        Duration cleanRealUsedConnectionTimeout();
+
         Duration acquireRealConnectionTimeout();
 
         Duration realConnectionAuthTimeout();

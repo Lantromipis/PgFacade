@@ -4,6 +4,8 @@ import io.netty.channel.Channel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+import java.util.function.Consumer;
+
 /**
  * POJO describing connection returned by connection pool
  */
@@ -24,9 +26,9 @@ public class PooledConnectionWrapper {
     /**
      * Runnable to called when it is time to return connection back to pool
      */
-    private Runnable returnConnectionToPoolCallback;
+    private Consumer<PooledConnectionReturnParameters> returnConnectionToPoolCallback;
 
-    public void returnConnectionToPool() {
-        returnConnectionToPoolCallback.run();
+    public void returnConnectionToPool(PooledConnectionReturnParameters returnParameters) {
+        returnConnectionToPoolCallback.accept(returnParameters);
     }
 }

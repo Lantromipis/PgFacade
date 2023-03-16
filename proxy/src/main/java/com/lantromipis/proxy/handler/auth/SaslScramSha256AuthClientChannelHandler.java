@@ -1,6 +1,6 @@
 package com.lantromipis.proxy.handler.auth;
 
-import com.lantromipis.connectionpool.model.ScramAuthInfo;
+import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;

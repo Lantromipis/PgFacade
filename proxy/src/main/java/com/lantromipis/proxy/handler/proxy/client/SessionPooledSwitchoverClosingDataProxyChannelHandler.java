@@ -1,5 +1,6 @@
 package com.lantromipis.proxy.handler.proxy.client;
 
+import com.lantromipis.connectionpool.model.PooledConnectionReturnParameters;
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
@@ -88,7 +89,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
         HandlerUtils.closeOnFlush(ctx.channel());
 
-        primaryConnectionWrapper.returnConnectionToPool();
+        primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().rollback(true).build());
         clientConnectionsManagementService.unregisterClientChannelHandler(this);
         setActive(false);
     }
@@ -96,7 +97,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
     private void closeClientConnectionSilently(ChannelHandlerContext ctx) {
         ctx.channel().close();
 
-        primaryConnectionWrapper.returnConnectionToPool();
+        primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().rollback(true).build());
         clientConnectionsManagementService.unregisterClientChannelHandler(this);
         setActive(false);
     }

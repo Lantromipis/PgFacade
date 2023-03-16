@@ -21,6 +21,7 @@ public class PostgresProtocolGeneralConstants {
     public static final byte READY_FOR_QUERY_MESSAGE_START_CHAR = 'Z';
     public static final byte CLIENT_TERMINATION_MESSAGE_START_CHAR = 'X';
     public static final byte CLIENT_PASSWORD_RESPONSE_START_CHAR = 'p';
+    public static final byte QUERY_MESSAGE_START_BYTE = 'Q';
 
 
     //ready for query

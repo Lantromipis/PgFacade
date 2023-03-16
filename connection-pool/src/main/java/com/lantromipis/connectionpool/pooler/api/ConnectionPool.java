@@ -2,8 +2,7 @@ package com.lantromipis.connectionpool.pooler.api;
 
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.common.AuthAdditionalInfo;
-import io.netty.channel.Channel;
+import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
 
 public interface ConnectionPool {
     void initialize();

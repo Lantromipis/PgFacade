@@ -1,4 +1,4 @@
-package com.lantromipis.connectionpool.model.common;
+package com.lantromipis.connectionpool.model.auth;
 
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 
