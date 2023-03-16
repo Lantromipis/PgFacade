@@ -28,6 +28,11 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
     }
 
     @Override
+    public void forceDisconnectAndClearResources() {
+        forceCloseConnectionWithEmptyError();
+    }
+
+    @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
@@ -67,7 +72,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             if (postgresProtocolAuthenticationMethod == null) {
                 String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
                 log.error("User with role {} not found or has unknown auth method. Closing connection.", username);
-                forceCloseConnectionWithAuthError(ctx, username);
+                forceCloseConnectionWithAuthError(username);
                 return;
             }
 
@@ -88,7 +93,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                 }
                 default -> {
                     String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
-                    forceCloseConnectionWithAuthError(ctx, username);
+                    forceCloseConnectionWithAuthError(username);
                     return;
                 }
             }
@@ -100,7 +105,12 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
         super.channelRead(ctx, msg);
     }
 
-    private void forceCloseConnectionWithAuthError(ChannelHandlerContext ctx, String username) {
-        HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+    private void forceCloseConnectionWithAuthError(String username) {
+        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+    }
+
+    private void forceCloseConnectionWithEmptyError() {
+        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        setActive(false);
     }
 }

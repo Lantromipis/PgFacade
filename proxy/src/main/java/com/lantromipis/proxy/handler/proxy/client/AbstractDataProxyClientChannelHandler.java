@@ -11,7 +11,7 @@ public abstract class AbstractDataProxyClientChannelHandler extends AbstractClie
     }
 
     /**
-     * This method is called when switchover started. After switchover completed this.handleSwitchoverCompleted() method will be called
+     * This method is called when switchover started. After switchover completed {@link #handleSwitchoverCompleted(boolean)} method will be called
      */
     public abstract void handleSwitchoverStarted();
 

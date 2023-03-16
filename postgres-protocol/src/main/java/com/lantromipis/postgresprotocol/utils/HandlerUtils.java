@@ -27,12 +27,6 @@ public class HandlerUtils {
         }
     }
 
-    public static void closeOnFlushAndAwait(Channel channel, ByteBuf message) {
-        if (channel.isActive()) {
-            channel.writeAndFlush(message).addListener(ChannelFutureListener.CLOSE).awaitUninterruptibly();
-        }
-    }
-
     public static void removeAllHandlersFromChannelPipeline(Channel channel) {
         Map<String, ChannelHandler> handlers = channel.pipeline().toMap();
         handlers.forEach((key, value) -> channel.pipeline().remove(value));

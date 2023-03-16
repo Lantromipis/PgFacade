@@ -15,6 +15,8 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 @Slf4j
 public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
@@ -23,6 +25,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
     private final PooledConnectionWrapper primaryConnectionWrapper;
+    private final AtomicBoolean resourcesFreed;
 
     public SessionPooledSwitchoverClosingDataProxyChannelHandler(final String username,
                                                                  final ByteBuf authOkCombined,
@@ -34,11 +37,13 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         this.primaryConnectionWrapper = primaryConnectionWrapper;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
+        resourcesFreed = new AtomicBoolean(false);
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (primaryConnectionWrapper == null) {
+            setInitialChannelHandlerContext(ctx);
             HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
             clientConnectionsManagementService.unregisterClientChannelHandler(this);
             setActive(false);
@@ -57,7 +62,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
                 proxyChannelHandlersProducer.createNewSimpleDatabasePrimaryConnectionHandler(
                         ctx.channel(),
-                        () -> closeClientConnectionExceptionally(ctx)
+                        this::closeClientConnectionExceptionally
                 )
         );
         // read first message
@@ -85,41 +90,55 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         super.channelRead(ctx, msg);
     }
 
-    private void closeClientConnectionExceptionally(ChannelHandlerContext ctx) {
-        ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
-        HandlerUtils.closeOnFlush(ctx.channel());
-
-        primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().rollback(true).build());
-        clientConnectionsManagementService.unregisterClientChannelHandler(this);
-        setActive(false);
-    }
-
-    private void closeClientConnectionSilently(ChannelHandlerContext ctx) {
-        ctx.channel().close();
-
-        primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().rollback(true).build());
-        clientConnectionsManagementService.unregisterClientChannelHandler(this);
-        setActive(false);
-    }
-
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("Exception in client connection handler. Connection will be closed ", cause);
-        closeClientConnectionExceptionally(ctx);
+        closeClientConnectionExceptionally();
     }
 
     @Override
-    public void forceDisconnect() {
-        closeClientConnectionExceptionally(getInitialChannelHandlerContext());
+    public void forceDisconnectAndClearResources() {
+        closeClientConnectionExceptionally();
     }
 
     @Override
     public void handleSwitchoverStarted() {
-        closeClientConnectionExceptionally(getInitialChannelHandlerContext());
+        resourcesFreed.set(true);
+        primaryConnectionWrapper.returnConnectionToPool(
+                PooledConnectionReturnParameters
+                        .builder()
+                        .terminate(true)
+                        .build()
+        );
+        clientConnectionsManagementService.unregisterClientChannelHandler(this);
+        setActive(false);
+
+        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
     }
 
     @Override
     public void handleSwitchoverCompleted(boolean success) {
-        //do nothing. Connection with client already closed.
+        // do nothing. Connection with client already closed.
+    }
+
+    private void closeClientConnectionExceptionally() {
+        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+
+        freeResources();
+    }
+
+    private void closeClientConnectionSilently(ChannelHandlerContext ctx) {
+        ctx.channel().close();
+        freeResources();
+    }
+
+    private void freeResources() {
+        if (resourcesFreed.compareAndSet(false, true)) {
+            if (primaryConnectionWrapper != null) {
+                primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().rollback(true).build());
+            }
+            clientConnectionsManagementService.unregisterClientChannelHandler(this);
+            setActive(false);
+        }
     }
 }

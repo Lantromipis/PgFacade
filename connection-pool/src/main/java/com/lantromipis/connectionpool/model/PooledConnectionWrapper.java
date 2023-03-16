@@ -24,7 +24,7 @@ public class PooledConnectionWrapper {
     private byte[] serverParameterMessagesBytes;
 
     /**
-     * Runnable to called when it is time to return connection back to pool
+     * Runnable to called when it is time to return connection back to pool. This runnable must never fail.
      */
     private Consumer<PooledConnectionReturnParameters> returnConnectionToPoolCallback;
 

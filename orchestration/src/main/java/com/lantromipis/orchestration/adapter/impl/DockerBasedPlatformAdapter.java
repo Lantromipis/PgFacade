@@ -24,17 +24,16 @@ import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
-import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
+import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
-import com.lantromipis.orchestration.util.DockerUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.input.ObservableInputStream;
 import org.apache.commons.lang3.StringUtils;
-import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
@@ -68,9 +67,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Inject
     PostgresPersistedProperties persistedProperties;
-
-    @Inject
-    ManagedExecutor managedExecutor;
 
     @Inject
     PgFacadeIOUtils pgFacadeIOUtils;
@@ -803,7 +799,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             InspectExecResponse inspectBackupExecResponse = dockerClient.inspectExecCmd(backupExecCreateResponse.getId()).exec();
 
-            boolean success = false;
+            boolean success;
 
             if (CollectionUtils.isNotEmpty(okExitCodes)) {
                 success = okExitCodes.contains(inspectBackupExecResponse.getExitCodeLong());

@@ -51,7 +51,7 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
     @Override
     public void forceDisconnectAll() {
         for (AbstractClientChannelHandler client : activeChannelsHandlers) {
-            client.forceDisconnect();
+            client.forceDisconnectAndClearResources();
             unregisterClientChannelHandler(client);
         }
     }
@@ -82,7 +82,7 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
 
             boolean channelClosed = !Optional.ofNullable(client.getInitialChannelHandlerContext()).map(ctx -> ctx.channel().isActive()).orElse(true);
             if ((client.getLastActiveTimeMilliseconds() > 0 && client.getLastActiveTimeMilliseconds() < endTime) || channelClosed) {
-                client.forceDisconnect();
+                client.forceDisconnectAndClearResources();
                 unregisterClientChannelHandler(client);
                 inactiveCount++;
             }

@@ -59,21 +59,13 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     }
 
     /**
-     * This method will be called when PgFacade needs the underlying client to be disconnected.
-     * If this method is called, handler must close connection with client.
-     * For example, this method is called when PgFacade is shutting down, or when client was inactive for too long.
+     * This method will be called when PgFacade unregisters handler.
+     * If this method is called, handler must close connection with client AND clear or return all used resources.
+     * This method might be called if Netty channel is already closed, but resources must be freed anyway.
+     * Also, this method might be called multiple times. Handler implementation must be ready for that and track if resources are already freed. For example, no need to return connection to pool multiple times.
      */
-    public void forceDisconnect() {
-        forceCloseConnectionWithEmptyError();
-        active = false;
-    }
+    public abstract void forceDisconnectAndClearResources();
 
-    /**
-     * Initializes custom handler and reads from channel. Auto-read is disabled by PgFacade design, so we must read channel when handler is added.
-     *
-     * @param ctx channel handler context
-     * @throws Exception when something wants wrong
-     */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         initialize(ctx);
@@ -86,25 +78,9 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
         lastTimeAccessed = System.currentTimeMillis();
     }
 
-    /**
-     * Default handler for exceptions.
-     *
-     * @param ctx   channel handler context
-     * @param cause throwable which occurred during connection handling
-     * @throws Exception when something wants wrong
-     */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        forceDisconnect();
-    }
-
-    /**
-     * Default method to call when connection must be closed. Closes connection with error.
-     *
-     * @param ctx ChannelHandlerContext of connection that will be closed.
-     */
-    protected void forceCloseConnectionWithEmptyError() {
-        HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        forceDisconnectAndClearResources();
         active = false;
     }
 
@@ -122,10 +98,11 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
         super.channelActive(ctx);
     }
 
-    private void initialize(ChannelHandlerContext ctx) {
-        initialChannelHandlerContext = ctx;
-        active = true;
-        lastTimeAccessed = System.currentTimeMillis();
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        forceDisconnectAndClearResources();
+        active = false;
+        super.channelInactive(ctx);
     }
 
     @Override
@@ -137,13 +114,13 @@ public abstract class AbstractClientChannelHandler extends ChannelInboundHandler
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        active = false;
-        super.channelInactive(ctx);
-    }
-
-    @Override
     public int hashCode() {
         return Objects.hash(equalsAndHashcodeId);
+    }
+
+    protected void initialize(ChannelHandlerContext ctx) {
+        initialChannelHandlerContext = ctx;
+        active = true;
+        lastTimeAccessed = System.currentTimeMillis();
     }
 }

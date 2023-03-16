@@ -253,6 +253,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
             primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
             primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
         }
+        primaryConnectionsStorage.removeAllConnections().forEach(HandlerUtils::closeOnFlush);
         switchoverLatch.countDown();
         poolActive.set(true);
     }
@@ -263,8 +264,18 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 pooledConnectionInternalInfo.getServerParameters(),
                 params -> {
                     try {
+                        if (params.isTerminate()) {
+                            log.debug("Closing real Postgres connection because client connection handler requested this action.");
+                            HandlerUtils.closeOnFlush(
+                                    pooledConnectionInternalInfo.getRealPostgresConnection(),
+                                    ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                            );
+                            storage.removeConnection(pooledConnectionInternalInfo);
+                            return;
+                        }
+
                         if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
-                            log.debug("Tried to return connection to pool but it is already closed. Not returning it.");
+                            log.debug("Tried to return connection to pool but it is already closed.");
                             return;
                         }
 
@@ -288,10 +299,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
                             if (awaitSuccess && cleanSuccess.get()) {
                                 HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
                             } else {
-                                HandlerUtils.closeOnFlushAndAwait(pooledConnectionInternalInfo.getRealPostgresConnection(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
-                                storage.returnTakenConnectionAndCheckAge(
-                                        pooledConnectionInternalInfo,
-                                        proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                                HandlerUtils.closeOnFlush(
+                                        pooledConnectionInternalInfo.getRealPostgresConnection(),
+                                        ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
                                 );
                                 return;
                             }
@@ -310,10 +320,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         }
                     } catch (Exception e) {
                         log.error("Error while returning connection to pool", e);
-                        HandlerUtils.closeOnFlushAndAwait(pooledConnectionInternalInfo.getRealPostgresConnection(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
-                        storage.returnTakenConnectionAndCheckAge(
-                                pooledConnectionInternalInfo,
-                                proxyProperties.connectionPool().connectionMaxAge().toMillis()
+                        HandlerUtils.closeOnFlush(
+                                pooledConnectionInternalInfo.getRealPostgresConnection(),
+                                ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
                         );
 
                         if (e instanceof InterruptedException) {

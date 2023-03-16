@@ -1,6 +1,7 @@
 package com.lantromipis.proxy.handler.proxy.client;
 
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.proxy.handler.proxy.database.NoPoolProxyDatabaseChannelHandler;
 import io.netty.bootstrap.Bootstrap;
@@ -32,14 +33,11 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
         ChannelFuture f = b.connect(remoteHost, remotePort);
         postgreSqlChannel = f.channel();
 
-        f.addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
-                if (future.isSuccess()) {
-                    inboundChannel.read();
-                } else {
-                    inboundChannel.close();
-                }
+        f.addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                inboundChannel.read();
+            } else {
+                inboundChannel.close();
             }
         });
 
@@ -79,7 +77,8 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
 
     @Override
     public void handleSwitchoverStarted() {
-        forceCloseConnectionWithEmptyError();
+        closeRealPostgresConnection();
+        forceCloseConnectionWithEmptyError(getInitialChannelHandlerContext());
     }
 
     @Override
@@ -88,7 +87,24 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     }
 
     @Override
+    public void forceDisconnectAndClearResources() {
+        closeRealPostgresConnection();
+        forceCloseConnectionWithEmptyError(getInitialChannelHandlerContext());
+    }
+
+    @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         // Overriding superclass method so channel.read() won't be called until postgresql connection is ready
+    }
+
+    private void forceCloseConnectionWithEmptyError(ChannelHandlerContext ctx) {
+        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        setActive(false);
+    }
+
+    private void closeRealPostgresConnection() {
+        if (postgreSqlChannel != null) {
+            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+        }
     }
 }

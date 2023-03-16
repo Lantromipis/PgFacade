@@ -118,6 +118,7 @@ public class PostgresInstancePooledConnectionsStorage {
 
     /**
      * Returns connection after client stopped using it.
+     * If channel is closed, it will be removed from storage.
      * If connection has reached its max-age, then such connection is removed from storage.
      * If connection has not reached its max-age, then this method checks if there are some connection await requests. If yes, then return connection to awaiting caller. If no, then method returns connection back to storage and marks it as 'free'. Such connection must have been added earlier and marked as 'taken'.
      * There are NO checks if connection was really added previously or marked as 'taken'! Checks are not included to improve performance.
@@ -127,6 +128,11 @@ public class PostgresInstancePooledConnectionsStorage {
      * @return Netty channel if connection reached it max-age or null if it doesn't.
      */
     public Channel returnTakenConnectionAndCheckAge(PooledConnectionInternalInfo pooledConnectionInternalInfo, long maxAgeMillis) {
+        if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
+            removeConnection(pooledConnectionInternalInfo);
+            return pooledConnectionInternalInfo.getRealPostgresConnection();
+        }
+
         if (System.currentTimeMillis() - maxAgeMillis > pooledConnectionInternalInfo.getCreatedTimestamp()) {
             removeConnection(pooledConnectionInternalInfo);
             return pooledConnectionInternalInfo.getRealPostgresConnection();
@@ -237,6 +243,40 @@ public class PostgresInstancePooledConnectionsStorage {
         return freedChannels;
     }
 
+    /**
+     * Removes connection from pool. No check for existence is done.
+     *
+     * @param connection connection to remove
+     */
+    public void removeConnection(PooledConnectionInternalInfo connection) {
+        StartupMessageInfo startupMessageInfo = connection.getStartupMessageInfo();
+
+        Optional.ofNullable(freeConnections.get(startupMessageInfo)).ifPresent(queue -> queue.remove(connection));
+        Optional.ofNullable(allConnections.get(startupMessageInfo)).ifPresent(queue -> {
+            if (queue.remove(connection)) {
+                connectionsCount.decrementAndGet();
+            }
+        });
+    }
+
+    /**
+     * Removes all connection from pool that was in it when function was called.
+     * If some connection will be added during function execution, they will not be removed.
+     *
+     * @return list containing Netty channels for removed connections
+     */
+    public List<Channel> removeAllConnections() {
+        return allConnections.values()
+                .stream()
+                .flatMap(Collection::stream)
+                .map(connection -> {
+                            removeConnection(connection);
+                            return connection.getRealPostgresConnection();
+                        }
+                )
+                .toList();
+    }
+
     private void addConnectionToMap(StartupMessageInfo startupMessageInfo, PooledConnectionInternalInfo connection, ConcurrentHashMap<StartupMessageInfo, ConcurrentLinkedDeque<PooledConnectionInternalInfo>> map) {
         map.compute(startupMessageInfo, (k, v) -> {
             if (v == null) {
@@ -246,17 +286,6 @@ public class PostgresInstancePooledConnectionsStorage {
             } else {
                 v.addFirst(connection);
                 return v;
-            }
-        });
-    }
-
-    private void removeConnection(PooledConnectionInternalInfo connection) {
-        StartupMessageInfo startupMessageInfo = connection.getStartupMessageInfo();
-
-        Optional.ofNullable(freeConnections.get(startupMessageInfo)).ifPresent(queue -> queue.remove(connection));
-        Optional.ofNullable(allConnections.get(startupMessageInfo)).ifPresent(queue -> {
-            if (queue.remove(connection)) {
-                connectionsCount.decrementAndGet();
             }
         });
     }
