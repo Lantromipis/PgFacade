@@ -3,7 +3,7 @@ name: pgfacade
 services:
   pgfacade:
     build:
-      dockerfile: ../.deployment/Dockerfile.jvm-debug
+      dockerfile: ../.deployment/Dockerfile.jvm-postgres-15
       context: ../app-pgfacade-root
     networks:
       - pg-facade-postgres-network
