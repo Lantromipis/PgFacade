@@ -8,7 +8,7 @@
     <packaging>pom</packaging>
     <version>1.0-SNAPSHOT</version>
     <modules>
-        <module>quarkus-root</module>
+        <module>app-pgfacade-root</module>
         <module>proxy</module>
         <module>connection-pool</module>
         <module>user-management</module>

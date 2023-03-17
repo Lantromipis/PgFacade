@@ -62,10 +62,10 @@ public class PgProxyServiceImpl implements PgProxyService {
                                 .channel(NioServerSocketChannel.class)
                                 .childHandler(channelInitializer)
                                 .childOption(ChannelOption.AUTO_READ, false)
-                                .bind(proxyProperties.port())
+                                .bind(proxyProperties.primaryPort())
                                 .sync();
 
-                        log.info("Postgres primary proxy listening on port " + proxyProperties.port());
+                        log.info("Postgres primary proxy listening on port " + proxyProperties.primaryPort());
 
                         primaryProxyChannelFuture.channel().closeFuture().sync();
                         log.info("Postgres primary proxy bootstrap stopped. Proxy not accepting connections.");

@@ -63,7 +63,7 @@ public interface OrchestrationProperties {
     }
 
     interface DockerProperties {
-        String dockerHost();
+        String host();
 
         PgFacadeProperties pgFacade();
 

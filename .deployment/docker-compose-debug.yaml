@@ -1,10 +1,10 @@
 version: "3.7"
-
+name: pgfacade
 services:
   pgfacade:
     build:
-      dockerfile: /src/main/docker/Dockerfile.jvm-debug
-      context: ../../../
+      dockerfile: ../.deployment/Dockerfile.jvm-debug
+      context: ../app-pgfacade-root
     networks:
       - pg-facade-postgres-network
       - minio-network

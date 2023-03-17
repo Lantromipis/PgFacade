@@ -79,7 +79,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                .withDockerHost(dockerProperties.dockerHost())
+                .withDockerHost(dockerProperties.host())
 /*                .withDockerTlsVerify(true)
                 .withDockerCertPath("/home/user/.docker")
                 .withRegistryUsername(registryUser)

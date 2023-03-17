@@ -3,11 +3,10 @@ package com.lantromipis.configuration.properties.predefined;
 import io.smallrye.config.ConfigMapping;
 
 import java.time.Duration;
-import java.util.Map;
 
 @ConfigMapping(prefix = "pg-facade.proxy")
 public interface ProxyProperties {
-    int port();
+    int primaryPort();
 
     int maxConnections();
 

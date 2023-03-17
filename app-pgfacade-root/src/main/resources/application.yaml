@@ -3,7 +3,7 @@ pg-facade:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   proxy:
-    port: 5433
+    primary-port: 5433
     max-connections: 500
     connection-pool:
       enabled: true
@@ -41,7 +41,7 @@ pg-facade:
       primary-host: localhost
       primary-port: 5432
     docker:
-      docker-host: unix:///var/run/pgfacade/docker.sock
+      host: unix:///var/run/pgfacade/docker.sock
       helper-object-name: "pg-facade-temp"
       pg-facade:
         local-files-directory: "/var/run/pgfacade"
@@ -77,15 +77,15 @@ pg-facade:
     s3:
       protocol: http
       endpoint: http://minio:9000
-      access-key: XyWoumXpa0e5Pv8H
-      secret-key: wQxh5RfnLO0MN0nDv390nfo6piLvhStM
+      access-key: 0d9JNXROXxMwab4Y
+      secret-key: 8vE6Ih1SyoVaz8NL6BKFjX6yRkXpknQ9
       region: eu-central-1
       multipart-upload-part-size-mb: 5
       backups-bucket: pgfacade
       wal-bucket: pgfacade
   postgres:
     default-settings:
-      max-wal-keep-count: 16  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
+      max-wal-keep-count: 32  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       superuser: #used only when creating new database to create other users
         username: postgres
