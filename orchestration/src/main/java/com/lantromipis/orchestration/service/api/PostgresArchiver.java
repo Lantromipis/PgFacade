@@ -3,23 +3,24 @@ package com.lantromipis.orchestration.service.api;
 import com.lantromipis.orchestration.exception.BackupCreationException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
 
-import java.util.UUID;
+import java.time.Instant;
+import java.util.List;
 
 public interface PostgresArchiver {
 
     /**
      * Minimal initialization for archiver just to be able to restore from backup.
      */
-    void initializeForStartupRecovery();
+    void initializeForRecovery();
 
     /**
      * Initialize archiver. Must be called after orchestrator initialization completed.
      */
     void initialize();
 
-    boolean doesAnyBackupExist();
+    List<Instant> getBackupInstants();
 
     void createAndUploadBackup() throws BackupCreationException;
 
-    UUID restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException;
+    String restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException;
 }

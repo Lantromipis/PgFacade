@@ -1,6 +1,8 @@
 package com.lantromipis.orchestration.service.api;
 
+import com.lantromipis.orchestration.exception.OrchestratorNotFoundException;
 import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
+import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
 
 import java.util.Map;
@@ -11,7 +13,7 @@ public interface PostgresOrchestrator {
 
     void shutdown();
 
-    boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException;
+    boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException;
 
-    void changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationChangeException, OrchestratorNotReadyException;
+    void changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws OrchestratorNotReadyException, OrchestratorOperationExecutionException;
 }

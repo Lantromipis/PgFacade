@@ -3,6 +3,7 @@ package com.lantromipis.orchestration.adapter.impl;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
@@ -10,16 +11,15 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
-import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
-import com.lantromipis.orchestration.exception.DockerEnvironmentConfigurationException;
+import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
+import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
@@ -66,12 +66,8 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     PostgresUtils postgresUtils;
 
     @Inject
-    PostgresPersistedProperties persistedProperties;
-
-    @Inject
     PgFacadeIOUtils pgFacadeIOUtils;
 
-    //TODO add timeouts for client
     private DockerClient dockerClient;
 
     public void initialize() {
@@ -95,10 +91,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
 
-        //to pre-load all containers
-        //TODO need to sync with docker by calling listContainers?
-        getAvailablePostgresInstancesInfos();
-
         log.info("Successfully created Docker client for cluster management.");
     }
 
@@ -111,26 +103,22 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public UUID createNewPostgresInstance(PostgresInstanceCreationRequest request) {
+    public String createNewPostgresInstance(PostgresInstanceCreationRequest request) throws PlatformAdapterOperationExecutionException {
         //used to delete container if it was created but method failed.
         String containerId = null;
-        UUID instanceId = null;
+
         try {
-            UUID futureInstanceId = UUID.randomUUID();
-            String containerNamePostfix = futureInstanceId.toString();
+            String containerNamePostfix = request.getFutureInstanceId().toString();
 
-            CreateContainerCmd createContainerCmd = getDefaultCreateContainerCmdRequest(containerNamePostfix);
+            CreateContainerCmd createContainerCmd = getPostgresDefaultCreateContainerCmdRequest(containerNamePostfix);
 
+            // for primary will create empty DB.
             if (!request.isPrimary()) {
-                Map<String, String> postgresSettings = new HashMap<>(request.getStandbySettings());
+                Map<String, String> postgresSettings = new HashMap<>(request.getSettings());
                 postgresSettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
 
                 String volumeName = createVolumeWithPgBaseBackupForStandby(containerNamePostfix, postgresSettings);
 
-                if (volumeName == null) {
-                    log.error("Unable to create stand-by because volume creation with backup failed.");
-                    return null;
-                }
                 createContainerCmd.getHostConfig()
                         .withBinds(
                                 new Bind(
@@ -138,21 +126,19 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                         new Volume(orchestrationProperties.docker().postgres().imagePgData())
                                 )
                         );
+            } else {
+                createContainerCmd
+                        .withEnv(
+                                List.of(
+                                        createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().superuser().password()),
+                                        createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().superuser().username()),
+                                        createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
+                                )
+                        );
             }
 
             CreateContainerResponse createResponse = createContainerCmd.exec();
             containerId = createResponse.getId();
-
-            instanceId = futureInstanceId;
-
-            persistedProperties.savePostgresNodeInfo(
-                    PostgresPersistedNodeInfo
-                            .builder()
-                            .primary(request.isPrimary())
-                            .instanceId(instanceId)
-                            .adapterIdentifier(containerId)
-                            .build()
-            );
 
             if (request.isPrimary()) {
                 log.info("Created container with primary. Ready to start it.");
@@ -160,249 +146,153 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 log.info("Created container with stand-by. Ready to start it.");
             }
 
-            return instanceId;
+            return containerId;
 
+        } catch (PlatformAdapterOperationExecutionException e) {
+            forceDeleteContainerSafe(containerId);
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to create new container ", e);
-            try {
-                forceDeleteContainerSafe(containerId);
-                if (instanceId != null) {
-                    persistedProperties.deletePostgresNodeInfo(instanceId);
-                }
-            } catch (Exception e2) {
-                log.error("Error occurred after container was created, but it is impossible to delete it. Container id = {}", containerId, e2);
-            }
-            return null;
+            forceDeleteContainerSafe(containerId);
+            throw new PlatformAdapterOperationExecutionException("Unexpected error while creating new container for new Postgres instance ", e);
         }
     }
 
     @Override
-    public boolean startPostgresInstance(UUID instanceId) {
-        String containerId = instanceIdToContainerId(instanceId);
-
-        if (containerId == null) {
-            log.error("Error starting Docker postgres container. Instance not found.");
-            return false;
+    public boolean startPostgresInstance(String adapterInstanceId) throws PlatformAdapterNotFoundException {
+        if (adapterInstanceId == null) {
+            throw new PlatformAdapterNotFoundException("Can not start Postgres container because container ID is null.");
         }
 
         try {
-            //TODO check if instance is running?
-            dockerClient.startContainerCmd(containerId).exec();
+            dockerClient.startContainerCmd(adapterInstanceId).exec();
+            return true;
+        } catch (NotFoundException notFoundException) {
+            throw new PlatformAdapterNotFoundException("Failed to start Postgres container. Container with ID " + adapterInstanceId + " not found.");
+        } catch (NotModifiedException notModifiedException) {
             return true;
         } catch (Exception e) {
-            log.error(e.getMessage(), e);
+            log.error("Unexpected error while starting Postgres container {}", adapterInstanceId, e);
             return false;
         }
     }
 
     @Override
-    public boolean stopPostgresInstance(UUID instanceId) {
-        String containerId = instanceIdToContainerId(instanceId);
-
-        if (containerId == null) {
-            return true;
+    public boolean stopPostgresInstance(String adapterInstanceId) throws PlatformAdapterNotFoundException {
+        if (adapterInstanceId == null) {
+            throw new PlatformAdapterNotFoundException("Can not stop Postgres container because container ID is null.");
         }
 
         try {
-            dockerClient.stopContainerCmd(containerId).exec();
+            dockerClient.stopContainerCmd(adapterInstanceId).exec();
+            return true;
+        } catch (NotFoundException notFoundException) {
+            throw new PlatformAdapterNotFoundException("Failed to stop Postgres container. Container with ID " + adapterInstanceId + " not found.");
+        } catch (NotModifiedException notModifiedException) {
             return true;
         } catch (Exception e) {
-            log.error("Error stopping Postgres instance", e);
+            log.error("Unexpected error while stopping Postgres container {}", adapterInstanceId, e);
             return false;
         }
     }
 
     @Override
-    public boolean restartPostgresInstance(UUID instanceId) {
-        String containerId = instanceIdToContainerId(instanceId);
-
-        if (containerId == null) {
-            return false;
+    public void restartPostgresInstance(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
+        if (adapterInstanceId == null) {
+            throw new PlatformAdapterNotFoundException("Can not restart Postgres container because container ID is null.");
         }
 
         try {
-            dockerClient.restartContainerCmd(containerId).exec();
-            return true;
+            dockerClient.restartContainerCmd(adapterInstanceId).exec();
+        } catch (NotFoundException notFoundException) {
+            throw new PlatformAdapterNotFoundException("Failed to restart Postgres container. Container with ID " + adapterInstanceId + " not found.");
         } catch (Exception e) {
-            log.error("Error restarting Postgres instance", e);
-            return false;
+            log.error("Unexpected error while restarting Postgres instance", e);
+            throw new PlatformAdapterOperationExecutionException("Failed to restart container. Unexpected error! Container ID: " + adapterInstanceId + " ");
         }
     }
 
     @Override
-    public PostgresAdapterInstanceInfo getInstanceInfo(UUID instanceId) {
+    public PostgresAdapterInstanceInfo getInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
         try {
-            PostgresPersistedNodeInfo persistedNodeInfo = persistedProperties.getPostgresNodeInfo(instanceId);
-            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(persistedNodeInfo.getAdapterIdentifier()).exec();
+            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(adapterInstanceId).exec();
 
             return PostgresAdapterInstanceInfo
                     .builder()
-                    .instanceId(instanceId)
+                    .adapterInstanceId(adapterInstanceId)
                     .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
-                    .instancePort(5432) //TODO maybe need to change
+                    .instancePort(5432)
                     .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
                     .health(dockerMapper.toInstanceHealth(inspectResponse))
-                    .primary(persistedNodeInfo.isPrimary())
                     .build();
+
+        } catch (NotFoundException notFoundException) {
+            throw new PlatformAdapterNotFoundException("Failed to get info about Postgres container. Container with ID " + adapterInstanceId + " not found.");
         } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return null;
+            throw new PlatformAdapterOperationExecutionException("Failed to get info about Postgres container. ", e);
         }
     }
 
     @Override
-    public List<PostgresAdapterInstanceInfo> getAvailablePostgresInstancesInfos() {
-        //method almost duplicates getInstanceInfo(UUID) for performance, because here we get persisted info in one call
-        List<PostgresAdapterInstanceInfo> ret = new ArrayList<>();
-
-        for (PostgresPersistedNodeInfo persistedNodeInfo : persistedProperties.getPostgresNodeInfos()) {
-            try {
-                InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(persistedNodeInfo.getAdapterIdentifier()).exec();
-
-                ret.add(
-                        PostgresAdapterInstanceInfo
-                                .builder()
-                                .instanceId(persistedNodeInfo.getInstanceId())
-                                .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
-                                .instancePort(5432)
-                                .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
-                                .health(dockerMapper.toInstanceHealth(inspectResponse))
-                                .primary(persistedNodeInfo.isPrimary())
-                                .build()
-                );
-            } catch (NotFoundException e) {
-                persistedProperties.deletePostgresNodeInfo(persistedNodeInfo.getInstanceId());
-            } catch (Exception e) {
-                log.error(e.getMessage(), e);
-            }
-        }
-
-        return ret;
-    }
-
-    @Override
-    public boolean deletePostgresInstance(UUID instanceId, boolean force) {
-        String containerId = instanceIdToContainerId(instanceId);
-
-        if (containerId == null) {
+    public boolean deletePostgresInstance(String adapterInstanceId) {
+        if (adapterInstanceId == null) {
             return true;
         }
 
         try {
-            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(containerId).exec();
+            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(adapterInstanceId).exec();
+
+            try {
+                dockerClient.stopContainerCmd(adapterInstanceId).exec();
+            } catch (Exception ignored) {
+            }
+
+            dockerClient.removeContainerCmd(adapterInstanceId).withForce(true).withRemoveVolumes(true).exec();
 
             for (var bind : inspectContainerResponse.getHostConfig().getBinds()) {
                 try {
                     dockerClient.removeVolumeCmd(bind.getPath()).exec();
                 } catch (Exception ignored) {
+                    log.warn("Failed to remove volume of delete Postgres instance {}", bind.getPath());
                 }
             }
 
-            if (force) {
-                forceDeleteContainerSafe(containerId);
-            } else {
-                try {
-                    dockerClient.stopContainerCmd(containerId).exec();
-                } catch (Exception ignored) {
-                }
-
-                dockerClient.removeContainerCmd(containerId).withRemoveVolumes(true).exec();
-            }
-            persistedProperties.deletePostgresNodeInfo(instanceId);
             return true;
-
+        } catch (NotFoundException notFoundException) {
+            return true;
         } catch (Exception e) {
-            log.error(e.getMessage(), e);
+            log.error("Failed to remove Postgres container with ID {}. Remove it manually.", adapterInstanceId, e);
             return false;
         }
+
     }
 
     @Override
-    public void updateInstancesAfterSwitchover(UUID newPrimaryInstanceId, UUID oldPrimaryInstanceId) {
-        PostgresPersistedNodeInfo newPrimaryPersistedInfo = persistedProperties.getPostgresNodeInfo(newPrimaryInstanceId);
-        newPrimaryPersistedInfo.setPrimary(true);
-        persistedProperties.savePostgresNodeInfo(newPrimaryPersistedInfo);
-        deletePostgresInstance(oldPrimaryInstanceId, true);
-        log.info("Updated instances infos after failover. Previous container with primary deleted. New primary container id is {}", newPrimaryPersistedInfo.getAdapterIdentifier());
-    }
-
-    @Override
-    public AdapterShellCommandExecutionResult executeShellCommandForInstance(UUID instanceId, String shellCommand, List<Long> okExitCodes) {
-        String containerId = instanceIdToContainerId(instanceId);
-
-        if (containerId == null) {
+    public AdapterShellCommandExecutionResult executeShellCommandForInstance(String adapterInstanceId, String shellCommand, List<Long> okExitCodes) {
+        if (adapterInstanceId == null) {
             return AdapterShellCommandExecutionResult
                     .builder()
                     .success(false)
                     .build();
         }
 
-        return executeCmdInContainer(containerId, shellCommand, okExitCodes, null);
+        return executeCmdInContainer(adapterInstanceId, shellCommand, okExitCodes, null);
     }
 
-    @Override
-    public List<String> getRequiredHbaConfLines() {
+    public String getPostgresSubnetIp() {
         List<Network> networks = dockerClient.listNetworksCmd()
                 .withNameFilter(orchestrationProperties.docker().postgres().networkName())
                 .exec();
 
         if (CollectionUtils.isEmpty(networks) || networks.size() > 1) {
-            throw new DockerEnvironmentConfigurationException("Found no or several networks for Postgres. There must be only one network for Postgres and this network must have unique name because filtering by name must return only one network.");
+            throw new PlatformAdapterOperationExecutionException("Docker error. Found no or several networks for Postgres. There must be only one network for Postgres and this network must have unique name because filtering by name must return only one network.");
         }
 
         Network pgFacadePostgresNetwork = networks.get(0);
         if (CollectionUtils.isEmpty(pgFacadePostgresNetwork.getIpam().getConfig()) || pgFacadePostgresNetwork.getIpam().getConfig().size() > 1) {
-            throw new DockerEnvironmentConfigurationException("Found no or several IPAM config for Postgres network. Network must have exactly one IPAM config with subnet in it.");
+            throw new PlatformAdapterOperationExecutionException("Docker error. Found no or several IPAM config for Postgres network. Network must have exactly one IPAM config with subnet in it.");
         }
 
-        String postgresSubnet = pgFacadePostgresNetwork.getIpam().getConfig().get(0).getSubnet();
-
-        List<String> result = new ArrayList<>();
-
-        result.add(PostgresConstants.PG_HBA_CONF_START_LINE);
-
-        //for superuser. For security reasons, default is local
-        result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstants.PgHbaConfHost.LOCAL,
-                        PostgresConstants.PG_HBA_CONF_ALL,
-                        postgresProperties.users().superuser().username(),
-                        postgresSubnet,
-                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
-                )
-        );
-
-        //for PgFacade user
-        result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstants.PgHbaConfHost.HOST,
-                        postgresProperties.users().pgFacade().database(),
-                        postgresProperties.users().pgFacade().username(),
-                        postgresSubnet,
-                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
-                )
-        );
-
-        //for healthcheck user
-        //TODO add healthcheck user
-        result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstants.PgHbaConfHost.LOCAL,
-                        postgresProperties.users().pgFacade().database(),
-                        postgresProperties.users().pgFacade().username(),
-                        postgresSubnet,
-                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
-                )
-        );
-
-        //for replication user
-        result.add(postgresUtils.generatePgHbaConfLine(
-                        PostgresConstants.PgHbaConfHost.HOST,
-                        PostgresConstants.PG_HBA_CONF_REPLICATION_DB,
-                        postgresProperties.users().replication().username(),
-                        postgresSubnet,
-                        PostgresConstants.PgHbaConfAuthMethod.SCRAM_SHA_256
-                )
-        );
-
-        return result;
+        return pgFacadePostgresNetwork.getIpam().getConfig().get(0).getSubnet();
     }
 
     @Override
@@ -487,7 +377,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public UUID restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException {
+    public String restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         String containerNamePostfix = UUID.randomUUID().toString();
@@ -607,9 +497,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             log.info("Recovery completed successfully!");
 
-            UUID instanceId = UUID.randomUUID();
-
-            CreateContainerCmd createContainerCmd = getDefaultCreateContainerCmdRequest(instanceId.toString());
+            CreateContainerCmd createContainerCmd = getPostgresDefaultCreateContainerCmdRequest(UUID.randomUUID().toString());
 
             createContainerCmd.getHostConfig()
                     .withBinds(
@@ -621,16 +509,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             CreateContainerResponse createContainerResponse = createContainerCmd.exec();
 
-            persistedProperties.savePostgresNodeInfo(
-                    PostgresPersistedNodeInfo
-                            .builder()
-                            .primary(true)
-                            .instanceId(instanceId)
-                            .adapterIdentifier(createContainerResponse.getId())
-                            .build()
-            );
-
-            return instanceId;
+            return createContainerResponse.getId();
         } catch (Exception e) {
             log.error("Error while restoring instance from backup.", e);
             if (orchestrationProperties.postgresClusterRestore().removeFailedToRestoreInstance()) {
@@ -653,7 +532,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             try {
                 dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
             } catch (Exception ex) {
-                log.error("Failed to remove unneeded container. Remove it manually. Container id: {}", containerId);
+                log.error("Failed to remove unneeded container. Remove it manually. Container id {}", containerId);
             }
         }
     }
@@ -663,18 +542,12 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             try {
                 dockerClient.removeVolumeCmd(volumeName).exec();
             } catch (Exception ex) {
-                log.error("Failed to remove unneeded volume. Remove it manually. Volume name: {}", volumeName);
+                log.error("Failed to remove unneeded volume. Remove it manually. Volume name {}", volumeName);
             }
         }
     }
 
-    private String instanceIdToContainerId(UUID instanceId) {
-        return Optional.ofNullable(persistedProperties.getPostgresNodeInfo(instanceId))
-                .map(PostgresPersistedNodeInfo::getAdapterIdentifier)
-                .orElse(null);
-    }
-
-    private String createVolumeWithPgBaseBackupForStandby(String containerPostfix, Map<String, String> settings) {
+    private String createVolumeWithPgBaseBackupForStandby(String containerPostfix, Map<String, String> settings) throws PlatformAdapterOperationExecutionException {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         String volumeName = null, containerId = null;
@@ -727,8 +600,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             );
 
             if (!commandExecutionResult.isSuccess()) {
-                log.error("Error while creating backup. Message from CMD: {}", commandExecutionResult.getStderr());
-                return null;
+                throw new PlatformAdapterOperationExecutionException("Error while creating basebackup. Stderr: " + commandExecutionResult.getStderr());
             }
 
             log.info("Finished creating backup for standby.");
@@ -737,11 +609,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             return createVolumeResponse.getName();
 
-        } catch (Exception e) {
-            log.error("Error while creating volume with backup.", e);
+        } catch (PlatformAdapterOperationExecutionException e) {
             forceDeleteContainerSafe(containerId);
             deleteVolumeSafe(volumeName);
-            return null;
+            throw e;
+        } catch (Exception e) {
+            forceDeleteContainerSafe(containerId);
+            deleteVolumeSafe(volumeName);
+            throw new PlatformAdapterOperationExecutionException("Error while creating volume with backup.", e);
         }
     }
 
@@ -749,7 +624,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         return varName + "=" + value;
     }
 
-    private CreateContainerCmd getDefaultCreateContainerCmdRequest(String containerNamePostfix) {
+    private CreateContainerCmd getPostgresDefaultCreateContainerCmdRequest(String containerNamePostfix) {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         return dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
@@ -757,13 +632,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .withHostConfig(
                         HostConfig.newHostConfig()
                                 .withNetworkMode(dockerProperties.postgres().networkName())
-                )
-                .withEnv(
-                        List.of(
-                                createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().superuser().password()),
-                                createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().superuser().username()),
-                                createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
-                        )
                 )
                 //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
                 .withHealthcheck(

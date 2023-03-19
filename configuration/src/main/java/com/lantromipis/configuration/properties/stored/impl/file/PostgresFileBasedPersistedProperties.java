@@ -5,8 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.exception.ConfigurationInitializationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
-import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
-import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
+import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -17,8 +16,6 @@ import javax.inject.Inject;
 import java.io.File;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -35,7 +32,7 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     private ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
 
     // @formatter:off
-    private final static TypeReference<Map<UUID, PostgresPersistedNodeInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
+    private final static TypeReference<Map<UUID, PostgresPersistedInstanceInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
     private final static TypeReference<Map<String, String>> POSTGRES_SETTING_INFO_TYPE_REF = new TypeReference<>() {};
     // @formatter:on
 
@@ -49,7 +46,7 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     }
 
     @Override
-    public List<PostgresPersistedNodeInfo> getPostgresNodeInfos() throws PropertyReadException {
+    public List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException {
         try {
             postgresNodeInfoFileModificationLock.lock();
             if (postgresNodeInfoFile.length() > 0) {
@@ -65,7 +62,7 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     }
 
     @Override
-    public PostgresPersistedNodeInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException {
+    public PostgresPersistedInstanceInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException {
         return getPostgresNodeInfos()
                 .stream()
                 .filter(info -> Objects.equals(instanceId, info.getInstanceId()))
@@ -74,10 +71,10 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     }
 
     @Override
-    public void savePostgresNodeInfo(PostgresPersistedNodeInfo postgresPersistedNodeInfo) throws PropertyModificationException {
+    public void savePostgresNodeInfo(PostgresPersistedInstanceInfo postgresPersistedInstanceInfo) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
-            Map<UUID, PostgresPersistedNodeInfo> savedMap;
+            Map<UUID, PostgresPersistedInstanceInfo> savedMap;
 
             if (postgresNodeInfoFile.length() > 0) {
                 savedMap = objectMapper.readValue(postgresNodeInfoFile, POSTGRES_NODE_INFO_TYPE_REF);
@@ -85,7 +82,7 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
                 savedMap = new HashMap<>();
             }
 
-            savedMap.put(postgresPersistedNodeInfo.getInstanceId(), postgresPersistedNodeInfo);
+            savedMap.put(postgresPersistedInstanceInfo.getInstanceId(), postgresPersistedInstanceInfo);
             objectMapper.writeValue(postgresNodeInfoFile, savedMap);
         } catch (Exception e) {
             throw new PropertyModificationException("Error while saving nodes info to file", e);
@@ -95,10 +92,10 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     }
 
     @Override
-    public PostgresPersistedNodeInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
+    public PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
-            Map<UUID, PostgresPersistedNodeInfo> savedMap;
+            Map<UUID, PostgresPersistedInstanceInfo> savedMap;
 
             if (postgresNodeInfoFile.length() > 0) {
                 savedMap = objectMapper.readValue(postgresNodeInfoFile, POSTGRES_NODE_INFO_TYPE_REF);
@@ -106,7 +103,7 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
                 savedMap = new HashMap<>();
             }
 
-            PostgresPersistedNodeInfo ret = savedMap.remove(instanceId);
+            PostgresPersistedInstanceInfo ret = savedMap.remove(instanceId);
             if (ret != null) {
                 objectMapper.writeValue(postgresNodeInfoFile, savedMap);
             }
