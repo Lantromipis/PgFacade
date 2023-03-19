@@ -2,21 +2,20 @@ package com.lantromipis.configuration.properties.stored.api;
 
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
-import com.lantromipis.configuration.model.PostgresPersistedNodeInfo;
-import com.lantromipis.configuration.model.PostgresPersistedSettingInfo;
+import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 public interface PostgresPersistedProperties {
-    List<PostgresPersistedNodeInfo> getPostgresNodeInfos() throws PropertyReadException;
+    List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException;
 
-    PostgresPersistedNodeInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException;
+    PostgresPersistedInstanceInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException;
 
-    void savePostgresNodeInfo(PostgresPersistedNodeInfo postgresPersistedNodeInfo) throws PropertyModificationException;
+    void savePostgresNodeInfo(PostgresPersistedInstanceInfo postgresPersistedInstanceInfo) throws PropertyModificationException;
 
-    PostgresPersistedNodeInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
+    PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
 
     void clearPostgresNodesInfos() throws PropertyModificationException;
 

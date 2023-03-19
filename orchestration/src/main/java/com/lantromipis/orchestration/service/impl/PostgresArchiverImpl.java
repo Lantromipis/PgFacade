@@ -87,7 +87,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     private ConcurrentMap<String, FailedToUploadWalInfo> failedToUploadWal = new ConcurrentHashMap<>();
 
     @Override
-    public void initializeForStartupRecovery() {
+    public void initializeForRecovery() {
         archiverAdapter.get().initialize();
         archiverInStartupRecoveryMode = true;
     }
@@ -136,12 +136,12 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     }
 
     @Override
-    public boolean doesAnyBackupExist() {
-        return CollectionUtils.isNotEmpty(archiverAdapter.get().getBackupInstants());
+    public List<Instant> getBackupInstants() {
+        return archiverAdapter.get().getBackupInstants();
     }
 
     @Override
-    public UUID restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException {
+    public String restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException {
         boolean archiverWasReady = archiverReady;
         try {
             if (!archiverReady && !archiverInStartupRecoveryMode) {
@@ -164,7 +164,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                 throw new PostgresRestoreException("Can not recover! Can not find first WAL for backup in storage. Required WAL file name: " + baseBackupDownload.getFirstWalFile());
             }
 
-            UUID instanceId = platformAdapter.get().restorePrimaryFromBackup(
+            String instanceId = platformAdapter.get().restorePrimaryFromBackup(
                     baseBackupDownload.getInputStreamWithBackupTar(),
                     walFiles,
                     walFileName -> archiverAdapter.get().downloadWalFile(walFileName).getInputStream()

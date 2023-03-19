@@ -4,7 +4,6 @@ import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.NewPrimaryConfigurationException;
@@ -13,7 +12,9 @@ import com.lantromipis.orchestration.exception.PostgresConfigurationCheckExcepti
 import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
 import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.PgSettingsTableRow;
+import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
+import com.lantromipis.orchestration.util.ConfiguratorUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -45,6 +46,9 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
+    @Inject
+    ConfiguratorUtils configuratorUtils;
+
     @Override
     public void initialize() {
         try {
@@ -69,10 +73,14 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     @Override
-    public void configureNewlyCreatedPrimary() {
+    public void configureNewlyCreatedPrimary(PostgresCombinedInstanceInfo combinedInstanceInfo) {
         log.info("Executing required start-up SQL statements on new primary.");
         try {
-            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().superuser().database(), postgresProperties.users().superuser().username(), postgresProperties.users().superuser().password());
+            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(
+                    postgresProperties.users().superuser().database(),
+                    postgresProperties.users().superuser().username(),
+                    postgresProperties.users().superuser().password()
+            );
 
             PostgresProperties.UserProperties.UserCredentialsProperties pgFacadeUserProperties = postgresProperties.users().pgFacade();
 
@@ -89,14 +97,14 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             createDatabase(superuserConnectionInSuperDB, pgFacadeUserProperties.database(), pgFacadeUserProperties.username());
 
             // create custom PgFacade configuration file
-            replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB), new ArrayList<>());
+            replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB), new ArrayList<>());
 
             // include custom PgFacade configuration file to postgresql.conf
             String confLineWithInclude = "include_if_exists = '" + getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB) + "'";
             String postgresqlConfFilePath = getOriginalPostgresqlConfFilePath(superuserConnectionInSuperDB);
 
             platformAdapter.executeShellCommandForInstance(
-                    clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(),
+                    combinedInstanceInfo.getAdapter().getAdapterInstanceId(),
                     "echo \"" + confLineWithInclude + "\" >> " + postgresqlConfFilePath,
                     Collections.emptyList()
             );
@@ -126,7 +134,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             Connection pgfacadeUserConnection = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().pgFacade().database(), postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password());
 
             // update pg_hba.conf
-            replaceFileLines(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), platformAdapter.getRequiredHbaConfLines());
+            replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), configuratorUtils.getDefaultPgHbaConfFileLines());
 
             // apply new conf
             reloadConf(pgfacadeUserConnection);
@@ -195,22 +203,22 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     @Override
-    public boolean changePostgresSettings(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
+    public boolean changePostgresSettings(PostgresCombinedInstanceInfo combinedInstanceInfo, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
         if (MapUtils.isEmpty(newSettingNamesAndValuesMap)) {
             return false;
         }
 
         boolean restartRequired = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
 
-        log.info("Changing settings for instance {}. Restart will be required: {}", instanceId, restartRequired);
+        log.info("Changing settings for instance {}. Restart will be required: {}", combinedInstanceInfo.getPersisted().getInstanceId(), restartRequired);
 
-        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(instanceId)) {
+        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(combinedInstanceInfo.getPersisted().getInstanceId())) {
             Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
 
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
-            List<String> oldConfLines = getFileLines(instanceId, filePath);
+            List<String> oldConfLines = getFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath);
 
-            fastPostgresSettingsChange(instanceId, newSettingNamesAndValuesMap, false, connection);
+            fastPostgresSettingsChange(combinedInstanceInfo, newSettingNamesAndValuesMap, false, connection);
 
             ResultSet checkSettingResultSet = connection.createStatement().executeQuery("SELECT * FROM pg_file_settings WHERE error NOTNULL AND sourcefile = '" + filePath + "'");
 
@@ -235,7 +243,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             }
 
             if (CollectionUtils.isNotEmpty(errors)) {
-                replaceFileLines(instanceId, filePath, oldConfLines);
+                replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath, oldConfLines);
                 String errorString = String.join("; \n", errors);
                 throw new PostgresConfigurationChangeException("Error while applying parameters. " + errorString);
             }
@@ -252,18 +260,18 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     @Override
-    public boolean fastPostgresSettingsChange(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
+    public boolean fastPostgresSettingsChange(PostgresCombinedInstanceInfo combinedInstanceInfo, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
         try {
             boolean closeConnection = false;
 
             if (connection == null) {
                 closeConnection = true;
-                connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(instanceId);
+                connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(combinedInstanceInfo.getPersisted().getInstanceId());
             }
 
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
 
-            List<String> oldConfLines = getFileLines(instanceId, filePath);
+            List<String> oldConfLines = getFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath);
 
             Map<String, String> newConfSettingsMap = new HashMap<>();
             for (String settingLine : oldConfLines) {
@@ -281,7 +289,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
                 newConfLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
             }
 
-            replaceFileLines(instanceId, filePath, newConfLines);
+            replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath, newConfLines);
 
             if (reloadConf) {
                 reloadConf(connection);
@@ -313,9 +321,9 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
         connection.createStatement().execute("SELECT pg_reload_conf()");
     }
 
-    private List<String> getFileLines(UUID instanceId, String filePath) throws PostgresConfigurationReadException {
+    private List<String> getFileLines(String adapterIdentifier, String filePath) throws PostgresConfigurationReadException {
         AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = platformAdapter.executeShellCommandForInstance(
-                instanceId,
+                adapterIdentifier,
                 "cat " + filePath,
                 Collections.emptyList()
         );
@@ -331,9 +339,9 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
         return Arrays.asList(adapterShellCommandExecutionResult.getStdout().split("\n"));
     }
 
-    private void replaceFileLines(UUID instanceId, String filePath, List<String> newLines) throws PostgresConfigurationChangeException {
+    private void replaceFileLines(String adapterIdentifier, String filePath, List<String> newLines) throws PostgresConfigurationChangeException {
         AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = platformAdapter.executeShellCommandForInstance(
-                instanceId,
+                adapterIdentifier,
                 "echo \"" + String.join("\n", newLines) + "\" > " + filePath,
                 Collections.emptyList()
         );
