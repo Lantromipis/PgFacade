@@ -9,7 +9,7 @@ public class PostgresqlConfConstants {
     /**
      * How many connections PgFacade reserves for internal use.
      */
-    public static final int PG_FACADE_RESERVED_CONNECTIONS_COUNT = 98;
+    public static final int PG_FACADE_RESERVED_CONNECTIONS_COUNT = 3;
 
     private PostgresqlConfConstants() {
     }
