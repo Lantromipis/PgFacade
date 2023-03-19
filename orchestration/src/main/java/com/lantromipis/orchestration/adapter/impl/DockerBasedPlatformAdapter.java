@@ -221,7 +221,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .adapterInstanceId(adapterInstanceId)
                     .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
                     .instancePort(5432)
-                    .status(dockerMapper.toInstanceStatus(inspectResponse.getState().getStatus()))
+                    .isActive(DockerConstants.ContainerState.RUNNING.getValue().equals(inspectResponse.getState().getStatus()))
                     .health(dockerMapper.toInstanceHealth(inspectResponse))
                     .build();
 

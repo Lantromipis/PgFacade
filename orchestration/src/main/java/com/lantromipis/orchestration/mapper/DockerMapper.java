@@ -11,11 +11,6 @@ import java.util.Optional;
 
 @ApplicationScoped
 public class DockerMapper {
-    public InstanceStatus toInstanceStatus(String dockerContainerState) {
-        return DockerConstants.ContainerState.RUNNING.getValue().equals(dockerContainerState)
-                ? InstanceStatus.ACTIVE
-                : InstanceStatus.NOT_ACTIVE;
-    }
 
     public InstanceHealth toInstanceHealth(InspectContainerResponse inspectContainerResponse) {
         DockerConstants.ContainerHealth dockerHealth = Optional.of(inspectContainerResponse.getState())

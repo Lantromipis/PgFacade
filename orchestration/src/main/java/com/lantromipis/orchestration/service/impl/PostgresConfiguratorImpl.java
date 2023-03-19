@@ -76,7 +76,11 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     public void configureNewlyCreatedPrimary(PostgresCombinedInstanceInfo combinedInstanceInfo) {
         log.info("Executing required start-up SQL statements on new primary.");
         try {
-            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().superuser().database(), postgresProperties.users().superuser().username(), postgresProperties.users().superuser().password());
+            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(
+                    postgresProperties.users().superuser().database(),
+                    postgresProperties.users().superuser().username(),
+                    postgresProperties.users().superuser().password()
+            );
 
             PostgresProperties.UserProperties.UserCredentialsProperties pgFacadeUserProperties = postgresProperties.users().pgFacade();
 

@@ -65,6 +65,10 @@ public class OrchestratorUtils {
     public PostgresCombinedInstanceInfo getCombinedInstanceInfo(UUID instanceId) {
         PostgresPersistedInstanceInfo persistedInstanceInf = postgresPersistedProperties.getPostgresNodeInfo(instanceId);
 
+        if (persistedInstanceInf == null) {
+            return null;
+        }
+
         return PostgresCombinedInstanceInfo
                 .builder()
                 .adapter(platformAdapter.get().getInstanceInfo(persistedInstanceInf.getAdapterIdentifier()))
