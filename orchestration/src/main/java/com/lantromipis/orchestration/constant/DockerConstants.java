@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 import java.util.Arrays;
 
 public class DockerConstants {
-
+    public static final String DOCKER_ENV_VAR_HOSTNAME = "HOSTNAME";
     public static final String POSTGRES_ENV_VAR_USERNAME = "POSTGRES_USER";
     public static final String POSTGRES_ENV_VAR_PASSWORD = "POSTGRES_PASSWORD";
     public static final String POSTGRES_ENV_VAR_DB = "POSTGRES_DB";

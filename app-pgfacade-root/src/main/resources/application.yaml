@@ -45,6 +45,7 @@ pg-facade:
       helper-object-name: "pg-facade-temp"
       pg-facade:
         local-files-directory: "/var/run/pgfacade"
+        network-name: pg-facade-internal-network
       postgres:
         image-tag: "postgres:latest"
         image-pg-data: "/var/lib/postgresql/data"
@@ -105,7 +106,7 @@ quarkus:
   log:
     level: INFO
     console:
-      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] - %s%e%n"
+      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] [%-8.8X{raftRole}] [%-32.32t] - %s%e%n"
     category:
       "com.lantromipis.proxy":
         level: INFO
@@ -114,7 +115,9 @@ quarkus:
       "com.lantromipis.connectionpool" :
         level: INFO
       "org.apache.hc" :
-        level: ERROR
+        level: WARN
+      "org.apache.ratis":
+        level: INFO
   banner:
     enabled: true
     path: banner

@@ -17,6 +17,8 @@ RUN useradd --create-home --shell /bin/bash pgfacade
 RUN ["mkdir", "/var/run/pgfacade"]
 RUN ["chown", "pgfacade", "/var/run/pgfacade"]
 
+VOLUME /var/run/pgfacade
+
 # We make four distinct layers so if there are application changes the library layers can be re-used
 COPY --chown=pgfacade target/quarkus-app/lib/ /deployments/lib/
 COPY --chown=pgfacade target/quarkus-app/*.jar /deployments/

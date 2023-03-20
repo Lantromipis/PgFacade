@@ -1,10 +1,12 @@
 package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.event.*;
+import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
@@ -17,7 +19,6 @@ import com.lantromipis.orchestration.util.PostgresUtils;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
-import org.checkerframework.checker.units.qual.A;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -76,6 +77,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     OrchestratorUtils orchestratorUtils;
 
+    @Inject
+    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
+
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
@@ -85,36 +89,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
 
     @Override
-    public boolean initialize() {
-        if (OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
-            log.info("No orchestrator adapter is configured. PgFacade will work like proxy + connection pool without any HA features for Postgres. Consider choosing another adapter if you need HA features.");
-            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(
-                    PostgresCombinedInstanceInfo
-                            .builder()
-                            .persisted(PostgresPersistedInstanceInfo
-                                    .builder()
-                                    .instanceId(UUID.randomUUID())
-                                    .primary(true)
-                                    .build()
-                            )
-                            .adapter(
-                                    PostgresAdapterInstanceInfo
-                                            .builder()
-                                            .isActive(true)
-                                            .instancePort(orchestrationProperties.noAdapter().primaryPort())
-                                            .instanceAddress(orchestrationProperties.noAdapter().primaryHost())
-                                            .build()
-                            )
-                            .build()
-            );
-
-            // to set runtime properties
+    public void initialize() throws InitializationException {
+        if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+            log.info("Not starting Postgres orchestrator because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
-
-            return true;
+            return;
         }
-
-        platformAdapter.get().initialize();
 
         boolean primaryStarted = false;
 
@@ -158,7 +138,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         if (primaryPersistedInstanceInfo == null || !primaryStarted) {
-            if (orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
+            if (archivingProperties.enabled() && orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
                 primaryInstanceInfo = restoreClusterFromBackup(true);
             } else {
                 log.error("No known Postgres primary found but restore from backup is not allowed!");
@@ -171,8 +151,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 postgresConfigurator.configureNewlyCreatedPrimary(primaryInstanceInfo);
 
             } else {
-                log.error("Orchestrator failed to start because there is no active Postgres primary and all attempts to create new one failed. Restore primary manually and restart PgFacade in 'RECOVERY' mode!");
-                return false;
+                throw new InitializationException("Orchestrator failed to start because there is no active Postgres primary and all attempts to create new one failed. Restore primary manually and restart PgFacade in 'RECOVERY' mode!");
             }
         }
 
@@ -213,17 +192,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         validateDefaultSettingsPresence();
 
-        if (archivingProperties.enabled()) {
-            postgresArchiver.initialize();
-        } else {
-            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
-        }
-
         log.info("Orchestrator initialization completed!");
 
         orchestratorReady.set(true);
-
-        return true;
     }
 
     @Override
@@ -376,7 +347,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
     private PostgresCombinedInstanceInfo restoreClusterFromBackup(boolean initializeArchiver) {
         if (initializeArchiver) {
-            postgresArchiver.initializeForRecovery();
+            postgresArchiver.initialize();
         }
 
         log.info("Started restoring cluster from backup.");

@@ -73,6 +73,8 @@ public interface OrchestrationProperties {
 
         interface PgFacadeProperties {
             String localFilesDirectory();
+
+            String networkName();
         }
 
         interface PostgresProperties {

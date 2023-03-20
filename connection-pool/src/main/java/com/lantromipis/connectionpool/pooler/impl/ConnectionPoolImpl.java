@@ -96,9 +96,19 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     private PooledConnectionWrapper getConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage) {
+        if (!poolActive.get()) {
+            return null;
+        }
+
         if (switchoverLatch.getCount() != 0) {
             try {
-                switchoverLatch.await();
+                if (!switchoverLatch.await(15, TimeUnit.SECONDS)) {
+                    return null;
+                }
+
+                if (!poolActive.get()) {
+                    return null;
+                }
             } catch (InterruptedException interruptedException) {
                 log.error("Connection pool can not give connection to primary. Error while waiting for switchover to complete.", interruptedException);
                 Thread.currentThread().interrupt();
@@ -255,7 +265,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
         primaryConnectionsStorage.removeAllConnections().forEach(HandlerUtils::closeOnFlush);
         switchoverLatch.countDown();
-        poolActive.set(true);
+        poolActive.set(switchoverCompletedEvent.isSuccess());
     }
 
     private PooledConnectionWrapper wrapPooledConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo, PostgresInstancePooledConnectionsStorage storage) {

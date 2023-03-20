@@ -2,10 +2,12 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
@@ -37,7 +39,6 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -74,12 +75,16 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
-    private boolean archiverReady = false;
-    private boolean archiverInStartupRecoveryMode = false;
+    @Inject
+    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
+
+    private boolean archiverActiveAndIsLeader = false;
+    private boolean archiverInitialized = false;
 
     private AtomicBoolean backupModificationInProgress = new AtomicBoolean(false);
     private AtomicBoolean streamingCheckInProgress = new AtomicBoolean(false);
     private AtomicBoolean uploadFailedWalInProgress = new AtomicBoolean(false);
+    private AtomicBoolean clusterRestoreInProgress = new AtomicBoolean(false);
 
     private ArchiverWalStreamingState archiverWalStreamingState = new ArchiverWalStreamingState();
     private CountDownLatch switchoverLatch = null;
@@ -87,18 +92,29 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     private ConcurrentMap<String, FailedToUploadWalInfo> failedToUploadWal = new ConcurrentHashMap<>();
 
     @Override
-    public void initializeForRecovery() {
-        archiverAdapter.get().initialize();
-        archiverInStartupRecoveryMode = true;
+    public void initialize() {
+        archiverAdapter.get().initializeAndValidate();
+        archiverInitialized = true;
     }
 
     @Override
-    public void initialize() {
+    public void startArchiving() {
+        if (archivingProperties.enabled()) {
+            log.info("Archiving is disabled. Consider enabling it to perform continuous archiving and Point-in-Time recover.");
+            return;
+        }
+
         log.info("Initializing archiver.");
 
-        archiverInStartupRecoveryMode = false;
+        if (!archiverInitialized) {
+            archiverAdapter.get().initializeAndValidate();
+        }
 
-        archiverAdapter.get().initialize();
+        if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+            log.info("Not starting archiving because this PgFacade instance is not current raft leader.");
+            archiverActiveAndIsLeader = false;
+            return;
+        }
 
         File walDir = new File(filesPathsProducer.getPostgresWalStreamUploaderDirectoryPath());
 
@@ -128,27 +144,28 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         startWalArchiving();
 
-        archiverReady = true;
-
-        checkBackupsState();
+        archiverActiveAndIsLeader = true;
 
         log.info("Archiver initialization completed.");
     }
 
     @Override
     public List<Instant> getBackupInstants() {
+        //TODO initialize
         return archiverAdapter.get().getBackupInstants();
     }
 
     @Override
     public String restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException {
-        boolean archiverWasReady = archiverReady;
         try {
-            if (!archiverReady && !archiverInStartupRecoveryMode) {
+            if (!clusterRestoreInProgress.compareAndSet(false, true)) {
+                throw new PostgresRestoreException("Cluster restore already in progress.");
+            }
+
+            if (!archiverActiveAndIsLeader && !archiverInitialized) {
                 throw new PostgresRestoreException("Archiver not initialized or is disabled by configuration. Can not restore Postgres from backup.");
             }
 
-            archiverReady = false;
             stopWalArchiving();
 
             List<Instant> instants = archiverAdapter.get().getBackupInstants();
@@ -178,9 +195,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         } catch (Exception e) {
             throw new PostgresRestoreException("Unexpected error during restoring Postgres from backup", e);
         } finally {
-            if (archiverWasReady) {
-                archiverReady = true;
-            }
+            clusterRestoreInProgress.set(false);
         }
     }
 
@@ -216,7 +231,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Scheduled(every = "${pg-facade.archiving.basebackup.list-backups-interval}")
     public void checkBackupsState() {
-        if (archiverReady && backupModificationInProgress.compareAndSet(false, true)) {
+        if (archiverActiveAndIsLeader && backupModificationInProgress.compareAndSet(false, true)) {
             try {
                 List<Instant> backups = archiverAdapter.get().getBackupInstants();
 
@@ -256,7 +271,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Scheduled(every = "${pg-facade.archiving.wal-streaming.retry-upload-wal-files-interval}")
     public void retryUploadFailedWalFiles() {
-        if (archiverReady && uploadFailedWalInProgress.compareAndSet(false, true)) {
+        if (archiverActiveAndIsLeader && uploadFailedWalInProgress.compareAndSet(false, true)) {
             try {
                 failedToUploadWal.values()
                         .forEach(failedWalFileInfo ->
@@ -270,7 +285,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Scheduled(every = "${pg-facade.archiving.wal-streaming.fault-tolerance.streaming-active-check-interval}")
     public void checkWalStreamingActive() {
-        if (archiverReady && streamingCheckInProgress.compareAndSet(false, true)) {
+        if (archiverActiveAndIsLeader && streamingCheckInProgress.compareAndSet(false, true)) {
             try {
                 if (archiverWalStreamingState.getWatchServiceActive().get() && archiverWalStreamingState.getProcessActive().get()) {
                     archiverWalStreamingState.getUnsuccessfulRetries().set(0);

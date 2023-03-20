@@ -32,6 +32,7 @@
         <lombok.version>1.18.24</lombok.version>
         <apache.commons.long3.version>3.12.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
+        <apache.ratis.version>2.4.1</apache.ratis.version>
         <commons-io.version>2.11.0</commons-io.version>
         <netty.version>4.1.84.Final</netty.version>
         <postgresql.driver.version>42.5.0</postgresql.driver.version>
@@ -102,6 +103,17 @@
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-s3</artifactId>
                 <version>${aws.sdk.s3.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-server</artifactId>
+                <version>${apache.ratis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-netty</artifactId>
+                <version>${apache.ratis.version}</version>
             </dependency>
 
         </dependencies>

@@ -23,6 +23,7 @@ public class FilesPathsProducer {
         try {
             Files.createDirectories(Paths.get(getPersistedPropertiesDirPath()));
             Files.createDirectories(Paths.get(getPostgresWalStreamReceiverDirectoryPath()));
+            Files.createDirectories(Paths.get(getRaftDirPath()));
         } catch (IOException e) {
             log.error("Error while creating directories for PgFacade local files", e);
         }
@@ -36,6 +37,9 @@ public class FilesPathsProducer {
         return orchestrationProperties.docker().pgFacade().localFilesDirectory() + "/" + PgFacadeConstants.PG_FACADE_PERSISTED_PROPERTIES_DIR;
     }
 
+    public String getRaftDirPath() {
+        return orchestrationProperties.docker().pgFacade().localFilesDirectory() + "/" + PgFacadeConstants.PG_FACADE_RAFT_DIR;
+    }
 
     public String getPostgresWalStreamReceiverDirectoryPath() {
         return getLocalFilesDirPath()

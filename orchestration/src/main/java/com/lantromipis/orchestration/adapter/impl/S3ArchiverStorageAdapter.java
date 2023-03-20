@@ -12,7 +12,7 @@ import com.amazonaws.services.s3.model.*;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
-import com.lantromipis.orchestration.exception.AdapterInitializationException;
+import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.DownloadException;
 import com.lantromipis.orchestration.exception.UploadException;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
@@ -50,7 +50,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
     private AmazonS3 s3Client;
 
     @Override
-    public void initialize() {
+    public void initializeAndValidate() throws InitializationException {
         log.info("Initializing S3 archiving adapter.");
 
         ArchivingProperties.S3ArchiverProperties s3ArchiverProperties = archivingProperties.s3();
@@ -97,15 +97,15 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 }
             }
         } catch (Exception e) {
-            throw new AdapterInitializationException("Failed to check buckets in S3! Have you configured s3 properly?");
+            throw new InitializationException("Failed to check buckets in S3! Have you configured s3 properly?");
         }
 
         if (!walBucketExist) {
-            throw new AdapterInitializationException("Bucket for WAL not found, but archiving is enabled! Create this bucket or/and change configuration!");
+            throw new InitializationException("Bucket for WAL not found, but archiving is enabled! Create this bucket or/and change configuration!");
         }
 
         if (!backupsBucketExist) {
-            throw new AdapterInitializationException("Bucket for backups not found, but archiving is enabled! Create this bucket or/and change configuration!");
+            throw new InitializationException("Bucket for backups not found, but archiving is enabled! Create this bucket or/and change configuration!");
         }
 
         log.info("S3 archiving adapter initialization completed!");
