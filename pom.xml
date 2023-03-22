@@ -110,9 +110,14 @@
                 <artifactId>ratis-server</artifactId>
                 <version>${apache.ratis.version}</version>
             </dependency>
-            <dependency>
+<!--            <dependency>
                 <groupId>org.apache.ratis</groupId>
                 <artifactId>ratis-netty</artifactId>
+                <version>${apache.ratis.version}</version>
+            </dependency>-->
+            <dependency>
+                <groupId>org.apache.ratis</groupId>
+                <artifactId>ratis-grpc</artifactId>
                 <version>${apache.ratis.version}</version>
             </dependency>
 

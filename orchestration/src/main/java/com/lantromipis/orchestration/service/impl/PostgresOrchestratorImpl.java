@@ -178,7 +178,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     }
                 } catch (Exception e) {
                     log.error("Error while starting standby. It will be removed.");
-                    platformAdapter.get().deletePostgresInstance(standbyInfo.getAdapter().getAdapterInstanceId());
+                    platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
                     postgresPersistedProperties.deletePostgresNodeInfo(standbyInfo.getPersisted().getInstanceId());
                 }
             }
@@ -298,7 +298,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 } catch (Exception e) {
                     // most likely we faced config parameter issue, so primary can not start.
                     // Because of that, there is no ability to revert settings (for non-running instance), so instance must be deleted
-                    platformAdapter.get().deletePostgresInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                    platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
                     log.error("CLUSTER FAILED TO RESTART. WILL TRY TO RECOVER.");
                     switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, false));
                     throw e;
@@ -358,7 +358,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             try {
                 log.info("Restoring primary from backup. This will take some time...");
                 try {
-                    postgresPersistedProperties.getPostgresNodeInfos().forEach(info -> platformAdapter.get().deletePostgresInstance(info.getAdapterIdentifier()));
+                    postgresPersistedProperties.getPostgresNodeInfos().forEach(info -> platformAdapter.get().deleteInstance(info.getAdapterIdentifier()));
                 } catch (Exception ignored) {
                 }
 
@@ -558,7 +558,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             );
 
             for (int i = 0; i < Math.abs(countDiff); i++) {
-                platformAdapter.get().deletePostgresInstance(healthyOrStartingStandby.get(i).getAdapter().getAdapterInstanceId());
+                platformAdapter.get().deleteInstance(healthyOrStartingStandby.get(i).getAdapter().getAdapterInstanceId());
             }
         }
 
@@ -588,7 +588,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(standbyInstanceInfo.getPersisted().getInstanceId());
         postgresPersistedProperties.deletePostgresNodeInfo(standbyInstanceInfo.getPersisted().getInstanceId());
-        platformAdapter.get().deletePostgresInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
+        platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
     }
 
     private synchronized boolean switchover(PostgresCombinedInstanceInfo newPrimaryInstanceInfo, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
@@ -622,7 +622,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             postgresPersistedProperties.savePostgresNodeInfo(newPrimaryInstanceInfo.getPersisted());
             orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(newPrimaryInstanceInfo);
 
-            platformAdapter.get().deletePostgresInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
+            platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
             postgresPersistedProperties.deletePostgresNodeInfo(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
 
             //remove all standby because of new timeline
@@ -664,7 +664,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             log.error("Error while restarting standby! ", e);
             restartingStandbyInstanceIds.remove(instanceId);
             postgresPersistedProperties.deletePostgresNodeInfo(instanceId);
-            platformAdapter.get().deletePostgresInstance(standbyInfo.getAdapter().getAdapterInstanceId());
+            platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
         }
     }
 

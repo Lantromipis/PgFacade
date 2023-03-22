@@ -46,6 +46,8 @@ pg-facade:
       pg-facade:
         local-files-directory: "/var/run/pgfacade"
         network-name: pg-facade-internal-network
+        container-name: pg-facade-node
+        expected-docker-sock-file-name: docker.sock
       postgres:
         image-tag: "postgres:latest"
         image-pg-data: "/var/lib/postgresql/data"
@@ -78,8 +80,8 @@ pg-facade:
     s3:
       protocol: http
       endpoint: http://minio:9000
-      access-key: 0d9JNXROXxMwab4Y
-      secret-key: 8vE6Ih1SyoVaz8NL6BKFjX6yRkXpknQ9
+      access-key: Rre6lc6yiubAgi9H
+      secret-key: EEmKeAC4ocIX2qOp2cvxNO3bnOsRN121
       region: eu-central-1
       multipart-upload-part-size-mb: 5
       backups-bucket: pgfacade
@@ -106,7 +108,8 @@ quarkus:
   log:
     level: INFO
     console:
-      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] [%-8.8X{raftRole}] [%-32.32t] - %s%e%n"
+      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] [%-8.8X{raftRole}] - %s%e%n"
+      filter: custom-filter
     category:
       "com.lantromipis.proxy":
         level: INFO
@@ -117,7 +120,7 @@ quarkus:
       "org.apache.hc" :
         level: WARN
       "org.apache.ratis":
-        level: INFO
+        level: ERROR
   banner:
     enabled: true
     path: banner

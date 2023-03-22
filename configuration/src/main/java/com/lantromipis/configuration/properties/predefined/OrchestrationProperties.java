@@ -75,6 +75,10 @@ public interface OrchestrationProperties {
             String localFilesDirectory();
 
             String networkName();
+
+            String containerName();
+
+            String expectedDockerSockFileName();
         }
 
         interface PostgresProperties {

@@ -39,6 +39,7 @@ import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -104,7 +105,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             // validate PgFacade network exist
             try {
-                // TODO raft enabled?
                 dockerClient.inspectNetworkCmd()
                         .withNetworkId(orchestrationProperties.docker().pgFacade().networkName())
                         .exec();
@@ -259,7 +259,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public boolean deletePostgresInstance(String adapterInstanceId) {
+    public boolean deleteInstance(String adapterInstanceId) {
         if (adapterInstanceId == null) {
             return true;
         }
@@ -569,7 +569,8 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             return pgFacadeInternalNetwork.getContainers()
                     .entrySet()
                     .stream()
-                    .map(this::containerConfigEntryToPgFacadeRaftNodeInfo)
+                    .map(configEntry -> dockerClient.inspectContainerCmd(configEntry.getKey()).exec())
+                    .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
                     .collect(Collectors.toList());
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Failed to get Raft nodes info. ", e);
@@ -579,6 +580,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     @Override
     public PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException {
         String hostname = System.getenv(DockerConstants.DOCKER_ENV_VAR_HOSTNAME);
+
+        if (hostname == null) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
+        }
 
         Network pgFacadeInternalNetwork;
         try {
@@ -594,19 +599,67 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .stream()
                 .filter(configEntry -> configEntry.getKey().contains(hostname))
                 .findFirst()
-                .map(this::containerConfigEntryToPgFacadeRaftNodeInfo)
-                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly? This env var must contain Docker container ID start symbols."));
+                .map(configEntry -> dockerClient.inspectContainerCmd(configEntry.getKey()).exec())
+                .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
+                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain Docker container ID start symbols."));
     }
 
-    private PgFacadeRaftNodeInfo containerConfigEntryToPgFacadeRaftNodeInfo(Map.Entry<String, Network.ContainerNetworkConfig> configEntry) {
+    @Override
+    public PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException {
+        PgFacadeRaftNodeInfo self = getSelfRaftNodeInfo();
+        InspectContainerResponse inspectSelfResponse = dockerClient.inspectContainerCmd(self.getPlatformAdapterIdentifier()).exec();
+
+        UUID instanceId = UUID.randomUUID();
+
+        CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(inspectSelfResponse.getImageId())
+                .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().pgFacade().containerName(), instanceId.toString()));
+
+        if (inspectSelfResponse.getHostConfig().getBinds() != null) {
+            for (var bind : inspectSelfResponse.getHostConfig().getBinds()) {
+                if (bind.getVolume().getPath().contains(orchestrationProperties.docker().pgFacade().expectedDockerSockFileName())) {
+                    createContainerCmd.withHostConfig(
+                            HostConfig.newHostConfig()
+                                    .withBinds(
+                                            new Bind(
+                                                    bind.getPath(),
+                                                    new Volume(bind.getVolume().getPath())
+                                            )
+                                    )
+                    );
+                    break;
+                }
+            }
+        }
+
+        CreateContainerResponse createContainerResponse = createContainerCmd.exec();
+
+        for (var selfNetwork : inspectSelfResponse.getNetworkSettings().getNetworks().keySet()) {
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(createContainerResponse.getId())
+                    .withNetworkId(selfNetwork)
+                    .exec();
+        }
+
+        dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
+        InspectContainerResponse inspectNewContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();
+
+        return inspectContainerResponseToPgFacadeRaftNodeInfo(inspectNewContainerResponse);
+    }
+
+    private PgFacadeRaftNodeInfo inspectContainerResponseToPgFacadeRaftNodeInfo(InspectContainerResponse inspectContainerResponse) {
         return PgFacadeRaftNodeInfo
                 .builder()
-                .platformAdapterIdentifier(configEntry.getKey())
-                .address(configEntry.getValue().getIpv4Address())
+                .platformAdapterIdentifier(inspectContainerResponse.getId())
+                .address(
+                        inspectContainerResponse.getNetworkSettings()
+                                .getNetworks()
+                                .get(orchestrationProperties.docker().pgFacade().networkName())
+                                .getIpAddress()
+                )
+                .createdWhen(Instant.parse(inspectContainerResponse.getCreated()))
                 .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
                 .build();
     }
-
 
     private void forceDeleteContainerSafe(String containerId) {
         if (containerId != null) {

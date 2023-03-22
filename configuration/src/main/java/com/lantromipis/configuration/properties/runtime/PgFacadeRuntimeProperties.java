@@ -11,4 +11,5 @@ import javax.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class PgFacadeRuntimeProperties {
     private PgFacadeRaftRole raftRole;
+    private boolean raftServerUp = false;
 }

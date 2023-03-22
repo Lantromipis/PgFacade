@@ -78,12 +78,12 @@ public interface PlatformAdapter {
     PostgresAdapterInstanceInfo getInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
 
     /**
-     * Delete Postgres instance
+     * Delete Postgres or PgFacade instance
      *
-     * @param adapterInstanceId adapter identifier of existing Postgres instance
-     * @return true if successfully deleted Postgres instance or if it is already deleted. False if failed to delete.
+     * @param adapterInstanceId adapter identifier of existing Postgres or PgFacade instance
+     * @return true if successfully deleted instance or if it is already deleted. False if failed to delete.
      */
-    boolean deletePostgresInstance(String adapterInstanceId);
+    boolean deleteInstance(String adapterInstanceId);
 
     /**
      * Executes shell command for Postgres instance
@@ -120,4 +120,12 @@ public interface PlatformAdapter {
     List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException;
 
     PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException;
+
+    /**
+     * Create and start new PgFacade instance.
+     *
+     * @return object containing raft node info for new instance
+     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
+     */
+    PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException;
 }

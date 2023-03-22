@@ -10,15 +10,13 @@ services:
       - pg-facade-internal-network
       - minio-network
     ports:
-      - "5005-5006:5005"
-      - "8080-8081:8080"
-      - "5433-5434:5433"
+      - "5005:5005"
+      - "8080:8080"
+      - "5433:5433"
     volumes:
       - /var/run/docker.sock:/var/run/pgfacade/docker.sock
     environment:
       - pg-facade.archiving.s3.endpoint=http://minio:9000
-    deploy:
-      replicas: 2
 
   minio:
     image: minio/minio
