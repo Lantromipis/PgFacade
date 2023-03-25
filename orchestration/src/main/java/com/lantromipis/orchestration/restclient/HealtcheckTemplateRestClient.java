@@ -17,4 +17,8 @@ public interface HealtcheckTemplateRestClient extends Closeable {
     @GET
     @Path("/q/health/live")
     HealtcheckResponseDto checkLiveliness();
+
+    @GET
+    @Path("/q/health/ready")
+    HealtcheckResponseDto checkReadiness();
 }

@@ -70,21 +70,15 @@
         </dependency>
 
         <dependency>
-            <groupId>org.apache.ratis</groupId>
-            <artifactId>ratis-server</artifactId>
-        </dependency>
-<!--        <dependency>
-            <groupId>org.apache.ratis</groupId>
-            <artifactId>ratis-netty</artifactId>
-        </dependency>-->
-        <dependency>
-            <groupId>org.apache.ratis</groupId>
-            <artifactId>ratis-grpc</artifactId>
+            <groupId>com.lantromipis</groupId>
+            <artifactId>configuration</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>compile</scope>
         </dependency>
 
         <dependency>
             <groupId>com.lantromipis</groupId>
-            <artifactId>configuration</artifactId>
+            <artifactId>pgfacade-protocol</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>

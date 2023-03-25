@@ -117,10 +117,12 @@ quarkus:
         level: INFO
       "com.lantromipis.connectionpool" :
         level: INFO
+      "com.lantromipis.pgfacadeprotocol":
+        level: DEBUG
       "org.apache.hc" :
         level: WARN
       "org.apache.ratis":
-        level: ERROR
+        level: INFO
   banner:
     enabled: true
     path: banner

@@ -7,17 +7,11 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 
-/**
- * pg_shadow table row model
- * <p>
- * <a href="https://www.postgresql.org/docs/current/view-pg-shadow.html">...</a>
- */
-
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgShadowTableRow {
+public class UserAuthInfo {
     private String username;
     private String passwd;
     private LocalDate valUntil;
