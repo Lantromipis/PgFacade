@@ -29,6 +29,9 @@ public class MessageEncoderUtils {
             case APPEND_REQUEST_MESSAGE_MARKER -> {
                 encodeAppendRequestMessage((AppendRequest) abstractMessage, target);
             }
+            case APPEND_RESPONSE_MESSAGE_MARKER -> {
+                encodeAppendResponseMessage((AppendResponse) abstractMessage, target);
+            }
             default -> {
                 encodeUnknownMessage(target);
             }

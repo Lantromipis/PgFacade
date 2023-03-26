@@ -7,7 +7,6 @@ import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftNodeCallbackInfo;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
-import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerOperationsLog;
 import com.lantromipis.pgfacadeprotocol.utils.RaftUtils;
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,6 +32,7 @@ public class RaftElectionProcessor {
     public synchronized VoteResponse vote(VoteRequest voteRequest) {
         // Reply false if term < currentTerm (§5.1)
         if (voteRequest.getTerm() < context.getCurrentTerm().get()) {
+            log.debug("Replying FALSE to VOTE REQUEST from node {} because term in request is less than current.", voteRequest.getNodeId());
             return VoteResponse
                     .builder()
                     .groupId(context.getRaftGroupId())
@@ -54,14 +54,14 @@ public class RaftElectionProcessor {
             processTermGreaterThanCurrent(voteRequest.getTerm());
         }
 
-        RaftServerOperationsLog operationsLog = context.getRaftServerOperationsLog();
+        RaftServerOperationsLog operationsLog = context.getOperationLog();
 
         boolean logAgreed = !(
                 (
-                        operationsLog.getLastTerm().get() > voteRequest.getLastLogTerm()
+                        operationsLog.getLastTerm() > voteRequest.getLastLogTerm()
                 )
                         || (
-                        operationsLog.getLastTerm().get() == voteRequest.getLastLogTerm()
+                        operationsLog.getLastTerm() == voteRequest.getLastLogTerm()
                                 && operationsLog.getLastIndex().get() > voteRequest.getLastLogIndex()
                 )
         );
@@ -69,7 +69,10 @@ public class RaftElectionProcessor {
         boolean voteGranted = termAgreed && logAgreed;
 
         if (voteGranted) {
+            log.debug("Granted vote for node {}", voteRequest.getNodeId());
             context.setVotedForNodeId(voteRequest.getNodeId());
+        } else {
+            log.debug("Not granting vote for node {}. Term agreed: {}, Log agreed: {}", voteRequest.getNodeId(), termAgreed, logAgreed);
         }
 
         return VoteResponse
@@ -121,8 +124,8 @@ public class RaftElectionProcessor {
                     .groupId(context.getRaftGroupId())
                     .nodeId(context.getSelfNodeId())
                     .term(context.getCurrentTerm().get())
-                    .lastLogTerm(context.getRaftServerOperationsLog().getLastTerm().get())
-                    .lastLogIndex(context.getRaftServerOperationsLog().getLastIndex().get())
+                    .lastLogTerm(context.getOperationLog().getLastTerm())
+                    .lastLogIndex(context.getOperationLog().getLastIndex().get())
                     .round(round)
                     .build();
 
@@ -172,9 +175,8 @@ public class RaftElectionProcessor {
                     context.setSelfRole(RaftRole.LEADER);
                     context.getRaftPeers().values()
                             .forEach(wrapper -> wrapper.getNextIndex().set(
-                                            context.getRaftServerOperationsLog().getLastIndex().get() + 1
+                                            context.getOperationLog().getLastIndex().get() + 1
                                     )
-                                    //TODO
                             );
                     return;
                 } else if (revokeVotes >= quorum) {
@@ -182,7 +184,7 @@ public class RaftElectionProcessor {
                     context.setSelfRole(RaftRole.FOLLOWER);
                     return;
                 }
-                log.debug("Quorum NOT reached! Restarting election...");
+                log.warn("Quorum NOT reached! Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...");
             }
         }
     }

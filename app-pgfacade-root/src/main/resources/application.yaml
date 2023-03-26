@@ -118,7 +118,7 @@ quarkus:
       "com.lantromipis.connectionpool" :
         level: INFO
       "com.lantromipis.pgfacadeprotocol":
-        level: DEBUG
+        level: INFO
       "org.apache.hc" :
         level: WARN
       "org.apache.ratis":
@@ -146,6 +146,9 @@ quarkus:
           level: DEBUG
         "org.apache.hc":
           level: ERROR
+        "com.lantromipis.pgfacadeprotocol":
+          min-level: TRACE
+          level: DEBUG
     devservices:
       enabled: false
     test:

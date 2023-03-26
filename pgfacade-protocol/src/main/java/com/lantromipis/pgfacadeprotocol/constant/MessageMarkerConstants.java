@@ -13,29 +13,6 @@ public class MessageMarkerConstants {
     public static final byte APPEND_REQUEST_MESSAGE_MARKER = 'E';
     public static final byte APPEND_RESPONSE_MESSAGE_MARKER = 'F';
 
-    public static Class<? extends AbstractMessage> getMessageClassByMarker(byte marker) {
-        switch (marker) {
-            case APPEND_REQUEST_MESSAGE_MARKER -> {
-                return AppendRequest.class;
-            }
-            case HELLO_REQUEST_MESSAGE_MARKER -> {
-                return HelloRequest.class;
-            }
-            case HELLO_RESPONSE_MESSAGE_MARKER -> {
-                return HelloResponse.class;
-            }
-            case VOTE_REQUEST_MESSAGE_MARKER -> {
-                return VoteRequest.class;
-            }
-            case VOTE_RESPONSE_MESSAGE_MARKER -> {
-                return VoteResponse.class;
-            }
-            default -> {
-                return UnknownMessage.class;
-            }
-        }
-    }
-
     public MessageMarkerConstants() {
     }
 }

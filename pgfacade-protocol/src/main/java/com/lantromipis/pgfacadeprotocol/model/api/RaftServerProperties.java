@@ -8,8 +8,8 @@ import lombok.*;
 @AllArgsConstructor
 public class RaftServerProperties {
     private int port = 31000;
-    private int startupLeaderHeartbeatAwait = 1000;
-    private int voteTimeout = 1000;
-    private int heartbeatTimeout = 500;
+    private int startupLeaderHeartbeatAwait = 2000;
+    private int voteTimeout = 2000;
+    private int heartbeatTimeout = 100;
     private int aquireConnectionTimeout = 100;
 }

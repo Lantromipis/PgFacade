@@ -5,6 +5,7 @@ import com.lantromipis.pgfacadeprotocol.utils.MessageEncoderUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
+import lombok.extern.slf4j.Slf4j;
 
 public class RaftMessageEncoder extends MessageToByteEncoder<AbstractMessage> {
     @Override

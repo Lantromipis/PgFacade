@@ -17,13 +17,11 @@ import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftServer;
+import com.lantromipis.pgfacadeprotocol.server.api.RaftStateMachine;
 import com.lantromipis.pgfacadeprotocol.server.impl.RaftServerImpl;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.ratis.protocol.*;
-import org.apache.ratis.rpc.CallId;
-import org.checkerframework.checker.units.qual.N;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -32,6 +30,7 @@ import javax.inject.Inject;
 import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -52,6 +51,9 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
 
     @Inject
     RaftEventListener raftEventListener;
+
+    @Inject
+    RaftStateMachine raftStateMachine;
 
 
     private RaftServer raftServer;
@@ -99,7 +101,8 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                     raftGroup,
                     selfNodeInfo.getPlatformAdapterIdentifier(),
                     new RaftServerProperties(),
-                    raftEventListener
+                    raftEventListener,
+                    raftStateMachine
             );
 
             raftServer.start();
@@ -178,7 +181,13 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
 
     @Scheduled(every = "PT3S")
     public void test() {
-        int a = 0;
-        int b = a + 1;
+        if (pgFacadeRuntimeProperties.isRaftServerUp() && pgFacadeRuntimeProperties.getRaftRole().equals(PgFacadeRaftRole.LEADER)) {
+            byte[] data = UUID.randomUUID().toString().getBytes();
+            long index = raftServer.appendToLog(
+                    "biba",
+                    data
+            );
+            log.info("APPENDED COMMAND WITH INDEX {} AND DATA {}", index, new String(data));
+        }
     }
 }

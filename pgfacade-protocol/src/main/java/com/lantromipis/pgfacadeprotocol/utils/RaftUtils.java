@@ -7,7 +7,6 @@ import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
 import io.netty.channel.ChannelFutureListener;
 
-import java.util.Objects;
 import java.util.function.Consumer;
 
 public class RaftUtils {
@@ -40,7 +39,11 @@ public class RaftUtils {
         }
 
         if (wrapper.getChannelCreatedBySelf() != null && wrapper.getChannelCreatedBySelf().isActive()) {
-            wrapper.getChannelCreatedBySelf().writeAndFlush(message);
+            wrapper.getChannelCreatedBySelf().writeAndFlush(message).addListener((ChannelFutureListener) future1 -> {
+                if (future1.isSuccess()) {
+                    future1.channel().read();
+                }
+            });
 
         } else {
             NettyUtils.connectToPeerFuture(
@@ -53,7 +56,11 @@ public class RaftUtils {
                     .addListener((ChannelFutureListener) future -> {
                         if (future.isSuccess()) {
                             wrapper.setChannelCreatedBySelf(future.channel());
-                            future.channel().writeAndFlush(message);
+                            future.channel().writeAndFlush(message).addListener((ChannelFutureListener) future1 -> {
+                                if (future1.isSuccess()) {
+                                    future1.channel().read();
+                                }
+                            });
                         }
                     });
         }

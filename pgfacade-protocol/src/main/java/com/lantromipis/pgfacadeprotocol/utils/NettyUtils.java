@@ -4,10 +4,7 @@ import com.lantromipis.pgfacadeprotocol.message.AbstractMessage;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftNodeCallbackInfo;
 import com.lantromipis.pgfacadeprotocol.netty.RaftPeerChannelInitializer;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
 import java.util.function.Consumer;
