@@ -5,6 +5,7 @@ import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Instance;
@@ -19,6 +20,9 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     @Inject
     PgFacadeRaftService pgFacadeRaftService;
 
+    @Inject
+    ManagedExecutor managedExecutor;
+
     @Override
     public void startOrchestration() {
         try {
@@ -26,6 +30,9 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
             if (platformAdapter.get().getActiveRaftNodeInfos().size() < 2) {
                 PgFacadeRaftNodeInfo raftNodeInfo = platformAdapter.get().createAndStartNewPgFacadeInstance();
                 pgFacadeRaftService.addNewRaftNode(raftNodeInfo);
+                PgFacadeRaftNodeInfo raftNodeInfo1 = platformAdapter.get().createAndStartNewPgFacadeInstance();
+                pgFacadeRaftService.addNewRaftNode(raftNodeInfo1);
+
             }
         } catch (Exception e) {
             log.error("Failed to start PgFacade orchestration!", e);

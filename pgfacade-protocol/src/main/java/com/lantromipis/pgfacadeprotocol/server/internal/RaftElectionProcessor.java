@@ -141,7 +141,7 @@ public class RaftElectionProcessor {
 
             long startTime = System.currentTimeMillis();
 
-            while (System.currentTimeMillis() - startTime < raftServerProperties.getVoteTimeout() || context.getVoteResponses().size() < expectedResponses) {
+            while (System.currentTimeMillis() - startTime < raftServerProperties.getVoteTimeout() && context.getVoteResponses().size() < expectedResponses) {
                 // spin lock
             }
 
@@ -172,19 +172,23 @@ public class RaftElectionProcessor {
             if (isBeingElected(startTerm, context)) {
                 if (grantedVotes >= quorum) {
                     log.debug("Election WON!");
-                    context.setSelfRole(RaftRole.LEADER);
                     context.getRaftPeers().values()
                             .forEach(wrapper -> wrapper.getNextIndex().set(
                                             context.getOperationLog().getLastIndex().get() + 1
                                     )
                             );
+                    context.setSelfRole(RaftRole.LEADER);
                     return;
                 } else if (revokeVotes >= quorum) {
                     log.debug("Election LOST");
                     context.setSelfRole(RaftRole.FOLLOWER);
                     return;
                 }
-                log.warn("Quorum NOT reached! Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...");
+                log.warn("Quorum NOT reached! Quorum = {}, granted votes = {}, revoked votes = {}. Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...",
+                        quorum,
+                        grantedVotes,
+                        revokeVotes
+                );
             }
         }
     }

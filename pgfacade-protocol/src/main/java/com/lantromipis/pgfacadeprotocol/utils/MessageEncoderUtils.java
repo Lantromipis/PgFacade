@@ -38,11 +38,11 @@ public class MessageEncoderUtils {
         }
     }
 
-    private static void encodeString(String string, ByteBuf target) {
+    public static void encodeString(String string, ByteBuf target) {
         encodeByteArray(string.getBytes(), target);
     }
 
-    private static void encodeByteArray(byte[] bytes, ByteBuf target) {
+    public static void encodeByteArray(byte[] bytes, ByteBuf target) {
         if (bytes == null || bytes.length == 0) {
             target.writeInt(0);
             return;

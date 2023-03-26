@@ -37,11 +37,11 @@ public class MessageDecoderUtils {
         }
     }
 
-    private static String readString(ByteBuf byteBuf) {
+    public static String readString(ByteBuf byteBuf) {
         return new String(readByteArray(byteBuf));
     }
 
-    private static byte[] readByteArray(ByteBuf byteBuf) {
+    public static byte[] readByteArray(ByteBuf byteBuf) {
         int arrayLength = byteBuf.readInt();
         if (arrayLength == 0) {
             return new byte[0];

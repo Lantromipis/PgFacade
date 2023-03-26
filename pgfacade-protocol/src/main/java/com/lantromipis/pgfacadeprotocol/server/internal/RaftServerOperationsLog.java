@@ -18,7 +18,7 @@ public class RaftServerOperationsLog {
 
     public RaftServerOperationsLog() {
         this.operationsLog = new ConcurrentHashMap<>();
-        this.lastIndex = new AtomicLong(0);
+        this.lastIndex = new AtomicLong(-1);
     }
 
     public LogEntry getLogEntry(long index) {

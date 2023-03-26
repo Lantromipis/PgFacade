@@ -1,5 +1,6 @@
 package com.lantromipis.pgfacadeprotocol.server.impl;
 
+import com.lantromipis.pgfacadeprotocol.constant.InternalRaftCommandsConstants;
 import com.lantromipis.pgfacadeprotocol.exception.NotActiveException;
 import com.lantromipis.pgfacadeprotocol.exception.NotLeaderException;
 import com.lantromipis.pgfacadeprotocol.message.*;
@@ -12,8 +13,10 @@ import com.lantromipis.pgfacadeprotocol.netty.RaftServerChannelInitializer;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftServer;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftStateMachine;
+import com.lantromipis.pgfacadeprotocol.server.internal.RaftCommitProcessor;
 import com.lantromipis.pgfacadeprotocol.server.internal.RaftElectionProcessor;
 import com.lantromipis.pgfacadeprotocol.server.internal.RaftServerOperationsLog;
+import com.lantromipis.pgfacadeprotocol.utils.InternalCommandsEncoderDecoder;
 import com.lantromipis.pgfacadeprotocol.utils.NettyUtils;
 import com.lantromipis.pgfacadeprotocol.utils.RaftUtils;
 import io.netty.bootstrap.ServerBootstrap;
@@ -27,7 +30,6 @@ import org.apache.commons.collections4.CollectionUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +48,7 @@ public class RaftServerImpl implements RaftServer {
 
     private ChannelFuture serverChannelFuture;
     private RaftElectionProcessor electionProcessor;
+    private RaftCommitProcessor commitProcessor;
 
     public RaftServerImpl(EventLoopGroup bossGroup, EventLoopGroup workerGroup, RaftGroup raftGroup, String selfRaftNodeId, RaftServerProperties raftServerProperties, RaftEventListener raftEventListener, RaftStateMachine raftStateMachine) {
         properties = raftServerProperties;
@@ -82,15 +85,17 @@ public class RaftServerImpl implements RaftServer {
         context.setRaftStateMachine(raftStateMachine);
         context.setOperationLog(new RaftServerOperationsLog());
         context.setVoteResponses(new CopyOnWriteArrayList<>());
+        context.setActive(false);
+        context.setCommitInProgress(new AtomicBoolean(false));
 
         electionProcessor = new RaftElectionProcessor(
                 context,
                 properties,
                 this::processRaftNodeResponseCallback
         );
-
-        context.setActive(false);
-        context.setCommitInProgress(new AtomicBoolean(false));
+        commitProcessor = new RaftCommitProcessor(
+                context
+        );
     }
 
     @Override
@@ -125,19 +130,20 @@ public class RaftServerImpl implements RaftServer {
     }
 
     @Override
-    public void addNewNode(RaftNode raftNode) {
-        context.getRaftPeers()
-                .put(
-                        raftNode.getId(),
-                        new RaftPeerWrapper(
-                                RaftNode.builder()
-                                        .id(raftNode.getId())
-                                        .groupId(context.getRaftGroupId())
-                                        .ipAddress(raftNode.getIpAddress())
-                                        .port(raftNode.getPort())
-                                        .build()
-                        )
-                );
+    public void addNewNode(RaftNode raftNode) throws NotLeaderException, NotActiveException {
+        RaftNode newRaftNode = RaftNode.builder()
+                .id(raftNode.getId())
+                .groupId(context.getRaftGroupId())
+                .ipAddress(raftNode.getIpAddress())
+                .port(raftNode.getPort())
+                .build();
+
+        appendToLog(
+                InternalRaftCommandsConstants.ADD_NEW_RAFT_NODE_COMMAND,
+                InternalCommandsEncoderDecoder.encodeAddRaftNodeCommandData(newRaftNode)
+        );
+
+        commitProcessor.leaderCommit();
     }
 
     @Override
@@ -174,8 +180,9 @@ public class RaftServerImpl implements RaftServer {
             List<AppendRequest.Operation> operations = new ArrayList<>();
             long nextPeerIndex = wrapper.getNextIndex().get();
             long prevPeerIndex = nextPeerIndex - 1;
+            long lastIndex = context.getOperationLog().getLastIndex().get();
 
-            if (nextPeerIndex <= context.getOperationLog().getLastIndex().get()) {
+            if (nextPeerIndex <= lastIndex) {
                 LogEntry logEntry = context.getOperationLog().getLogEntry(nextPeerIndex);
                 // TODO only single operation for now for stability
                 operations.add(
@@ -320,62 +327,7 @@ public class RaftServerImpl implements RaftServer {
             wrapper.getNextIndex().decrementAndGet();
         }
 
-        commit();
-    }
-
-    private void commit() {
-        if (!context.getCommitInProgress().compareAndSet(false, true)) {
-            // some thread already committing
-            return;
-        }
-
-        try {
-
-            // If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N,
-            // and operations[N].term == currentTerm:
-            // set commitIndex = N (§5.3, §5.4).
-
-            var operationLog = context.getOperationLog();
-
-            long n = context.getCommitIndex().get() + 1;
-
-            while (true) {
-                long finalN = n;
-                long peersWithSuchN = context.getRaftPeers().values()
-                        .stream()
-                        .map(RaftPeerWrapper::getMatchIndex)
-                        .filter(matchIndex -> matchIndex.get() >= finalN)
-                        .count();
-                // count self
-                peersWithSuchN++;
-
-                if (operationLog.getLastIndex().get() >= n && peersWithSuchN >= RaftUtils.calculateQuorum(context)) {
-                    // do not commit previous leader
-                    if (!Objects.equals(operationLog.getTerm(n), context.getCurrentTerm().get())) {
-                        n++;
-                        continue;
-                    }
-                    context.getCommitIndex().set(n);
-                    //log.debug("Leader committed operation with index {}", n);
-
-                    if (context.getRaftStateMachine() != null) {
-                        LogEntry logEntry = operationLog.getLogEntry(n);
-
-                        context.getRaftStateMachine().operationCommitted(
-                                n,
-                                logEntry.getCommand(),
-                                Arrays.copyOf(logEntry.getData(), logEntry.getData().length)
-                        );
-                    }
-
-                    n++;
-                } else {
-                    return;
-                }
-            }
-        } finally {
-            context.getCommitInProgress().set(false);
-        }
+        commitProcessor.leaderCommit();
     }
 
     private synchronized void processAppendRequest(RaftNodeCallbackInfo callbackInfo) {
@@ -450,17 +402,7 @@ public class RaftServerImpl implements RaftServer {
         }
 
         if (appendRequest.getLeaderCommit() > context.getCommitIndex().get()) {
-            long lastIndex = operationLog.getLastIndex().get();
-            long commitIndex = Math.min(appendRequest.getLeaderCommit(), lastIndex);
-            context.getCommitIndex().set(commitIndex);
-            //log.debug("Updated commit index with leader. Leader commit: {} log last index {}. Commit index new value: {}", appendRequest.getLeaderCommit(), operationLog.getLastIndex().get(), commitIndex);
-
-            LogEntry logEntry = operationLog.getLogEntry(commitIndex);
-            context.getRaftStateMachine().operationCommitted(
-                    commitIndex,
-                    logEntry.getCommand(),
-                    Arrays.copyOf(logEntry.getData(), logEntry.getData().length)
-            );
+            commitProcessor.followerCommit(appendRequest.getLeaderCommit());
         }
 
         NettyUtils.writeAndFlushIfChannelActive(

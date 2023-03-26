@@ -2,6 +2,8 @@ package com.lantromipis.pgfacadeprotocol.model.api;
 
 import lombok.*;
 
+import java.util.Random;
+
 @Getter
 @Builder
 @NoArgsConstructor

@@ -11,5 +11,5 @@ public interface RaftServer {
 
     long appendToLog(String command, byte[] data) throws NotLeaderException, NotActiveException;
 
-    void addNewNode(RaftNode raftNode);
+    void addNewNode(RaftNode raftNode) throws NotLeaderException, NotActiveException;
 }
