@@ -173,7 +173,7 @@ public class RaftServerImpl implements RaftServer {
         for (var wrapper : context.getRaftPeers().values()) {
             List<AppendRequest.Operation> operations = new ArrayList<>();
             long nextPeerIndex = wrapper.getNextIndex().get();
-            long prevPeerIndex;
+            long prevPeerIndex = nextPeerIndex - 1;
 
             if (nextPeerIndex <= context.getOperationLog().getLastIndex().get()) {
                 LogEntry logEntry = context.getOperationLog().getLogEntry(nextPeerIndex);
@@ -187,10 +187,8 @@ public class RaftServerImpl implements RaftServer {
                                 .data(Arrays.copyOf(logEntry.getData(), logEntry.getData().length))
                                 .build()
                 );
-                prevPeerIndex = nextPeerIndex - 1;
-            } else {
-                prevPeerIndex = nextPeerIndex;
             }
+            // else prevPeerIndex = nextPeerIndex
 
             AppendRequest appendRequest = AppendRequest.builder()
                     .groupId(context.getRaftGroupId())
@@ -216,7 +214,7 @@ public class RaftServerImpl implements RaftServer {
         AbstractMessage message = callbackInfo.getMessage();
 
         if (message instanceof UnknownMessage) {
-            log.debug("Rejecting request with unknown message");
+            //log.debug("Rejecting request with unknown message");
 
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
@@ -231,7 +229,7 @@ public class RaftServerImpl implements RaftServer {
 
         // security
         if (!context.getRaftGroupId().equals(message.getGroupId()) || !context.getRaftPeers().containsKey(message.getNodeId())) {
-            log.debug("Rejecting request. Node with group id '{}' and node id '{}' is not in current conf.", message.getGroupId(), message.getNodeId());
+            //log.debug("Rejecting request. Node with group id '{}' and node id '{}' is not in current conf.", message.getGroupId(), message.getNodeId());
 
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
@@ -246,11 +244,11 @@ public class RaftServerImpl implements RaftServer {
 
         switch (message.getMessageMarker()) {
             case VOTE_RESPONSE_MESSAGE_MARKER -> {
-                log.trace("Received VOTE RESPONSE from node {}", message.getNodeId());
+                //log.trace("Received VOTE RESPONSE from node {}", message.getNodeId());
                 context.getVoteResponses().add((VoteResponse) callbackInfo.getMessage());
             }
             case APPEND_RESPONSE_MESSAGE_MARKER -> {
-                log.trace("Received APPEND RESPONSE from node {}", message.getNodeId());
+                //log.trace("Received APPEND RESPONSE from node {}", message.getNodeId());
                 processAppendResponse(callbackInfo);
             }
         }
@@ -260,7 +258,7 @@ public class RaftServerImpl implements RaftServer {
         AbstractMessage message = callbackInfo.getMessage();
 
         if (message instanceof UnknownMessage) {
-            log.debug("Rejecting request with unknown message");
+            //log.debug("Rejecting request with unknown message");
 
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
@@ -275,7 +273,7 @@ public class RaftServerImpl implements RaftServer {
 
         // security
         if (!message.getGroupId().equals(context.getRaftGroupId()) || !context.getRaftPeers().containsKey(message.getNodeId())) {
-            log.debug("Rejecting request. Node with group id '{}' and node id '{}' is not in current conf.", message.getGroupId(), message.getNodeId());
+            //log.debug("Rejecting request. Node with group id '{}' and node id '{}' is not in current conf.", message.getGroupId(), message.getNodeId());
 
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
@@ -290,7 +288,7 @@ public class RaftServerImpl implements RaftServer {
 
         switch (message.getMessageMarker()) {
             case VOTE_REQUEST_MESSAGE_MARKER -> {
-                log.trace("Received VOTE REQUEST from node {}", message.getNodeId());
+                //log.trace("Received VOTE REQUEST from node {}", message.getNodeId());
 
                 NettyUtils.writeAndFlushIfChannelActive(
                         callbackInfo.getChannel(),
@@ -298,7 +296,7 @@ public class RaftServerImpl implements RaftServer {
                 );
             }
             case APPEND_REQUEST_MESSAGE_MARKER -> {
-                log.trace("Received APPEND REQUEST from node {}", message.getNodeId());
+                //log.trace("Received APPEND REQUEST from node {}", message.getNodeId());
                 processAppendRequest(callbackInfo);
             }
         }
@@ -358,7 +356,7 @@ public class RaftServerImpl implements RaftServer {
                         continue;
                     }
                     context.getCommitIndex().set(n);
-                    log.debug("Leader committed operation with index {}", n);
+                    //log.debug("Leader committed operation with index {}", n);
 
                     if (context.getRaftStateMachine() != null) {
                         LogEntry logEntry = operationLog.getLogEntry(n);
@@ -413,13 +411,6 @@ public class RaftServerImpl implements RaftServer {
         // Reply false if operations does not contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
         if (appendRequest.getPreviousLogIndex() > context.getOperationLog().getLastIndex().get()
                 || appendRequest.getPreviousTerm() != context.getOperationLog().getTerm(appendRequest.getPreviousLogIndex())) {
-            log.debug("Replying false to Append Request. Request prevLogIndex: {} current last log index: {}. Request prevTerm: {} current prevTerm: {}. Leader commit: {}",
-                    appendRequest.getPreviousLogIndex(),
-                    context.getOperationLog().getLastIndex().get(),
-                    appendRequest.getPreviousTerm(),
-                    context.getOperationLog().getTerm(appendRequest.getPreviousLogIndex()),
-                    appendRequest.getLeaderCommit()
-            );
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
                     AppendResponse
@@ -454,7 +445,7 @@ public class RaftServerImpl implements RaftServer {
                         operation.getCommand(),
                         operation.getData()
                 );
-                log.debug("Appended entry with index {} command {} and data {} to log!", index, operation.getCommand(), new String(operation.getData()));
+                //log.debug("Appended entry with index {} command {} and data {} to log!", index, operation.getCommand(), new String(operation.getData()));
             }
         }
 
@@ -462,7 +453,7 @@ public class RaftServerImpl implements RaftServer {
             long lastIndex = operationLog.getLastIndex().get();
             long commitIndex = Math.min(appendRequest.getLeaderCommit(), lastIndex);
             context.getCommitIndex().set(commitIndex);
-            log.debug("Updated commit index with leader. Leader commit: {} log last index {}. Commit index new value: {}", appendRequest.getLeaderCommit(), operationLog.getLastIndex().get(), commitIndex);
+            //log.debug("Updated commit index with leader. Leader commit: {} log last index {}. Commit index new value: {}", appendRequest.getLeaderCommit(), operationLog.getLastIndex().get(), commitIndex);
 
             LogEntry logEntry = operationLog.getLogEntry(commitIndex);
             context.getRaftStateMachine().operationCommitted(
