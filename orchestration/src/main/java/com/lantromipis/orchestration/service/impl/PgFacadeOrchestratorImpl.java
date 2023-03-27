@@ -28,10 +28,19 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         try {
             log.info("Starting PgFacade orchestration!");
             if (platformAdapter.get().getActiveRaftNodeInfos().size() < 2) {
-                PgFacadeRaftNodeInfo raftNodeInfo = platformAdapter.get().createAndStartNewPgFacadeInstance();
-                pgFacadeRaftService.addNewRaftNode(raftNodeInfo);
-                PgFacadeRaftNodeInfo raftNodeInfo1 = platformAdapter.get().createAndStartNewPgFacadeInstance();
-                pgFacadeRaftService.addNewRaftNode(raftNodeInfo1);
+                managedExecutor.runAsync(() -> {
+                    try {
+                        Thread.sleep(9000);
+                        PgFacadeRaftNodeInfo raftNodeInfo = platformAdapter.get().createAndStartNewPgFacadeInstance();
+                        pgFacadeRaftService.addNewRaftNode(raftNodeInfo);
+                        Thread.sleep(9000);
+                        PgFacadeRaftNodeInfo raftNodeInfo1 = platformAdapter.get().createAndStartNewPgFacadeInstance();
+                        pgFacadeRaftService.addNewRaftNode(raftNodeInfo1);
+                    } catch (Exception e) {
+                        log.info("Failed", e);
+                    }
+                });
+
 
             }
         } catch (Exception e) {

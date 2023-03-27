@@ -114,6 +114,7 @@ public class QuarkusStartupAndShutdownHandler {
             initializeForNoAdapter();
         } else {
             if (!initializeDefault()) {
+                log.error("Failed to initialize PgFacade!");
                 return;
             }
         }
@@ -167,6 +168,10 @@ public class QuarkusStartupAndShutdownHandler {
         // Set runtime properties
         postgresConfigurator.initialize();
         pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.RAFT_DISABLED);
+
+        userAuthInfoProvider.initialize();
+        connectionPool.initialize();
+        pgProxyServiceImpl.initialize();
     }
 
     private boolean initializeDefault() {
@@ -194,31 +199,13 @@ public class QuarkusStartupAndShutdownHandler {
         }
 
         // All adapters initialized. Start raft server.
-        // If this node becomes primary, then Orchestration and Archiving will be initialized in Raft state machine.
+        // If this node becomes raft leader, then Orchestration and Archiving will be initialized in Raft state machine.
         try {
             pgFacadeRaftService.initialize();
         } catch (Exception e) {
             log.error("Failed to initialize raft service!", e);
             return false;
         }
-
-/*        // Initialize orchestrator.
-        try {
-            postgresOrchestrator.initialize();
-        } catch (Exception e) {
-            log.error("Failed to initialize Postgres orchestrator due to error! PgFacade will not work!", e);
-            postgresOrchestrator.shutdown();
-            return false;
-        }
-
-        // Initialize configurator.
-        try {
-            postgresConfigurator.initialize();
-        } catch (Exception e) {
-            log.error("Failed to initialize Postgres configuration service due to error! PgFacade will not work!", e);
-            postgresOrchestrator.shutdown();
-            return false;
-        }*/
 
         return true;
     }

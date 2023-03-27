@@ -7,10 +7,12 @@ import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
 import com.lantromipis.pgfacadeprotocol.utils.InternalCommandsEncoderDecoder;
 import com.lantromipis.pgfacadeprotocol.utils.RaftUtils;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
 import java.util.Objects;
 
+@Slf4j
 public class RaftCommitProcessor {
     private RaftServerContext context;
 
@@ -72,6 +74,12 @@ public class RaftCommitProcessor {
         context.getCommitIndex().set(commitIndex);
 
         callStateMachine(commitIndex);
+
+        if (!context.isNotifiedStartupSync() && commitIndex == leaderCommit) {
+            log.info("Log synced with leader! Raft server is fully ready.");
+            context.getEventListener().syncedWithLeaderOrSelfIsLeaderOnStartup();
+            context.setNotifiedStartupSync(true);
+        }
     }
 
     private void callStateMachine(long commitIndex) {

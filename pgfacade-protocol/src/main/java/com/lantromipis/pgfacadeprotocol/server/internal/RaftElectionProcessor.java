@@ -184,11 +184,16 @@ public class RaftElectionProcessor {
                     context.setSelfRole(RaftRole.FOLLOWER);
                     return;
                 }
-                log.warn("Quorum NOT reached! Quorum = {}, granted votes = {}, revoked votes = {}. Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...",
+                log.warn("Raft quorum NOT reached! Quorum = {}, granted votes = {}, revoked votes = {}. Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...",
                         quorum,
                         grantedVotes,
                         revokeVotes
                 );
+            }
+
+            try {
+                Thread.sleep(raftServerProperties.getVoteTimeout());
+            } catch (InterruptedException ignored) {
             }
         }
     }

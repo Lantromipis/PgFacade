@@ -4,6 +4,8 @@ import com.lantromipis.pgfacadeprotocol.exception.NotActiveException;
 import com.lantromipis.pgfacadeprotocol.exception.NotLeaderException;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
 
+import java.util.concurrent.CountDownLatch;
+
 public interface RaftServer {
     void start() throws InterruptedException;
 

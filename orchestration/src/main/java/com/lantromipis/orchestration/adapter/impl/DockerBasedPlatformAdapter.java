@@ -567,9 +567,9 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
         try {
             return pgFacadeInternalNetwork.getContainers()
-                    .entrySet()
+                    .keySet()
                     .stream()
-                    .map(configEntry -> dockerClient.inspectContainerCmd(configEntry.getKey()).exec())
+                    .map(containerNetworkConfig -> dockerClient.inspectContainerCmd(containerNetworkConfig).exec())
                     .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
                     .collect(Collectors.toList());
         } catch (Exception e) {

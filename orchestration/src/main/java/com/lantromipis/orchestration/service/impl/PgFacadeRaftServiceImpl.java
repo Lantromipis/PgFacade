@@ -31,6 +31,7 @@ import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -105,9 +106,12 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                     raftStateMachine
             );
 
+            log.info("Starting raft server and waiting for it to be synced with leader...");
             raftServer.start();
 
             pgFacadeRuntimeProperties.setRaftServerUp(true);
+
+            log.info("Raft server is synced with leader!");
 
         } catch (Exception e) {
             throw new InitializationException("Error while initializing Raft Server! ", e);
@@ -157,6 +161,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                                     healthcheckItem.getName().equals(PgFacadeConstants.RAFT_SERVER_UP_READINESS_CHECK)
                                             && healthcheckItem.getStatus().equals(HealtcheckResponseDto.HealtcheckStatus.UP)
                             );
+                    log.info("HEALTHCHECK {}", response.getChecks().size() == 0 ? null : response.getChecks().get(0).getStatus());
                     if (raftReady) {
                         log.info("New raft peer server is ready!");
                         return;

@@ -34,9 +34,10 @@ public class RaftServerContext {
 
     // self info
     private String selfNodeId;
-    private RaftRole selfRole;
+    private RaftRole selfRole = RaftRole.FOLLOWER;
     private AtomicLong currentTerm;
     private AtomicLong commitIndex;
+    private boolean notifiedStartupSync = false;
 
     private RaftServerOperationsLog operationLog;
 
@@ -51,12 +52,13 @@ public class RaftServerContext {
         RaftRole prevRole = this.selfRole;
         this.selfRole = newRole;
 
-        if (eventListener != null) {
-            if (!prevRole.equals(RaftRole.LEADER) && newRole.equals(RaftRole.LEADER)) {
-                eventListener.selfBecameLeader();
-            } else if (prevRole.equals(RaftRole.LEADER) && newRole.equals(RaftRole.FOLLOWER)) {
-                eventListener.selfBecomeFollower();
-            }
+        if (!prevRole.equals(selfRole) && eventListener != null) {
+            eventListener.selfRoleChanged(newRole);
+        }
+
+        if (!notifiedStartupSync && RaftRole.LEADER.equals(newRole) && eventListener != null) {
+            eventListener.syncedWithLeaderOrSelfIsLeaderOnStartup();
+            notifiedStartupSync = true;
         }
     }
 }
