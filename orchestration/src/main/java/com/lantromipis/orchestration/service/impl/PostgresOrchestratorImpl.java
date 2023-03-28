@@ -91,7 +91,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Override
     public void initialize() throws InitializationException {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
-            log.info("Not starting Postgres orchestrator because this PgFacade instance is not current raft leader.");
+            log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
             return;
         }
@@ -107,7 +107,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         PostgresCombinedInstanceInfo primaryInstanceInfo = null;
 
         if (primaryPersistedInstanceInfo != null) {
-            PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getInstanceInfo(primaryPersistedInstanceInfo.getAdapterIdentifier());
+            PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(primaryPersistedInstanceInfo.getAdapterIdentifier());
 
             if (adapterInstanceInfo.isActive()) {
                 primaryInstanceInfo = PostgresCombinedInstanceInfo
@@ -713,12 +713,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         OrchestrationProperties.CommonProperties.PostgresStartupCheckProperties startupCheckProperties = orchestrationProperties.common().postgresStartupCheck();
 
         long endTime = System.currentTimeMillis() + (startupCheckProperties.interval() * startupCheckProperties.retries()) + startupCheckProperties.startPeriod();
-        PostgresAdapterInstanceInfo instanceInfo = platformAdapter.get().getInstanceInfo(adapterInstanceId);
+        PostgresAdapterInstanceInfo instanceInfo = platformAdapter.get().getPostgresInstanceInfo(adapterInstanceId);
 
         try {
             while (!InstanceHealth.HEALTHY.equals(instanceInfo.getHealth()) && endTime > System.currentTimeMillis()) {
                 Thread.sleep(startupCheckProperties.interval());
-                instanceInfo = platformAdapter.get().getInstanceInfo(adapterInstanceId);
+                instanceInfo = platformAdapter.get().getPostgresInstanceInfo(adapterInstanceId);
             }
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();

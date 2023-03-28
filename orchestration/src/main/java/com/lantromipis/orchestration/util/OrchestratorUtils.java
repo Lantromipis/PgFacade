@@ -71,7 +71,7 @@ public class OrchestratorUtils {
 
         return PostgresCombinedInstanceInfo
                 .builder()
-                .adapter(platformAdapter.get().getInstanceInfo(persistedInstanceInf.getAdapterIdentifier()))
+                .adapter(platformAdapter.get().getPostgresInstanceInfo(persistedInstanceInf.getAdapterIdentifier()))
                 .persisted(persistedInstanceInf)
                 .build();
     }
@@ -83,7 +83,7 @@ public class OrchestratorUtils {
                 .map(info ->
                         PostgresCombinedInstanceInfo
                                 .builder()
-                                .adapter(platformAdapter.get().getInstanceInfo(info.getAdapterIdentifier()))
+                                .adapter(platformAdapter.get().getPostgresInstanceInfo(info.getAdapterIdentifier()))
                                 .persisted(info)
                                 .build()
                 );
@@ -97,7 +97,7 @@ public class OrchestratorUtils {
                 .map(info ->
                         PostgresCombinedInstanceInfo
                                 .builder()
-                                .adapter(platformAdapter.get().getInstanceInfo(info.getAdapterIdentifier()))
+                                .adapter(platformAdapter.get().getPostgresInstanceInfo(info.getAdapterIdentifier()))
                                 .persisted(info)
                                 .build()
                 );

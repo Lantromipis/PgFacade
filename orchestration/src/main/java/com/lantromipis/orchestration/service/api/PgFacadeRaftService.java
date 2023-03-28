@@ -8,4 +8,6 @@ public interface PgFacadeRaftService {
     void initialize() throws InitializationException;
 
     void addNewRaftNode(PgFacadeRaftNodeInfo newNodeInfo) throws RaftException;
+
+    void appendToLogAndAwaitCommit(String command, byte[] data, long timeout) throws RaftException;
 }

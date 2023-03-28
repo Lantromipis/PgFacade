@@ -12,6 +12,7 @@ import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
 import com.lantromipis.orchestration.restclient.HealtcheckTemplateRestClient;
 import com.lantromipis.orchestration.restclient.model.HealtcheckResponseDto;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
+import com.lantromipis.orchestration.service.api.PgFacadeRaftStateMachine;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftGroup;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
@@ -31,7 +32,6 @@ import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -54,8 +54,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     RaftEventListener raftEventListener;
 
     @Inject
-    RaftStateMachine raftStateMachine;
-
+    PgFacadeRaftStateMachine raftStateMachine;
 
     private RaftServer raftServer;
 
@@ -146,6 +145,24 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
         }
     }
 
+    @Override
+    public void appendToLogAndAwaitCommit(String command, byte[] data, long timeout) throws RaftException {
+        try {
+            long commitIdx = raftServer.appendToLog(
+                    command,
+                    data
+            );
+            raftStateMachine.awaitCommit(commitIdx, timeout);
+        } catch (RaftException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RaftException("Error while waiting for commit to complete.", e);
+        } catch (Exception e) {
+            throw new RaftException("Error while waiting for commit to complete.", e);
+        }
+    }
+
     private void awaitNewRaftNodeReadiness(String address) {
         URI anyDynamicUrl = URI.create("http://" + address + ":8080");
         try (HealtcheckTemplateRestClient healtcheckRestClient = RestClientBuilder.newBuilder()
@@ -193,6 +210,12 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                     data
             );
             log.info("APPENDED COMMAND WITH INDEX {} AND DATA {}", index, new String(data));
+            try {
+                raftStateMachine.awaitCommit(index, 1000);
+                log.info("FINISHED AWAITING COMMIT {}", index);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 }

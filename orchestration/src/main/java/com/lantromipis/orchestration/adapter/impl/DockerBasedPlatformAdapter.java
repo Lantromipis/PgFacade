@@ -238,7 +238,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public PostgresAdapterInstanceInfo getInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
+    public PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
         try {
             InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(adapterInstanceId).exec();
 

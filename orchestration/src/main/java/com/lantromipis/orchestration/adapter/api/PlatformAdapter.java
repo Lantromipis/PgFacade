@@ -75,7 +75,7 @@ public interface PlatformAdapter {
      * @throws PlatformAdapterNotFoundException           if there is no instance with provided identifier
      * @throws PlatformAdapterOperationExecutionException if unexpected error occurred
      */
-    PostgresAdapterInstanceInfo getInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
+    PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
 
     /**
      * Delete Postgres or PgFacade instance
