@@ -59,7 +59,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
                 if (PostgresConstants.MAX_CONNECTIONS_SETTING_NAME.equals(settingName)) {
-                    clusterRuntimeProperties.setMaxPostgresConnections(Integer.parseInt(pgSettingsResultSet.getString("setting")) - PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT);
+                    clusterRuntimeProperties.setMaxPostgresConnections(Integer.parseInt(pgSettingsResultSet.getString("setting")));
                     break;
                 }
             }

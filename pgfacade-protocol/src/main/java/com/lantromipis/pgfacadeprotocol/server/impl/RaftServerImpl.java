@@ -100,6 +100,10 @@ public class RaftServerImpl implements RaftServer {
 
     @Override
     public void start() throws InterruptedException {
+        if (context.isActive()) {
+            return;
+        }
+
         ServerBootstrap serverBootstrap = new ServerBootstrap();
 
         serverChannelFuture = serverBootstrap
@@ -147,21 +151,21 @@ public class RaftServerImpl implements RaftServer {
     }
 
     @Override
-    public void shutdown() throws InterruptedException {
+    public void shutdown() {
         context.setActive(false);
         voteTimer.stop();
         heartbeatTimer.stop();
-        serverChannelFuture.channel().close().sync();
+        serverChannelFuture.channel().close().syncUninterruptibly();
     }
 
     @Override
     public long appendToLog(String command, byte[] data) throws NotLeaderException, NotActiveException {
-        if (!context.getSelfRole().equals(RaftRole.LEADER)) {
-            throw new NotLeaderException();
-        }
-
         if (!context.isActive()) {
             throw new NotActiveException();
+        }
+
+        if (!context.getSelfRole().equals(RaftRole.LEADER)) {
+            throw new NotLeaderException();
         }
 
         long index = context.getOperationLog().append(
@@ -169,6 +173,11 @@ public class RaftServerImpl implements RaftServer {
                 command,
                 data
         );
+
+        // for cases when this raft node is alone
+        if (context.getRaftPeers().isEmpty()) {
+            commitProcessor.leaderCommit();
+        }
 
         heartBeat();
 

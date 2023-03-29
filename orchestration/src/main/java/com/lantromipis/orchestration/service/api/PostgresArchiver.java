@@ -14,6 +14,11 @@ public interface PostgresArchiver {
     void initialize();
 
     /**
+     * Stops archiver
+     */
+    void stop();
+
+    /**
      * Starts continuous archiving. Must be called when primary healthiness achieved.
      */
     void startArchiving();

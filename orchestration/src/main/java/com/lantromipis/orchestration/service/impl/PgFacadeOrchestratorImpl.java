@@ -30,10 +30,8 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
             if (platformAdapter.get().getActiveRaftNodeInfos().size() < 2) {
                 managedExecutor.runAsync(() -> {
                     try {
-                        Thread.sleep(9000);
                         PgFacadeRaftNodeInfo raftNodeInfo = platformAdapter.get().createAndStartNewPgFacadeInstance();
                         pgFacadeRaftService.addNewRaftNode(raftNodeInfo);
-                        Thread.sleep(9000);
                         PgFacadeRaftNodeInfo raftNodeInfo1 = platformAdapter.get().createAndStartNewPgFacadeInstance();
                         pgFacadeRaftService.addNewRaftNode(raftNodeInfo1);
                     } catch (Exception e) {

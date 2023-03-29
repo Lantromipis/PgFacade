@@ -12,16 +12,14 @@ import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
 import com.lantromipis.orchestration.restclient.HealtcheckTemplateRestClient;
 import com.lantromipis.orchestration.restclient.model.HealtcheckResponseDto;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
-import com.lantromipis.orchestration.service.api.PgFacadeRaftStateMachine;
+import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftGroup;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftServer;
-import com.lantromipis.pgfacadeprotocol.server.api.RaftStateMachine;
 import com.lantromipis.pgfacadeprotocol.server.impl.RaftServerImpl;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
@@ -31,7 +29,6 @@ import javax.inject.Inject;
 import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -120,6 +117,15 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     }
 
     @Override
+    public void shutdown() {
+        try {
+            raftServer.shutdown();
+        } catch (Exception e) {
+            log.error("Error during Raft shutdown", e);
+        }
+    }
+
+    @Override
     public void addNewRaftNode(PgFacadeRaftNodeInfo newNodeInfo) throws RaftException {
         try {
             RaftNode raftNode = RaftNode
@@ -178,9 +184,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                                     healthcheckItem.getName().equals(PgFacadeConstants.RAFT_SERVER_UP_READINESS_CHECK)
                                             && healthcheckItem.getStatus().equals(HealtcheckResponseDto.HealtcheckStatus.UP)
                             );
-                    log.info("HEALTHCHECK {}", response.getChecks().size() == 0 ? null : response.getChecks().get(0).getStatus());
                     if (raftReady) {
-                        log.info("New raft peer server is ready!");
                         return;
                     }
                 } catch (Exception ignored) {
@@ -201,7 +205,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
         }
     }
 
-    @Scheduled(every = "PT3S")
+/*    @Scheduled(every = "PT3S")
     public void test() {
         if (pgFacadeRuntimeProperties.isRaftServerUp() && pgFacadeRuntimeProperties.getRaftRole().equals(PgFacadeRaftRole.LEADER)) {
             byte[] data = UUID.randomUUID().toString().getBytes();
@@ -217,5 +221,5 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                 throw new RuntimeException(e);
             }
         }
-    }
+    }*/
 }

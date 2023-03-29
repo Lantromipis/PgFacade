@@ -1,4 +1,4 @@
-package com.lantromipis.orchestration.service.api;
+package com.lantromipis.orchestration.service.api.raft;
 
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftStateMachine;

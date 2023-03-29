@@ -1,14 +1,14 @@
-package com.lantromipis.configuration.properties.stored.api;
+package com.lantromipis.orchestration.service.api.raft;
 
-import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
+import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public interface PostgresPersistedProperties {
+public interface RaftStorage {
     List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException;
 
     PostgresPersistedInstanceInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException;

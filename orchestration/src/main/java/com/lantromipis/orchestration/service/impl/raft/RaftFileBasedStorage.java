@@ -1,13 +1,13 @@
-package com.lantromipis.configuration.properties.stored.impl.file;
+package com.lantromipis.orchestration.service.impl.raft;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.exception.ConfigurationInitializationException;
-import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
+import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
-import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
+import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.PostConstruct;
@@ -19,7 +19,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @ApplicationScoped
-public class PostgresFileBasedPersistedProperties implements PostgresPersistedProperties {
+public class RaftFileBasedStorage implements RaftStorage {
 
     @Inject
     FilesPathsProducer filesPathsProducer;
@@ -32,14 +32,13 @@ public class PostgresFileBasedPersistedProperties implements PostgresPersistedPr
     private ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
 
     // @formatter:off
-    private final static TypeReference<Map<UUID, PostgresPersistedInstanceInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
-    private final static TypeReference<Map<String, String>> POSTGRES_SETTING_INFO_TYPE_REF = new TypeReference<>() {};
+    public static final TypeReference<Map<UUID, PostgresPersistedInstanceInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
+    public static final TypeReference<Map<String, String>> POSTGRES_SETTING_INFO_TYPE_REF = new TypeReference<>() {};
     // @formatter:on
 
     @PostConstruct
     public void init() {
         objectMapper = new ObjectMapper();
-        // TODO make some local identifier instead of dir
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());

@@ -5,7 +5,6 @@ import com.lantromipis.configuration.event.StandbyRemovedEvent;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 
@@ -24,7 +23,7 @@ import java.util.stream.Stream;
 @ApplicationScoped
 public class OrchestratorUtils {
     @Inject
-    PostgresPersistedProperties postgresPersistedProperties;
+    RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     @Inject
     Instance<PlatformAdapter> platformAdapter;
@@ -63,7 +62,7 @@ public class OrchestratorUtils {
     }
 
     public PostgresCombinedInstanceInfo getCombinedInstanceInfo(UUID instanceId) {
-        PostgresPersistedInstanceInfo persistedInstanceInf = postgresPersistedProperties.getPostgresNodeInfo(instanceId);
+        PostgresPersistedInstanceInfo persistedInstanceInf = raftFunctionalityCombinator.getPostgresNodeInfo(instanceId);
 
         if (persistedInstanceInf == null) {
             return null;
@@ -77,7 +76,7 @@ public class OrchestratorUtils {
     }
 
     public Stream<PostgresCombinedInstanceInfo> getCombinedInfosForAvailableInstancesAsStream() {
-        return postgresPersistedProperties
+        return raftFunctionalityCombinator
                 .getPostgresNodeInfos()
                 .stream()
                 .map(info ->
@@ -90,7 +89,7 @@ public class OrchestratorUtils {
     }
 
     public Stream<PostgresCombinedInstanceInfo> getCombinedInfosForStandbyInstancesAsStream() {
-        return postgresPersistedProperties
+        return raftFunctionalityCombinator
                 .getPostgresNodeInfos()
                 .stream()
                 .filter(info -> !info.isPrimary())

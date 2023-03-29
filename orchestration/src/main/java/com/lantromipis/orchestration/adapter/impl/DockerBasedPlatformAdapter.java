@@ -541,7 +541,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
         try {
             pgFacadePostgresNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().networkName())
+                    .withNetworkId(orchestrationProperties.docker().postgres().networkName())
                     .exec();
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Docker error. Can not find Postgres network. ", e);

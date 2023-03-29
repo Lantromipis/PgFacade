@@ -98,6 +98,14 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     }
 
     @Override
+    public void stop() {
+        if (archiverInitialized) {
+            archiverInitialized = false;
+            stopWalArchiving();
+        }
+    }
+
+    @Override
     public void startArchiving() {
         if (archivingProperties.enabled()) {
             log.info("Archiving is disabled. Consider enabling it to perform continuous archiving and Point-in-Time recover.");

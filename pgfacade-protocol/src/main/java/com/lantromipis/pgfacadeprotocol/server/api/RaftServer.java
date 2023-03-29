@@ -9,7 +9,7 @@ import java.util.concurrent.CountDownLatch;
 public interface RaftServer {
     void start() throws InterruptedException;
 
-    void shutdown() throws InterruptedException;
+    void shutdown();
 
     long appendToLog(String command, byte[] data) throws NotLeaderException, NotActiveException;
 

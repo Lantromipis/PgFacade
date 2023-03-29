@@ -7,9 +7,22 @@ import java.util.UUID;
 
 public interface PostgresOrchestrator {
 
-    void initialize() throws InitializationException;
+    /**
+     * Start orchestration of running cluster
+     */
+    void initializeFastWhenClusterRunning();
 
-    void shutdown();
+    /**
+     * Initializes orchestrator AND Postgres cluster. Should be used only when initializing after full shutdown
+     *
+     * @throws InitializationException if initialization failed
+     */
+    void initializeFull() throws InitializationException;
+
+    /**
+     * Stop orchestrator with an ability to reinitialize in later
+     */
+    void stopOrchestrator();
 
     boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException;
 

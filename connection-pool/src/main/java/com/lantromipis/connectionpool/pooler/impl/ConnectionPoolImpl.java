@@ -1,5 +1,6 @@
 package com.lantromipis.connectionpool.pooler.impl;
 
+import com.lantromipis.configuration.event.MaxConnectionsChangedEvent;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
@@ -251,6 +252,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
             }
             return null;
         }
+    }
+
+    public void listenToMaxConnectionsChangedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) MaxConnectionsChangedEvent maxConnectionsChangedEvent) {
+        primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
     }
 
     public void listenToSwitchoverStartedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverStartedEvent switchoverStartedEvent) {

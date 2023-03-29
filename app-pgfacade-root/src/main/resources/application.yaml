@@ -137,6 +137,8 @@ quarkus:
   quarkus:
     log:
       category:
+        "com.lantromipis.orchestration":
+          level: DEBUG
         "com.lantromipis.proxy.initializer":
           min-level: TRACE
           level: DEBUG
