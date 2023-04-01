@@ -70,4 +70,10 @@ public class FilesPathsProducer {
                 + "/"
                 + PgFacadeConstants.POSTGRES_SETTINGS_INFO_FILE_NAME;
     }
+
+    public String getPostgresArchiveInfosFilePath() {
+        return getPersistedPropertiesDirPath()
+                + "/"
+                + PgFacadeConstants.POSTGRES_ARCHIVE_INFO_FILE_NAME;
+    }
 }

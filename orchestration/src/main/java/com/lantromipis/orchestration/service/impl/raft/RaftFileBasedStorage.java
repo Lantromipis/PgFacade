@@ -5,8 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.exception.ConfigurationInitializationException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import com.lantromipis.pgfacadeprotocol.model.api.SnapshotChunk;
 import lombok.extern.slf4j.Slf4j;
@@ -20,8 +21,7 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
-import static com.lantromipis.orchestration.constant.RaftConstants.POSTGRES_NODES_INFO_CHUNK;
-import static com.lantromipis.orchestration.constant.RaftConstants.POSTGRES_SETTINGS_INFO_CHUNK;
+import static com.lantromipis.orchestration.constant.RaftConstants.*;
 
 @Slf4j
 @ApplicationScoped
@@ -34,8 +34,10 @@ public class RaftFileBasedStorage implements RaftStorage {
 
     private File postgresNodeInfoFile;
     private File postgresSettingInfoFile;
-    private ReentrantLock postgresNodeInfoFileModificationLock = new ReentrantLock();
-    private ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
+    private File postgresArchiveInfoFile;
+    private final ReentrantLock postgresNodeInfoFileModificationLock = new ReentrantLock();
+    private final ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
+    private final ReentrantLock postgresArchiveInfoFileModificationLock = new ReentrantLock();
 
     // @formatter:off
     public static final TypeReference<Map<UUID, PostgresPersistedInstanceInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
@@ -48,6 +50,7 @@ public class RaftFileBasedStorage implements RaftStorage {
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
+        postgresArchiveInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresArchiveInfosFilePath());
     }
 
     @Override
@@ -55,6 +58,7 @@ public class RaftFileBasedStorage implements RaftStorage {
         try {
             postgresNodeInfoFileModificationLock.lock();
             postgresSettingInfoFileModificationLock.lock();
+            postgresArchiveInfoFileModificationLock.lock();
 
             List<SnapshotChunk> ret = new ArrayList<>();
 
@@ -70,6 +74,12 @@ public class RaftFileBasedStorage implements RaftStorage {
                     .name(POSTGRES_SETTINGS_INFO_CHUNK)
                     .build()
             );
+            ret.add(SnapshotChunk
+                    .builder()
+                    .data(Files.readAllBytes(postgresArchiveInfoFile.toPath()))
+                    .name(POSTGRES_ARCHIVE_INFO_CHUNK)
+                    .build()
+            );
 
             return ret;
 
@@ -78,6 +88,7 @@ public class RaftFileBasedStorage implements RaftStorage {
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
             postgresSettingInfoFileModificationLock.unlock();
+            postgresArchiveInfoFileModificationLock.unlock();
         }
     }
 
@@ -86,20 +97,52 @@ public class RaftFileBasedStorage implements RaftStorage {
         try {
             postgresNodeInfoFileModificationLock.lock();
             postgresSettingInfoFileModificationLock.lock();
+            postgresArchiveInfoFileModificationLock.lock();
 
             for (var chunk : chunks) {
                 if (POSTGRES_NODES_INFO_CHUNK.equals(chunk.getName())) {
                     FileUtils.writeByteArrayToFile(postgresNodeInfoFile, chunk.getData(), false);
                 } else if (POSTGRES_SETTINGS_INFO_CHUNK.equals(chunk.getName())) {
                     FileUtils.writeByteArrayToFile(postgresSettingInfoFile, chunk.getData(), false);
+                } else if (POSTGRES_ARCHIVE_INFO_CHUNK.equals(chunk.getName())) {
+                    FileUtils.writeByteArrayToFile(postgresArchiveInfoFile, chunk.getData(), false);
                 }
             }
 
         } catch (Exception e) {
-            throw new PropertyReadException("Error while reading nodes info from file", e);
+            throw new PropertyModificationException("Error while reading nodes info from file", e);
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
             postgresSettingInfoFileModificationLock.unlock();
+            postgresArchiveInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public PostgresPersistedArchiveInfo getArchiveInfo() throws PropertyReadException {
+        try {
+            postgresArchiveInfoFileModificationLock.lock();
+            if (postgresArchiveInfoFile.length() > 0) {
+                return objectMapper.readValue(postgresArchiveInfoFile, PostgresPersistedArchiveInfo.class);
+            } else {
+                return new PostgresPersistedArchiveInfo();
+            }
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading archive info from file", e);
+        } finally {
+            postgresArchiveInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public void saveArchiveInfo(PostgresPersistedArchiveInfo info) throws PropertyModificationException {
+        try {
+            postgresArchiveInfoFileModificationLock.lock();
+            objectMapper.writeValue(postgresArchiveInfoFile, info);
+        } catch (Exception e) {
+            throw new PropertyModificationException("Error while saving archive info to file", e);
+        } finally {
+            postgresArchiveInfoFileModificationLock.unlock();
         }
     }
 

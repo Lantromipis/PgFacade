@@ -3,12 +3,13 @@ package com.lantromipis.orchestration.util;
 import com.lantromipis.configuration.event.MaxConnectionsChangedEvent;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import lombok.extern.slf4j.Slf4j;
 
@@ -43,6 +44,10 @@ public class RaftCommitUtils {
 
     @Inject
     RaftStorage raftStorage;
+
+    public void processArchiveInfoSave(PostgresPersistedArchiveInfo archiveInfo) {
+        raftStorage.saveArchiveInfo(archiveInfo);
+    }
 
     public void processInstallSnapshot() {
         raftStorage.getPostgresNodeInfos().forEach(

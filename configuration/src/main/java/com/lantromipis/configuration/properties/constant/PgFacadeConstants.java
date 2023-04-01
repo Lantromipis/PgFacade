@@ -20,6 +20,7 @@ public class PgFacadeConstants {
     public static final String POSTGRES_NODE_INFO_FILE_NAME = "postgres-nodes-info.json";
 
     public static final String POSTGRES_SETTINGS_INFO_FILE_NAME = "postgres-settings-info.json";
+    public static final String POSTGRES_ARCHIVE_INFO_FILE_NAME = "postgres-archive-info.json";
 
     public static final int DOCKER_SPECIFIC_PGFACADE_RAFT_PORT = 31000;
 

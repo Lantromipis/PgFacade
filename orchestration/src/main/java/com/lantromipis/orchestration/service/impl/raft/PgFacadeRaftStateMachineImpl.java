@@ -5,9 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.exception.RaftException;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import com.lantromipis.orchestration.util.RaftCommitUtils;
@@ -86,6 +87,10 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                 }
                 case DUMMY_COMMIT_TEST_COMMAND -> {
                     // do nothing...
+                }
+                case SAVE_POSTGRES_ARCHIVE_INFO -> {
+                    PostgresPersistedArchiveInfo archiveInfo = objectMapper.readValue(new String(data), PostgresPersistedArchiveInfo.class);
+                    raftCommitUtils.processArchiveInfoSave(archiveInfo);
                 }
                 default -> {
                     log.warn("Unknown raft command {}", command);

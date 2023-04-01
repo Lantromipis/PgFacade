@@ -26,7 +26,6 @@ public class RaftUtils {
             if (atomicLong.compareAndSet(v, newValue)) {
                 break;
             }
-            log.info("LOOPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP");
         }
     }
 

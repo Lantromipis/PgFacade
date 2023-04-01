@@ -3,7 +3,6 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -14,6 +13,7 @@ import com.lantromipis.orchestration.model.InstanceHealth;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
@@ -91,10 +91,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         if (archivingProperties.enabled()) {
             postgresArchiver.initialize();
+            postgresArchiver.startArchiving();
         } else {
             log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
-
         orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream().forEach(
                 instanceInfo -> orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(instanceInfo)
         );
@@ -205,6 +205,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         if (archivingProperties.enabled()) {
             postgresArchiver.initialize();
+            postgresArchiver.startArchiving();
         } else {
             log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
@@ -217,8 +218,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Override
     public void stopOrchestrator() {
         orchestratorReady.set(false);
-        waitForActiveOperationsToComplete();
         postgresArchiver.stop();
+        waitForActiveOperationsToComplete();
     }
 
     @Override

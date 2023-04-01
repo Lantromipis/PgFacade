@@ -5,8 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.exception.PropertyReadException;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.exception.RaftException;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,18 @@ public class RaftFunctionalityCombinator {
                 new byte[0],
                 TIMEOUT
         );
+    }
+
+    public void saveArchiveInfoInRaft(PostgresPersistedArchiveInfo archiveInfo) throws RaftException {
+        raftService.appendToLogAndAwaitCommit(
+                SAVE_POSTGRES_ARCHIVE_INFO,
+                writeAsBytesSafe(archiveInfo),
+                TIMEOUT
+        );
+    }
+
+    public PostgresPersistedArchiveInfo getArchiveInfo() throws PropertyReadException {
+        return raftStorage.getArchiveInfo();
     }
 
     public void notifyAllClusterAboutSwitchoverStarted(SwitchoverStartedEvent switchoverStartedEvent) throws RaftException {

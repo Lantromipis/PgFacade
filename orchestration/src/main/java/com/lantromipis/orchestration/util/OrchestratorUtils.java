@@ -2,13 +2,13 @@ package com.lantromipis.orchestration.util;
 
 import com.lantromipis.configuration.event.StandbyAddedEvent;
 import com.lantromipis.configuration.event.StandbyRemovedEvent;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Event;

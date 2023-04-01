@@ -81,7 +81,7 @@ public class RaftServerImpl implements RaftServer {
         context.setSelfRole(RaftRole.FOLLOWER);
         context.setCurrentTerm(new AtomicLong(0));
         context.setCommitIndex(new AtomicLong(-1));
-        context.setStateMachineApplyIndex(new AtomicLong(0));
+        context.setStateMachineApplyIndex(new AtomicLong(-1));
         context.setEventListener(raftEventListener);
         context.setRaftStateMachine(raftStateMachine);
         context.setOperationLog(new RaftServerOperationsLog());

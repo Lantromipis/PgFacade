@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.model;
+package com.lantromipis.orchestration.model.raft;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -1,4 +1,4 @@
-package com.lantromipis.configuration.model;
+package com.lantromipis.orchestration.model.raft;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PostgresPersistedSettingInfo {
-    private String name;
-    private String value;
+public class PostgresPersistedArchiveInfo {
+    private String lastUploadedWal;
+    private String nextWal;
 }
