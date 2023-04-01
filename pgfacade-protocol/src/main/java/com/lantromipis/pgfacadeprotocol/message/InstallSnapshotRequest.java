@@ -11,26 +11,24 @@ import java.util.List;
 @Getter
 @SuperBuilder
 @EqualsAndHashCode(callSuper = true)
-public class AppendRequest extends AbstractMessage {
+public class InstallSnapshotRequest extends AbstractMessage {
 
-    private long currentTerm;
-    private long previousLogIndex;
-    private long previousTerm;
+    // modified than in original Raft paper for simplicity
+    private long term;
+    private String leaderId;
+    private long lastIncludedIndex;
     private long leaderCommit;
-    private List<Operation> operations;
-    private long shrinkIndex;
+    private List<ChunkData> chunks;
 
     @Getter
     @Builder
-    public static class Operation {
-        private long term;
-        private long index;
-        private String command;
-        private byte[] data;
+    public static class ChunkData {
+        public String chunkName;
+        public byte[] data;
     }
 
     @Override
     public byte getMessageMarker() {
-        return MessageMarkerConstants.APPEND_REQUEST_MESSAGE_MARKER;
+        return MessageMarkerConstants.INSTALL_SNAPSHOT_REQUEST_MESSAGE_MARKER;
     }
 }

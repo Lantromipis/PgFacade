@@ -4,11 +4,11 @@ import com.lantromipis.pgfacadeprotocol.constant.InternalRaftCommandsConstants;
 import com.lantromipis.pgfacadeprotocol.exception.NotActiveException;
 import com.lantromipis.pgfacadeprotocol.exception.NotLeaderException;
 import com.lantromipis.pgfacadeprotocol.message.*;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftGroup;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftRole;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
-import com.lantromipis.pgfacadeprotocol.model.internal.*;
+import com.lantromipis.pgfacadeprotocol.model.api.*;
+import com.lantromipis.pgfacadeprotocol.model.internal.LogEntry;
+import com.lantromipis.pgfacadeprotocol.model.internal.RaftNodeCallbackInfo;
+import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
+import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
 import com.lantromipis.pgfacadeprotocol.netty.RaftServerChannelInitializer;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftServer;
@@ -81,6 +81,7 @@ public class RaftServerImpl implements RaftServer {
         context.setSelfRole(RaftRole.FOLLOWER);
         context.setCurrentTerm(new AtomicLong(0));
         context.setCommitIndex(new AtomicLong(-1));
+        context.setStateMachineApplyIndex(new AtomicLong(0));
         context.setEventListener(raftEventListener);
         context.setRaftStateMachine(raftStateMachine);
         context.setOperationLog(new RaftServerOperationsLog());
@@ -94,7 +95,8 @@ public class RaftServerImpl implements RaftServer {
                 this::processRaftNodeResponseCallback
         );
         commitProcessor = new RaftCommitProcessor(
-                context
+                context,
+                properties
         );
     }
 
@@ -186,39 +188,76 @@ public class RaftServerImpl implements RaftServer {
 
     private void heartBeat() {
         for (var wrapper : context.getRaftPeers().values()) {
-            List<AppendRequest.Operation> operations = new ArrayList<>();
             long nextPeerIndex = wrapper.getNextIndex().get();
             long prevPeerIndex = nextPeerIndex - 1;
             long lastIndex = context.getOperationLog().getLastIndex().get();
+            long firstIndex = context.getOperationLog().getFirstIndexInLog().get();
 
-            if (nextPeerIndex <= lastIndex) {
-                LogEntry logEntry = context.getOperationLog().getLogEntry(nextPeerIndex);
-                // TODO only single operation for now for stability
-                operations.add(
-                        AppendRequest.Operation
-                                .builder()
-                                .term(logEntry.getTerm())
-                                .index(logEntry.getIndex())
-                                .command(logEntry.getCommand())
-                                .data(Arrays.copyOf(logEntry.getData(), logEntry.getData().length))
-                                .build()
+            AbstractMessage message;
+
+            if (prevPeerIndex < firstIndex) {
+                List<SnapshotChunk> chunks = new ArrayList<>();
+                context.getRaftStateMachine().takeSnapshot(
+                        lastIndex,
+                        chunks::add
                 );
-            }
-            // else prevPeerIndex = nextPeerIndex
 
-            AppendRequest appendRequest = AppendRequest.builder()
-                    .groupId(context.getRaftGroupId())
-                    .nodeId(context.getSelfNodeId())
-                    .previousLogIndex(prevPeerIndex)
-                    .previousTerm(context.getOperationLog().getTerm(prevPeerIndex))
-                    .currentTerm(context.getCurrentTerm().get())
-                    .leaderCommit(context.getCommitIndex().get())
-                    .operations(operations)
-                    .build();
+                log.info("INSTALL SNAPSHOT REQUEST GENERATION. NEXT INDEX: {} FIRST INDEX: {} LAST INDEX: {}", nextPeerIndex, firstIndex, lastIndex);
+
+                message = InstallSnapshotRequest
+                        .builder()
+                        .groupId(context.getRaftGroupId())
+                        .nodeId(context.getSelfNodeId())
+                        .term(context.getCurrentTerm().get())
+                        .leaderId(context.getSelfNodeId())
+                        .leaderCommit(context.getCommitIndex().get())
+                        .lastIncludedIndex(lastIndex)
+                        .chunks(chunks.
+                                stream()
+                                .map(chunk -> InstallSnapshotRequest.ChunkData
+                                        .builder()
+                                        .chunkName(chunk.getName())
+                                        .data(chunk.getData())
+                                        .build()
+                                )
+                                .collect(Collectors.toList()))
+                        .build();
+            } else {
+                List<AppendRequest.Operation> operations = new ArrayList<>();
+
+                if (nextPeerIndex <= lastIndex) {
+                    LogEntry logEntry = context.getOperationLog().getLogEntry(nextPeerIndex);
+                    if (logEntry == null) {
+                        log.error("DEBUG: NEXT INDEX {} LAST INDEX {} LAST INDEX 2 {}", nextPeerIndex, lastIndex, context.getOperationLog().getLastIndex().get());
+                    }
+                    // TODO only single operation for now for stability
+                    operations.add(
+                            AppendRequest.Operation
+                                    .builder()
+                                    .term(logEntry.getTerm())
+                                    .index(logEntry.getIndex())
+                                    .command(logEntry.getCommand())
+                                    .data(Arrays.copyOf(logEntry.getData(), logEntry.getData().length))
+                                    .build()
+                    );
+                }
+
+                message = AppendRequest
+                        .builder()
+                        .groupId(context.getRaftGroupId())
+                        .nodeId(context.getSelfNodeId())
+                        .previousLogIndex(prevPeerIndex)
+                        .previousTerm(context.getOperationLog().getTerm(prevPeerIndex))
+                        .currentTerm(context.getCurrentTerm().get())
+                        .leaderCommit(context.getCommitIndex().get())
+                        .operations(operations)
+                        .shrinkIndex(firstIndex)
+                        .build();
+            }
 
             RaftUtils.tryToSendMessageToPeer(
                     wrapper,
-                    appendRequest,
+                    message,
                     context,
                     properties,
                     this::processRaftNodeResponseCallback
@@ -230,8 +269,6 @@ public class RaftServerImpl implements RaftServer {
         AbstractMessage message = callbackInfo.getMessage();
 
         if (message instanceof UnknownMessage) {
-            //log.debug("Rejecting request with unknown message");
-
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
                     RejectResponse
@@ -266,6 +303,9 @@ public class RaftServerImpl implements RaftServer {
             case APPEND_RESPONSE_MESSAGE_MARKER -> {
                 //log.trace("Received APPEND RESPONSE from node {}", message.getNodeId());
                 processAppendResponse(callbackInfo);
+            }
+            case INSTALL_SNAPSHOT_RESPONSE_MESSAGE_MARKER -> {
+                processInstallSnapshotResponse(callbackInfo);
             }
         }
     }
@@ -315,6 +355,9 @@ public class RaftServerImpl implements RaftServer {
                 //log.trace("Received APPEND REQUEST from node {}", message.getNodeId());
                 processAppendRequest(callbackInfo);
             }
+            case INSTALL_SNAPSHOT_REQUEST_MESSAGE_MARKER -> {
+                processInstallSnapshotRequest(callbackInfo);
+            }
         }
     }
 
@@ -330,13 +373,16 @@ public class RaftServerImpl implements RaftServer {
         RaftPeerWrapper wrapper = context.getRaftPeers().get(appendResponse.getNodeId());
         if (appendResponse.isSuccess()) {
             wrapper.getNextIndex().incrementAndGet();
-            wrapper.getMatchIndex().set(appendResponse.getMatchIndex());
+            wrapper.getMatchIndex().getAndSet(appendResponse.getMatchIndex());
+            wrapper.getCommitIndex().getAndSet(appendResponse.getCommitIndex());
         } else {
             // failed, decrement and retry
             wrapper.getNextIndex().decrementAndGet();
         }
 
-        commitProcessor.leaderCommit();
+        if (commitProcessor.leaderCommit()) {
+            heartBeat();
+        }
     }
 
     private synchronized void processAppendRequest(RaftNodeCallbackInfo callbackInfo) {
@@ -353,6 +399,7 @@ public class RaftServerImpl implements RaftServer {
                             .term(context.getCurrentTerm().get())
                             .success(false)
                             .matchIndex(-1)
+                            .commitIndex(-1)
                             .build()
             );
             return;
@@ -371,7 +418,10 @@ public class RaftServerImpl implements RaftServer {
 
         // Reply false if operations does not contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
         if (appendRequest.getPreviousLogIndex() > context.getOperationLog().getLastIndex().get()
-                || appendRequest.getPreviousTerm() != context.getOperationLog().getTerm(appendRequest.getPreviousLogIndex())) {
+                || (
+                context.getOperationLog().containsIndex(appendRequest.getPreviousLogIndex())
+                        && appendRequest.getPreviousTerm() != context.getOperationLog().getTerm(appendRequest.getPreviousLogIndex()))
+        ) {
             NettyUtils.writeAndFlushIfChannelActive(
                     callbackInfo.getChannel(),
                     AppendResponse
@@ -381,6 +431,7 @@ public class RaftServerImpl implements RaftServer {
                             .term(context.getCurrentTerm().get())
                             .success(false)
                             .matchIndex(-1)
+                            .commitIndex(-1)
                             .build()
             );
             return;
@@ -406,12 +457,28 @@ public class RaftServerImpl implements RaftServer {
                         operation.getCommand(),
                         operation.getData()
                 );
-                //log.debug("Appended entry with index {} command {} and data {} to log!", index, operation.getCommand(), new String(operation.getData()));
+                log.info("APPENDED COMMAND {} WITH INDEX {}", operation.getCommand(), index);
             }
         }
 
         if (appendRequest.getLeaderCommit() > context.getCommitIndex().get()) {
             commitProcessor.followerCommit(appendRequest.getLeaderCommit());
+        }
+
+        if (operationLog.getLastIndex().get() > appendRequest.getShrinkIndex()
+                && operationLog.getFirstIndexInLog().get() < appendRequest.getShrinkIndex()
+                && context.getCommitIndex().get() >= appendRequest.getLeaderCommit()) {
+            if (context.getStateMachineApplyIndex().get() < appendRequest.getShrinkIndex()) {
+                log.error("SHRINK LESS THAN APPLIED INDEX");
+            } else {
+                // TODO remove
+                long test = operationLog.getFirstIndexInLog().get();
+
+                operationLog.shrinkLog(appendRequest.getShrinkIndex());
+
+                // TODO remove
+                log.info("SHRIEKED LOG FROM {} TO {}", test, operationLog.getFirstIndexInLog().get());
+            }
         }
 
         NettyUtils.writeAndFlushIfChannelActive(
@@ -423,7 +490,84 @@ public class RaftServerImpl implements RaftServer {
                         .term(context.getCurrentTerm().get())
                         .success(true)
                         .matchIndex(operationLog.getLastIndex().get())
+                        .commitIndex(context.getCommitIndex().get())
                         .build()
         );
+    }
+
+    private void processInstallSnapshotRequest(RaftNodeCallbackInfo callbackInfo) {
+        InstallSnapshotRequest request = (InstallSnapshotRequest) callbackInfo.getMessage();
+
+        log.info("INSTALL SNAPSHOT REQUEST PROCESSING 1");
+
+        // Reply false if term < currentTerm(§ 5.1)
+        if (request.getTerm() < context.getCurrentTerm().get()) {
+            NettyUtils.writeAndFlushIfChannelActive(
+                    callbackInfo.getChannel(),
+                    InstallSnapshotResponse
+                            .builder()
+                            .groupId(context.getRaftGroupId())
+                            .nodeId(context.getSelfNodeId())
+                            .term(context.getCurrentTerm().get())
+                            .lastIndex(-1)
+                            .success(false)
+                            .build()
+            );
+            return;
+        }
+        voteTimer.reset();
+        log.info("INSTALL SNAPSHOT REQUEST PROCESSING 2");
+
+        if (request.getLastIncludedIndex() > context.getOperationLog().getLastIndex().get()) {
+            if (context.getRaftStateMachine() != null) {
+                context.getRaftStateMachine().installSnapshot(
+                        request.getLastIncludedIndex(),
+                        request.getChunks()
+                                .stream()
+                                .map(chunk -> SnapshotChunk
+                                        .builder()
+                                        .name(chunk.getChunkName())
+                                        .data(chunk.getData())
+                                        .build()
+                                )
+                                .collect(Collectors.toList())
+                );
+            }
+            context.getOperationLog().shrinkLog(request.getLastIncludedIndex());
+            context.getCommitIndex().getAndSet(request.getLastIncludedIndex());
+            context.getStateMachineApplyIndex().getAndSet(request.getLastIncludedIndex());
+            log.info("INSTALL SNAPSHOT REQUEST PROCESSING 3. SHRINK INDEX {}", request.getLastIncludedIndex());
+        }
+
+        log.info("INSTALL SNAPSHOT REQUEST PROCESSING 4. LAST INDEX {}", context.getOperationLog().getLastIndex().get());
+
+        NettyUtils.writeAndFlushIfChannelActive(
+                callbackInfo.getChannel(),
+                InstallSnapshotResponse
+                        .builder()
+                        .groupId(context.getRaftGroupId())
+                        .nodeId(context.getSelfNodeId())
+                        .term(context.getCurrentTerm().get())
+                        .success(true)
+                        .lastIndex(context.getOperationLog().getLastIndex().get())
+                        .build()
+        );
+    }
+
+    private void processInstallSnapshotResponse(RaftNodeCallbackInfo callbackInfo) {
+        InstallSnapshotResponse installSnapshotResponse = (InstallSnapshotResponse) callbackInfo.getMessage();
+
+        if (installSnapshotResponse.getTerm() > context.getCurrentTerm().get()) {
+            // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+            electionProcessor.processTermGreaterThanCurrent(installSnapshotResponse.getTerm());
+            return;
+        }
+
+        RaftPeerWrapper wrapper = context.getRaftPeers().get(installSnapshotResponse.getNodeId());
+        log.info("INSTALL RESPONSE. SUCCESS {} LAST INDEX {}", installSnapshotResponse.isSuccess(), installSnapshotResponse.getLastIndex());
+        if (installSnapshotResponse.isSuccess()) {
+            wrapper.getNextIndex().getAndSet(installSnapshotResponse.getLastIndex() + 1);
+            wrapper.getMatchIndex().getAndSet(installSnapshotResponse.getLastIndex());
+        }
     }
 }

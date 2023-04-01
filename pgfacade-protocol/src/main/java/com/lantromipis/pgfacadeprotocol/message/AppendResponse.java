@@ -13,6 +13,7 @@ public class AppendResponse extends AbstractMessage {
     private long term;
     private boolean success;
     private long matchIndex;
+    private long commitIndex;
 
     @Override
     public byte getMessageMarker() {

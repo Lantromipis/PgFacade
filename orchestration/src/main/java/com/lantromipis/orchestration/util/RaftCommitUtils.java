@@ -9,17 +9,17 @@ import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.orchestration.service.api.raft.RaftStorage;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Event;
 import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @ApplicationScoped
 public class RaftCommitUtils {
 
@@ -41,6 +41,31 @@ public class RaftCommitUtils {
     @Inject
     Event<SwitchoverCompletedEvent> switchoverCompletedEvent;
 
+    @Inject
+    RaftStorage raftStorage;
+
+    public void processInstallSnapshot() {
+        raftStorage.getPostgresNodeInfos().forEach(
+                info -> {
+                    try {
+                        PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(
+                                info.getAdapterIdentifier()
+                        );
+
+                        orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(
+                                PostgresCombinedInstanceInfo
+                                        .builder()
+                                        .persisted(info)
+                                        .adapter(adapterInstanceInfo)
+                                        .build()
+                        );
+                    } catch (Exception e) {
+                        log.error("Failed to add instance to runtime properties, when installing new snapshot from Raft. Maybe instance is removed.");
+                    }
+                }
+        );
+    }
+
     public void processCommittedSwitchoverStartedEvent(SwitchoverStartedEvent event) {
         switchoverStartedEvent.fire(event);
     }
@@ -50,17 +75,22 @@ public class RaftCommitUtils {
     }
 
     public void processCommittedSavePostgresNodeInfoCommand(PostgresPersistedInstanceInfo committedInfo) {
-        PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(
-                committedInfo.getAdapterIdentifier()
-        );
+        try {
+            PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(
+                    committedInfo.getAdapterIdentifier()
+            );
 
-        orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(
-                PostgresCombinedInstanceInfo
-                        .builder()
-                        .persisted(committedInfo)
-                        .adapter(adapterInstanceInfo)
-                        .build()
-        );
+            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(
+                    PostgresCombinedInstanceInfo
+                            .builder()
+                            .persisted(committedInfo)
+                            .adapter(adapterInstanceInfo)
+                            .build()
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to add instance to runtime properties, after its info was committed in Raft. Maybe instance is removed.");
+        }
     }
 
     public void processCommittedDeletePostgresNodeInfoCommand(UUID deletedInstanceId) {

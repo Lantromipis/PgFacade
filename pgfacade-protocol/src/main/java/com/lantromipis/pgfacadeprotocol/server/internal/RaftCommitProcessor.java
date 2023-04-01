@@ -2,6 +2,7 @@ package com.lantromipis.pgfacadeprotocol.server.internal;
 
 import com.lantromipis.pgfacadeprotocol.constant.InternalRaftCommandsConstants;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
+import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
 import com.lantromipis.pgfacadeprotocol.model.internal.LogEntry;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
@@ -15,15 +16,17 @@ import java.util.Objects;
 @Slf4j
 public class RaftCommitProcessor {
     private RaftServerContext context;
+    private RaftServerProperties properties;
 
-    public RaftCommitProcessor(RaftServerContext context) {
+    public RaftCommitProcessor(RaftServerContext context, RaftServerProperties properties) {
         this.context = context;
+        this.properties = properties;
     }
 
-    public void leaderCommit() {
+    public boolean leaderCommit() {
         if (!context.getCommitInProgress().compareAndSet(false, true)) {
             // some thread already committing
-            return;
+            return false;
         }
 
         try {
@@ -35,6 +38,7 @@ public class RaftCommitProcessor {
             var operationLog = context.getOperationLog();
 
             long n = context.getCommitIndex().get() + 1;
+            int committedCount = 0;
 
             while (true) {
                 long finalN = n;
@@ -52,13 +56,26 @@ public class RaftCommitProcessor {
                         n++;
                         continue;
                     }
-                    context.getCommitIndex().set(n);
+                    context.getCommitIndex().getAndSet(n);
+                    committedCount++;
+                    operationLog.getCommitsFromLastShrink().incrementAndGet();
 
                     callStateMachine(n);
 
                     n++;
                 } else {
-                    return;
+                    long commitsFromLastShrink = operationLog.getCommitsFromLastShrink().get();
+
+                    if (commitsFromLastShrink > properties.getShrinkLogEveryNumOfCommits()) {
+                        long lastIndex = context.getCommitIndex().get() - 1;
+
+                        operationLog.shrinkLog(lastIndex);
+                        operationLog.getCommitsFromLastShrink().getAndSet(0);
+
+                        // TODO remove
+                        log.info("LEADER COMMIT SHRINKS. NEW SIZE {} FIRST INDEX {}", operationLog.getOperationsLog().size(), operationLog.getFirstIndexInLog().get());
+                    }
+                    return committedCount > 0;
                 }
             }
         } finally {
@@ -71,7 +88,7 @@ public class RaftCommitProcessor {
 
         long lastIndex = operationLog.getLastIndex().get();
         long commitIndex = Math.min(leaderCommit, lastIndex);
-        context.getCommitIndex().set(commitIndex);
+        context.getCommitIndex().getAndSet(commitIndex);
 
         callStateMachine(commitIndex);
 
@@ -85,6 +102,11 @@ public class RaftCommitProcessor {
     private void callStateMachine(long commitIndex) {
         if (context.getRaftStateMachine() != null) {
             LogEntry logEntry = context.getOperationLog().getLogEntry(commitIndex);
+
+            if (logEntry == null) {
+                log.error("Missing committed command at index {}!", commitIndex);
+                return;
+            }
 
             String command = logEntry.getCommand();
 
@@ -113,5 +135,6 @@ public class RaftCommitProcessor {
                 );
             }
         }
+        context.getStateMachineApplyIndex().getAndSet(commitIndex);
     }
 }

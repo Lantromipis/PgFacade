@@ -1,4 +1,7 @@
 pg-facade:
+  raft:
+    nodes: 3
+    nodes-count-check-interval: PT10S
   shutdown:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-

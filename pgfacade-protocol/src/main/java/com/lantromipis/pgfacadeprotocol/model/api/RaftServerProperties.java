@@ -1,8 +1,9 @@
 package com.lantromipis.pgfacadeprotocol.model.api;
 
-import lombok.*;
-
-import java.util.Random;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
 @Builder
@@ -14,4 +15,5 @@ public class RaftServerProperties {
     private int voteTimeout = 2000;
     private int heartbeatTimeout = 100;
     private int aquireConnectionTimeout = 100;
+    private int shrinkLogEveryNumOfCommits = 6;
 }

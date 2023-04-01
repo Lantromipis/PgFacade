@@ -173,7 +173,7 @@ public class RaftElectionProcessor {
                 if (grantedVotes >= quorum) {
                     log.debug("Election WON!");
                     context.getRaftPeers().values()
-                            .forEach(wrapper -> wrapper.getNextIndex().set(
+                            .forEach(wrapper -> wrapper.getNextIndex().getAndSet(
                                             context.getOperationLog().getLastIndex().get() + 1
                                     )
                             );
@@ -200,7 +200,7 @@ public class RaftElectionProcessor {
 
     public void processTermGreaterThanCurrent(long term) {
         context.setSelfRole(RaftRole.FOLLOWER);
-        context.getCurrentTerm().set(term);
+        context.getCurrentTerm().getAndSet(term);
         context.getVoteResponses().clear();
         context.setVotedForNodeId(null);
     }

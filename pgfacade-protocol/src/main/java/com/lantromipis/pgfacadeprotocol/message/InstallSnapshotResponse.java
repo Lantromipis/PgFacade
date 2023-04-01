@@ -8,10 +8,14 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @SuperBuilder
 @EqualsAndHashCode(callSuper = true)
-public class HelloRequest extends AbstractMessage {
+public class InstallSnapshotResponse extends AbstractMessage {
+
+    private long term;
+    private boolean success;
+    private long lastIndex;
 
     @Override
     public byte getMessageMarker() {
-        return MessageMarkerConstants.HELLO_REQUEST_MESSAGE_MARKER;
+        return MessageMarkerConstants.INSTALL_SNAPSHOT_RESPONSE_MESSAGE_MARKER;
     }
 }

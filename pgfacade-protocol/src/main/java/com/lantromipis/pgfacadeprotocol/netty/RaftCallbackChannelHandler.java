@@ -4,9 +4,11 @@ import com.lantromipis.pgfacadeprotocol.message.AbstractMessage;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftNodeCallbackInfo;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.function.Consumer;
 
+@Slf4j
 public class RaftCallbackChannelHandler extends ChannelInboundHandlerAdapter {
     private Consumer<RaftNodeCallbackInfo> callbackInfoConsumer;
 
@@ -26,4 +28,9 @@ public class RaftCallbackChannelHandler extends ChannelInboundHandlerAdapter {
         ctx.channel().read();
     }
 
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        log.error("Exception in Raft channel! Closing channel...", cause);
+        ctx.channel().close();
+    }
 }

@@ -1,6 +1,7 @@
 package com.lantromipis.orchestration.service.impl;
 
-import com.lantromipis.configuration.event.*;
+import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
+import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
@@ -9,7 +10,10 @@ import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
-import com.lantromipis.orchestration.model.*;
+import com.lantromipis.orchestration.model.InstanceHealth;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
@@ -530,6 +534,23 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void checkAndFixStandbyCount(List<PostgresCombinedInstanceInfo> availableInstances) {
+        //remove unhealthy or inactive standby
+        availableInstances
+                .stream()
+                .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
+                .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
+                .filter(info ->
+                        !info.getAdapter().isActive()
+                                || InstanceHealth.UNHEALTHY.equals(info.getAdapter().getHealth())
+
+                )
+                .forEach(info -> {
+                    if (raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
+                        log.info("Found unhealthy or inactive standby. Removing it.");
+                        removeStandby(info);
+                    }
+                });
+
         List<PostgresCombinedInstanceInfo> healthyOrStartingStandby = availableInstances
                 .stream()
                 .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
@@ -541,7 +562,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         long countDiff = orchestrationProperties.common().standby().count() - healthyOrStartingStandby.size();
 
-        if (healthyOrStartingStandby.size() < orchestrationProperties.common().standby().count()) {
+        if (healthyOrStartingStandby.size() < orchestrationProperties.common().standby().count() && raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
             log.warn("Found {} starting or healthy standby while it is required to have {}. Need to start {} more.",
                     healthyOrStartingStandby.size(),
                     orchestrationProperties.common().standby().count(),
@@ -552,8 +573,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             for (int i = 0; i < countDiff; i++) {
                 completableFutureList.add(managedExecutor.runAsync(() -> {
-                            PostgresCombinedInstanceInfo instanceInfo = createStartAndWaitForNewInstanceToBeReady(false);
-                            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(instanceInfo);
+                            createStartAndWaitForNewInstanceToBeReady(false);
                             log.info("Standby is up and running!");
                         })
                 );
@@ -575,21 +595,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 platformAdapter.get().deleteInstance(healthyOrStartingStandby.get(i).getAdapter().getAdapterInstanceId());
             }
         }
-
-        //remove unhealthy or inactive standby
-        availableInstances
-                .stream()
-                .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
-                .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
-                .filter(info ->
-                        !info.getAdapter().isActive()
-                                || InstanceHealth.UNHEALTHY.equals(info.getAdapter().getHealth())
-
-                )
-                .forEach(info -> {
-                    log.info("Found unhealthy or inactive standby. Removing it.");
-                    removeStandby(info);
-                });
     }
 
     private void removeStandby(PostgresCombinedInstanceInfo standbyInstanceInfo) {

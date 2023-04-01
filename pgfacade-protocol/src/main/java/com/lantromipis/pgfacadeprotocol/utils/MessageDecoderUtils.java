@@ -13,11 +13,8 @@ public class MessageDecoderUtils {
         byte marker = byteBuf.readByte();
 
         switch (marker) {
-            case HELLO_REQUEST_MESSAGE_MARKER -> {
-                return decodeHelloRequestMessage(byteBuf);
-            }
-            case HELLO_RESPONSE_MESSAGE_MARKER -> {
-                return decodeHelloResponseMessage(byteBuf);
+            case REJECT_MESSAGE_MARKER -> {
+                return decodeRejectResponse(byteBuf);
             }
             case VOTE_REQUEST_MESSAGE_MARKER -> {
                 return decodeVoteRequestMessage(byteBuf);
@@ -30,6 +27,12 @@ public class MessageDecoderUtils {
             }
             case APPEND_RESPONSE_MESSAGE_MARKER -> {
                 return decodeAppendResponseMessage(byteBuf);
+            }
+            case INSTALL_SNAPSHOT_REQUEST_MESSAGE_MARKER -> {
+                return decodeInstallSnapshotRequest(byteBuf);
+            }
+            case INSTALL_SNAPSHOT_RESPONSE_MESSAGE_MARKER -> {
+                return decodeInstallSnapshotResponse(byteBuf);
             }
             default -> {
                 return UnknownMessage.builder().build();
@@ -53,21 +56,12 @@ public class MessageDecoderUtils {
         return bytes;
     }
 
-    private static HelloRequest decodeHelloRequestMessage(ByteBuf byteBuf) {
-        return HelloRequest
+    public static RejectResponse decodeRejectResponse(ByteBuf byteBuf) {
+        return RejectResponse
                 .builder()
                 .groupId(readString(byteBuf))
                 .nodeId(readString(byteBuf))
-                .build();
-    }
-
-    private static HelloResponse decodeHelloResponseMessage(ByteBuf byteBuf) {
-        return HelloResponse
-                .builder()
-                .groupId(readString(byteBuf))
-                .nodeId(readString(byteBuf))
-                .ack(byteBuf.readBoolean())
-                .currentLeaderNodeId(readString(byteBuf))
+                .message(readString(byteBuf))
                 .build();
     }
 
@@ -124,6 +118,7 @@ public class MessageDecoderUtils {
                 .previousTerm(byteBuf.readLong())
                 .leaderCommit(byteBuf.readLong())
                 .operations(decodeOperations(byteBuf))
+                .shrinkIndex(byteBuf.readLong())
                 .build();
     }
 
@@ -135,7 +130,47 @@ public class MessageDecoderUtils {
                 .term(byteBuf.readLong())
                 .success(byteBuf.readBoolean())
                 .matchIndex(byteBuf.readLong())
+                .commitIndex(byteBuf.readLong())
                 .build();
     }
 
+    private static List<InstallSnapshotRequest.ChunkData> decodeChunks(ByteBuf byteBuf) {
+        int count = byteBuf.readInt();
+        List<InstallSnapshotRequest.ChunkData> chunks = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            chunks.add(
+                    InstallSnapshotRequest.ChunkData
+                            .builder()
+                            .chunkName(readString(byteBuf))
+                            .data(readByteArray(byteBuf))
+                            .build()
+            );
+        }
+
+        return chunks;
+    }
+
+    private static InstallSnapshotRequest decodeInstallSnapshotRequest(ByteBuf byteBuf) {
+        return InstallSnapshotRequest
+                .builder()
+                .groupId(readString(byteBuf))
+                .nodeId(readString(byteBuf))
+                .term(byteBuf.readLong())
+                .leaderId(readString(byteBuf))
+                .lastIncludedIndex(byteBuf.readLong())
+                .leaderCommit(byteBuf.readLong())
+                .chunks(decodeChunks(byteBuf))
+                .build();
+    }
+
+    public static InstallSnapshotResponse decodeInstallSnapshotResponse(ByteBuf byteBuf) {
+        return InstallSnapshotResponse
+                .builder()
+                .groupId(readString(byteBuf))
+                .nodeId(readString(byteBuf))
+                .term(byteBuf.readLong())
+                .success(byteBuf.readBoolean())
+                .lastIndex(byteBuf.readLong())
+                .build();
+    }
 }

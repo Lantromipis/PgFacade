@@ -1,6 +1,10 @@
 package com.lantromipis.orchestration.constant;
 
-public class RaftCommandConstants {
+public class RaftConstants {
+
+    // chunks
+    public static final String POSTGRES_NODES_INFO_CHUNK = "nodeInfosChunk";
+    public static final String POSTGRES_SETTINGS_INFO_CHUNK = "settingsInfosChunk";
 
     // events
     public static final String NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED = "NACASS";
@@ -17,6 +21,6 @@ public class RaftCommandConstants {
     // other
     public static final String DUMMY_COMMIT_TEST_COMMAND = "DCTC";
 
-    private RaftCommandConstants() {
+    private RaftConstants() {
     }
 }

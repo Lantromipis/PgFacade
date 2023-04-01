@@ -2,17 +2,13 @@ package com.lantromipis.orchestration.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lantromipis.configuration.event.StandbyAddedEvent;
-import com.lantromipis.configuration.event.StandbyRemovedEvent;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
-import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
-import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -21,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static com.lantromipis.orchestration.constant.RaftCommandConstants.*;
+import static com.lantromipis.orchestration.constant.RaftConstants.*;
 
 @Slf4j
 @ApplicationScoped
@@ -30,19 +26,13 @@ public class RaftFunctionalityCombinator {
     PgFacadeRaftService raftService;
 
     @Inject
-    RaftEventListener raftEventListener;
-
-    @Inject
-    ClusterRuntimeProperties clusterRuntimeProperties;
-
-    @Inject
     RaftStorage raftStorage;
 
     @Inject
     ObjectMapper objectMapper;
 
 
-    private static final long TIMEOUT = 1000;
+    private static final long TIMEOUT = 2000;
 
     public boolean testIfAbleToCommitToRaftNoException() {
         try {

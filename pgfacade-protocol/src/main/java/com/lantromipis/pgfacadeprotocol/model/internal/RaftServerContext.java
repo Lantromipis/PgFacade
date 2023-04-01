@@ -21,6 +21,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RaftServerContext {
+
+    private String workDirPath;
+
     private boolean active;
     private AtomicBoolean commitInProgress;
 
@@ -37,6 +40,7 @@ public class RaftServerContext {
     private RaftRole selfRole = RaftRole.FOLLOWER;
     private AtomicLong currentTerm;
     private AtomicLong commitIndex;
+    private AtomicLong stateMachineApplyIndex;
     private boolean notifiedStartupSync = false;
 
     private RaftServerOperationsLog operationLog;

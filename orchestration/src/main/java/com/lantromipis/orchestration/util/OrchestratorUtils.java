@@ -6,6 +6,8 @@ import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -13,6 +15,7 @@ import javax.enterprise.event.Event;
 import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -79,13 +82,20 @@ public class OrchestratorUtils {
         return raftFunctionalityCombinator
                 .getPostgresNodeInfos()
                 .stream()
-                .map(info ->
-                        PostgresCombinedInstanceInfo
-                                .builder()
-                                .adapter(platformAdapter.get().getPostgresInstanceInfo(info.getAdapterIdentifier()))
-                                .persisted(info)
-                                .build()
-                );
+                .map(info -> {
+                            try {
+                                PostgresAdapterInstanceInfo postgresAdapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(info.getAdapterIdentifier());
+                                return PostgresCombinedInstanceInfo
+                                        .builder()
+                                        .adapter(postgresAdapterInstanceInfo)
+                                        .persisted(info)
+                                        .build();
+                            } catch (PlatformAdapterNotFoundException notFoundException) {
+                                return null;
+                            }
+                        }
+                )
+                .filter(Objects::nonNull);
     }
 
     public Stream<PostgresCombinedInstanceInfo> getCombinedInfosForStandbyInstancesAsStream() {
@@ -93,13 +103,20 @@ public class OrchestratorUtils {
                 .getPostgresNodeInfos()
                 .stream()
                 .filter(info -> !info.isPrimary())
-                .map(info ->
-                        PostgresCombinedInstanceInfo
-                                .builder()
-                                .adapter(platformAdapter.get().getPostgresInstanceInfo(info.getAdapterIdentifier()))
-                                .persisted(info)
-                                .build()
-                );
+                .map(info -> {
+                            try {
+                                PostgresAdapterInstanceInfo postgresAdapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(info.getAdapterIdentifier());
+                                return PostgresCombinedInstanceInfo
+                                        .builder()
+                                        .adapter(postgresAdapterInstanceInfo)
+                                        .persisted(info)
+                                        .build();
+                            } catch (PlatformAdapterNotFoundException notFoundException) {
+                                return null;
+                            }
+                        }
+                )
+                .filter(Objects::nonNull);
     }
 
     public List<PostgresCombinedInstanceInfo> getCombinedInfosForAvailableInstances() {

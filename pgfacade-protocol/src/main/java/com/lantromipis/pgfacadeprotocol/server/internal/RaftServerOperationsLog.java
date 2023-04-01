@@ -15,10 +15,14 @@ public class RaftServerOperationsLog {
     @Setter(AccessLevel.NONE)
     private ConcurrentMap<Long, LogEntry> operationsLog;
     private AtomicLong lastIndex;
+    private AtomicLong firstIndexInLog;
+    private AtomicLong commitsFromLastShrink;
 
     public RaftServerOperationsLog() {
         this.operationsLog = new ConcurrentHashMap<>();
         this.lastIndex = new AtomicLong(-1);
+        this.firstIndexInLog = new AtomicLong(0);
+        this.commitsFromLastShrink = new AtomicLong(0);
     }
 
     public LogEntry getLogEntry(long index) {
@@ -65,5 +69,19 @@ public class RaftServerOperationsLog {
         for (long i = index; i <= lastIndex.get(); i++) {
             operationsLog.remove(i);
         }
+    }
+
+    public void shrinkLog(long lastIndexToLeave) {
+        for (Long key : operationsLog.keySet()) {
+            if (key < lastIndexToLeave) {
+                operationsLog.remove(key);
+            }
+        }
+        firstIndexInLog.getAndSet(lastIndexToLeave);
+        lastIndex.getAndSet(lastIndexToLeave);
+    }
+
+    public boolean containsIndex(long index) {
+        return operationsLog.containsKey(index);
     }
 }

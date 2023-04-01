@@ -153,18 +153,23 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
 
     @Override
     public void appendToLogAndAwaitCommit(String command, byte[] data, long timeout) throws RaftException {
+        long commitIdx = 0;
         try {
-            long commitIdx = raftServer.appendToLog(
+            commitIdx = raftServer.appendToLog(
                     command,
                     data
             );
+            log.debug("Appended command {} with index {}", command, commitIdx);
             raftStateMachine.awaitCommit(commitIdx, timeout);
         } catch (RaftException e) {
+            log.debug("Error while waiting for command {} with index {} to commit", command, commitIdx);
             throw e;
         } catch (InterruptedException e) {
+            log.debug("Error while waiting for command {} with index {} to commit", command, commitIdx);
             Thread.currentThread().interrupt();
             throw new RaftException("Error while waiting for commit to complete.", e);
         } catch (Exception e) {
+            log.debug("Error while waiting for command {} with index {} to commit", command, commitIdx);
             throw new RaftException("Error while waiting for commit to complete.", e);
         }
     }
@@ -204,22 +209,4 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
             throw new RaftException("Failed to add new raft peer! ", e);
         }
     }
-
-/*    @Scheduled(every = "PT3S")
-    public void test() {
-        if (pgFacadeRuntimeProperties.isRaftServerUp() && pgFacadeRuntimeProperties.getRaftRole().equals(PgFacadeRaftRole.LEADER)) {
-            byte[] data = UUID.randomUUID().toString().getBytes();
-            long index = raftServer.appendToLog(
-                    "biba",
-                    data
-            );
-            log.info("APPENDED COMMAND WITH INDEX {} AND DATA {}", index, new String(data));
-            try {
-                raftStateMachine.awaitCommit(index, 1000);
-                log.info("FINISHED AWAITING COMMIT {}", index);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }*/
 }

@@ -1,9 +1,12 @@
 package com.lantromipis.pgfacadeprotocol.server.impl;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.function.Supplier;
 
+@Slf4j
 public class RaftTimer {
 
     private final int initialDelay;
@@ -15,7 +18,6 @@ public class RaftTimer {
 
     private boolean started = false;
     private boolean resetSignal = false;
-
 
 
     public RaftTimer(int initialDelay, int rate, Runnable actionOnTimeout, Supplier<Boolean> isRunningCheck) {
@@ -37,7 +39,11 @@ public class RaftTimer {
             public void run() {
                 if (isRunningCheck.get()) {
                     if (!resetSignal) {
-                        actionOnTimeout.run();
+                        try {
+                            actionOnTimeout.run();
+                        } catch (Exception e) {
+                            log.error("Exception in timer!", e);
+                        }
                     } else {
                         resetSignal = false;
                     }

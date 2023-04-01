@@ -8,14 +8,20 @@ import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
+import com.lantromipis.pgfacadeprotocol.model.api.SnapshotChunk;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
 
 import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.File;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
+
+import static com.lantromipis.orchestration.constant.RaftConstants.POSTGRES_NODES_INFO_CHUNK;
+import static com.lantromipis.orchestration.constant.RaftConstants.POSTGRES_SETTINGS_INFO_CHUNK;
 
 @Slf4j
 @ApplicationScoped
@@ -42,6 +48,59 @@ public class RaftFileBasedStorage implements RaftStorage {
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
+    }
+
+    @Override
+    public List<SnapshotChunk> getChunks() {
+        try {
+            postgresNodeInfoFileModificationLock.lock();
+            postgresSettingInfoFileModificationLock.lock();
+
+            List<SnapshotChunk> ret = new ArrayList<>();
+
+            ret.add(SnapshotChunk
+                    .builder()
+                    .data(Files.readAllBytes(postgresNodeInfoFile.toPath()))
+                    .name(POSTGRES_NODES_INFO_CHUNK)
+                    .build()
+            );
+            ret.add(SnapshotChunk
+                    .builder()
+                    .data(Files.readAllBytes(postgresSettingInfoFile.toPath()))
+                    .name(POSTGRES_SETTINGS_INFO_CHUNK)
+                    .build()
+            );
+
+            return ret;
+
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading nodes info from file", e);
+        } finally {
+            postgresNodeInfoFileModificationLock.unlock();
+            postgresSettingInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public void loadChunks(List<SnapshotChunk> chunks) throws PropertyModificationException {
+        try {
+            postgresNodeInfoFileModificationLock.lock();
+            postgresSettingInfoFileModificationLock.lock();
+
+            for (var chunk : chunks) {
+                if (POSTGRES_NODES_INFO_CHUNK.equals(chunk.getName())) {
+                    FileUtils.writeByteArrayToFile(postgresNodeInfoFile, chunk.getData(), false);
+                } else if (POSTGRES_SETTINGS_INFO_CHUNK.equals(chunk.getName())) {
+                    FileUtils.writeByteArrayToFile(postgresSettingInfoFile, chunk.getData(), false);
+                }
+            }
+
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading nodes info from file", e);
+        } finally {
+            postgresNodeInfoFileModificationLock.unlock();
+            postgresSettingInfoFileModificationLock.unlock();
+        }
     }
 
     @Override

@@ -14,6 +14,7 @@ public class RaftPeerWrapper {
     private RaftRole role;
     private AtomicLong nextIndex;
     private AtomicLong matchIndex;
+    private AtomicLong commitIndex;
     private Channel channelCreatedBySelf;
 
     public RaftPeerWrapper(RaftNode raftNode) {
@@ -21,6 +22,7 @@ public class RaftPeerWrapper {
         role = RaftRole.FOLLOWER;
         nextIndex = new AtomicLong(0);
         matchIndex = new AtomicLong(-1);
+        commitIndex = new AtomicLong(-1);
     }
 
     public synchronized void setChannelCreatedBySelf(Channel channelCreatedBySelf) {
