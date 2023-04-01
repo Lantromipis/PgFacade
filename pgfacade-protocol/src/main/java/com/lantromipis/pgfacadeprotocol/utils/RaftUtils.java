@@ -6,10 +6,29 @@ import com.lantromipis.pgfacadeprotocol.model.internal.RaftNodeCallbackInfo;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
 import io.netty.channel.ChannelFutureListener;
+import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+@Slf4j
 public class RaftUtils {
+
+    public static void updateIncrementalAtomicLong(AtomicLong atomicLong, long newValue) {
+        long v;
+        while (true) {
+            v = atomicLong.get();
+
+            if (v >= newValue) {
+                break;
+            }
+
+            if (atomicLong.compareAndSet(v, newValue)) {
+                break;
+            }
+            log.info("LOOPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP");
+        }
+    }
 
     public static void tryToSendMessageToAll(AbstractMessage message, RaftServerContext context, RaftServerProperties properties, Consumer<RaftNodeCallbackInfo> responseCallback) {
         for (RaftPeerWrapper wrapper : context.getRaftPeers().values()) {

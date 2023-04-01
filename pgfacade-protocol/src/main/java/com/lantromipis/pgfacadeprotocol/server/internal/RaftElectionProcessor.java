@@ -62,7 +62,7 @@ public class RaftElectionProcessor {
                 )
                         || (
                         operationsLog.getLastTerm() == voteRequest.getLastLogTerm()
-                                && operationsLog.getLastIndex().get() > voteRequest.getLastLogIndex()
+                                && operationsLog.getEffectiveLastIndex().get() > voteRequest.getLastLogIndex()
                 )
         );
 
@@ -125,7 +125,7 @@ public class RaftElectionProcessor {
                     .nodeId(context.getSelfNodeId())
                     .term(context.getCurrentTerm().get())
                     .lastLogTerm(context.getOperationLog().getLastTerm())
-                    .lastLogIndex(context.getOperationLog().getLastIndex().get())
+                    .lastLogIndex(context.getOperationLog().getEffectiveLastIndex().get())
                     .round(round)
                     .build();
 
@@ -174,7 +174,7 @@ public class RaftElectionProcessor {
                     log.debug("Election WON!");
                     context.getRaftPeers().values()
                             .forEach(wrapper -> wrapper.getNextIndex().getAndSet(
-                                            context.getOperationLog().getLastIndex().get() + 1
+                                            context.getOperationLog().getEffectiveLastIndex().get() + 1
                                     )
                             );
                     context.setSelfRole(RaftRole.LEADER);

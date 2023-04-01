@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
+import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
@@ -39,6 +41,9 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
 
     @Inject
     RaftCommitUtils raftCommitUtils;
+
+    @Inject
+    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
 
     private ConcurrentMap<Long, CountDownLatch> commitIndexLatches = new ConcurrentHashMap<>();
 
@@ -86,7 +91,9 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                     log.warn("Unknown raft command {}", command);
                 }
             }
-            log.debug("Committed command {} index {}", command, commitIndex);
+            if (pgFacadeRuntimeProperties.getRaftRole().equals(PgFacadeRaftRole.LEADER)) {
+                log.debug("Committed command {} index {}", command, commitIndex);
+            }
         } catch (JsonProcessingException e) {
             // Corner case. Leader must serialize object, before appending it to Raft log.
             log.warn("Failed to save committed operation!", e);
@@ -116,12 +123,13 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
 
     @Override
     public void takeSnapshot(long commitIndex, Consumer<SnapshotChunk> snapshotChunkConsumer) {
+        log.debug("Creating snapshot at index {}", commitIndex);
         raftStorage.getChunks().forEach(snapshotChunkConsumer);
     }
 
     @Override
     public void installSnapshot(long commitIndex, List<SnapshotChunk> snapshotChunks) {
-        log.info("INSTALLING SNAPSHOT {}", commitIndex);
+        log.debug("Installing snapshot with last index {}", commitIndex);
         raftStorage.loadChunks(snapshotChunks);
         raftCommitUtils.processInstallSnapshot();
     }

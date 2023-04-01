@@ -49,16 +49,12 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         }
     }
 
-    @Scheduled(every = "PT1S")
+    @Scheduled(every = "PT0.5S")
     public void test() {
         if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
-            int count = ThreadLocalRandom.current().nextInt(5 - 3) + 3;
+            int count = ThreadLocalRandom.current().nextInt(8 - 3) + 3;
             for (int i = 0; i < count; i++) {
-                try {
-                    raftFunctionalityCombinator.testIfAbleToCommitToRaft();
-                } catch (Exception e) {
-                    log.error("ERRRRORRRRRRR: ", e);
-                }
+                raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException();
             }
         }
     }

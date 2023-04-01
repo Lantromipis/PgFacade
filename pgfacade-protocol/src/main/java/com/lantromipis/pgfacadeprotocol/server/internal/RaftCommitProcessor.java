@@ -50,13 +50,13 @@ public class RaftCommitProcessor {
                 // count self
                 peersWithSuchN++;
 
-                if (operationLog.getLastIndex().get() >= n && peersWithSuchN >= RaftUtils.calculateQuorum(context)) {
+                if (operationLog.getEffectiveLastIndex().get() >= n && peersWithSuchN >= RaftUtils.calculateQuorum(context)) {
                     // do not commit previous leader
                     if (!Objects.equals(operationLog.getTerm(n), context.getCurrentTerm().get())) {
                         n++;
                         continue;
                     }
-                    context.getCommitIndex().getAndSet(n);
+                    RaftUtils.updateIncrementalAtomicLong(context.getCommitIndex(), n);
                     committedCount++;
                     operationLog.getCommitsFromLastShrink().incrementAndGet();
 
@@ -71,9 +71,6 @@ public class RaftCommitProcessor {
 
                         operationLog.shrinkLog(lastIndex);
                         operationLog.getCommitsFromLastShrink().getAndSet(0);
-
-                        // TODO remove
-                        log.info("LEADER COMMIT SHRINKS. NEW SIZE {} FIRST INDEX {}", operationLog.getOperationsLog().size(), operationLog.getFirstIndexInLog().get());
                     }
                     return committedCount > 0;
                 }
@@ -86,9 +83,9 @@ public class RaftCommitProcessor {
     public void followerCommit(long leaderCommit) {
         var operationLog = context.getOperationLog();
 
-        long lastIndex = operationLog.getLastIndex().get();
+        long lastIndex = operationLog.getEffectiveLastIndex().get();
         long commitIndex = Math.min(leaderCommit, lastIndex);
-        context.getCommitIndex().getAndSet(commitIndex);
+        RaftUtils.updateIncrementalAtomicLong(context.getCommitIndex(), commitIndex);
 
         callStateMachine(commitIndex);
 
@@ -100,13 +97,8 @@ public class RaftCommitProcessor {
     }
 
     private void callStateMachine(long commitIndex) {
-        if (context.getRaftStateMachine() != null) {
+        if (context.getStateMachineApplyIndex().get() < commitIndex && context.getRaftStateMachine() != null) {
             LogEntry logEntry = context.getOperationLog().getLogEntry(commitIndex);
-
-            if (logEntry == null) {
-                log.error("Missing committed command at index {}!", commitIndex);
-                return;
-            }
 
             String command = logEntry.getCommand();
 
@@ -135,6 +127,6 @@ public class RaftCommitProcessor {
                 );
             }
         }
-        context.getStateMachineApplyIndex().getAndSet(commitIndex);
+        RaftUtils.updateIncrementalAtomicLong(context.getStateMachineApplyIndex(), commitIndex);
     }
 }

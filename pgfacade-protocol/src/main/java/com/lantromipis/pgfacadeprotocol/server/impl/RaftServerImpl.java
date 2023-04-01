@@ -190,7 +190,7 @@ public class RaftServerImpl implements RaftServer {
         for (var wrapper : context.getRaftPeers().values()) {
             long nextPeerIndex = wrapper.getNextIndex().get();
             long prevPeerIndex = nextPeerIndex - 1;
-            long lastIndex = context.getOperationLog().getLastIndex().get();
+            long lastIndex = context.getOperationLog().getEffectiveLastIndex().get();
             long firstIndex = context.getOperationLog().getFirstIndexInLog().get();
 
             AbstractMessage message;
@@ -201,8 +201,6 @@ public class RaftServerImpl implements RaftServer {
                         lastIndex,
                         chunks::add
                 );
-
-                log.info("INSTALL SNAPSHOT REQUEST GENERATION. NEXT INDEX: {} FIRST INDEX: {} LAST INDEX: {}", nextPeerIndex, firstIndex, lastIndex);
 
                 message = InstallSnapshotRequest
                         .builder()
@@ -227,10 +225,7 @@ public class RaftServerImpl implements RaftServer {
 
                 if (nextPeerIndex <= lastIndex) {
                     LogEntry logEntry = context.getOperationLog().getLogEntry(nextPeerIndex);
-                    if (logEntry == null) {
-                        log.error("DEBUG: NEXT INDEX {} LAST INDEX {} LAST INDEX 2 {}", nextPeerIndex, lastIndex, context.getOperationLog().getLastIndex().get());
-                    }
-                    // TODO only single operation for now for stability
+                    // only single operation for now for stability
                     operations.add(
                             AppendRequest.Operation
                                     .builder()
@@ -373,8 +368,8 @@ public class RaftServerImpl implements RaftServer {
         RaftPeerWrapper wrapper = context.getRaftPeers().get(appendResponse.getNodeId());
         if (appendResponse.isSuccess()) {
             wrapper.getNextIndex().incrementAndGet();
-            wrapper.getMatchIndex().getAndSet(appendResponse.getMatchIndex());
-            wrapper.getCommitIndex().getAndSet(appendResponse.getCommitIndex());
+            RaftUtils.updateIncrementalAtomicLong(wrapper.getMatchIndex(), appendResponse.getMatchIndex());
+            RaftUtils.updateIncrementalAtomicLong(wrapper.getCommitIndex(), appendResponse.getCommitIndex());
         } else {
             // failed, decrement and retry
             wrapper.getNextIndex().decrementAndGet();
@@ -417,7 +412,7 @@ public class RaftServerImpl implements RaftServer {
         }
 
         // Reply false if operations does not contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-        if (appendRequest.getPreviousLogIndex() > context.getOperationLog().getLastIndex().get()
+        if (appendRequest.getPreviousLogIndex() > context.getOperationLog().getEffectiveLastIndex().get()
                 || (
                 context.getOperationLog().containsIndex(appendRequest.getPreviousLogIndex())
                         && appendRequest.getPreviousTerm() != context.getOperationLog().getTerm(appendRequest.getPreviousLogIndex()))
@@ -440,24 +435,23 @@ public class RaftServerImpl implements RaftServer {
         var operationLog = context.getOperationLog();
 
         if (CollectionUtils.isNotEmpty(appendRequest.getOperations())) {
-            // TODO only one operation for now for stability
+            // only one operation for now for stability
             AppendRequest.Operation operation = appendRequest.getOperations().get(0);
             long newOperationIndex = appendRequest.getPreviousLogIndex() + 1;
-            // If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it (§5.3)
 
-            if (newOperationIndex <= operationLog.getLastIndex().get()
+            // If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it (§5.3)
+            if (newOperationIndex <= operationLog.getEffectiveLastIndex().get()
                     && operation.getTerm() != operationLog.getTerm(newOperationIndex)) {
                 operationLog.removeAllStartingFrom(newOperationIndex);
             }
 
             // Append any new entries not already in the operations
-            if (newOperationIndex > operationLog.getLastIndex().get()) {
+            if (newOperationIndex > operationLog.getEffectiveLastIndex().get()) {
                 long index = operationLog.append(
                         operation.getTerm(),
                         operation.getCommand(),
                         operation.getData()
                 );
-                log.info("APPENDED COMMAND {} WITH INDEX {}", operation.getCommand(), index);
             }
         }
 
@@ -465,19 +459,11 @@ public class RaftServerImpl implements RaftServer {
             commitProcessor.followerCommit(appendRequest.getLeaderCommit());
         }
 
-        if (operationLog.getLastIndex().get() > appendRequest.getShrinkIndex()
+        if (operationLog.getEffectiveLastIndex().get() > appendRequest.getShrinkIndex()
                 && operationLog.getFirstIndexInLog().get() < appendRequest.getShrinkIndex()
                 && context.getCommitIndex().get() >= appendRequest.getLeaderCommit()) {
-            if (context.getStateMachineApplyIndex().get() < appendRequest.getShrinkIndex()) {
-                log.error("SHRINK LESS THAN APPLIED INDEX");
-            } else {
-                // TODO remove
-                long test = operationLog.getFirstIndexInLog().get();
-
+            if (context.getStateMachineApplyIndex().get() >= appendRequest.getShrinkIndex()) {
                 operationLog.shrinkLog(appendRequest.getShrinkIndex());
-
-                // TODO remove
-                log.info("SHRIEKED LOG FROM {} TO {}", test, operationLog.getFirstIndexInLog().get());
             }
         }
 
@@ -489,7 +475,7 @@ public class RaftServerImpl implements RaftServer {
                         .nodeId(context.getSelfNodeId())
                         .term(context.getCurrentTerm().get())
                         .success(true)
-                        .matchIndex(operationLog.getLastIndex().get())
+                        .matchIndex(operationLog.getEffectiveLastIndex().get())
                         .commitIndex(context.getCommitIndex().get())
                         .build()
         );
@@ -497,8 +483,6 @@ public class RaftServerImpl implements RaftServer {
 
     private void processInstallSnapshotRequest(RaftNodeCallbackInfo callbackInfo) {
         InstallSnapshotRequest request = (InstallSnapshotRequest) callbackInfo.getMessage();
-
-        log.info("INSTALL SNAPSHOT REQUEST PROCESSING 1");
 
         // Reply false if term < currentTerm(§ 5.1)
         if (request.getTerm() < context.getCurrentTerm().get()) {
@@ -516,9 +500,8 @@ public class RaftServerImpl implements RaftServer {
             return;
         }
         voteTimer.reset();
-        log.info("INSTALL SNAPSHOT REQUEST PROCESSING 2");
 
-        if (request.getLastIncludedIndex() > context.getOperationLog().getLastIndex().get()) {
+        if (request.getLastIncludedIndex() > context.getOperationLog().getEffectiveLastIndex().get()) {
             if (context.getRaftStateMachine() != null) {
                 context.getRaftStateMachine().installSnapshot(
                         request.getLastIncludedIndex(),
@@ -533,13 +516,10 @@ public class RaftServerImpl implements RaftServer {
                                 .collect(Collectors.toList())
                 );
             }
+            RaftUtils.updateIncrementalAtomicLong(context.getCommitIndex(), request.getLastIncludedIndex());
+            RaftUtils.updateIncrementalAtomicLong(context.getStateMachineApplyIndex(), request.getLastIncludedIndex());
             context.getOperationLog().shrinkLog(request.getLastIncludedIndex());
-            context.getCommitIndex().getAndSet(request.getLastIncludedIndex());
-            context.getStateMachineApplyIndex().getAndSet(request.getLastIncludedIndex());
-            log.info("INSTALL SNAPSHOT REQUEST PROCESSING 3. SHRINK INDEX {}", request.getLastIncludedIndex());
         }
-
-        log.info("INSTALL SNAPSHOT REQUEST PROCESSING 4. LAST INDEX {}", context.getOperationLog().getLastIndex().get());
 
         NettyUtils.writeAndFlushIfChannelActive(
                 callbackInfo.getChannel(),
@@ -549,7 +529,7 @@ public class RaftServerImpl implements RaftServer {
                         .nodeId(context.getSelfNodeId())
                         .term(context.getCurrentTerm().get())
                         .success(true)
-                        .lastIndex(context.getOperationLog().getLastIndex().get())
+                        .lastIndex(context.getOperationLog().getEffectiveLastIndex().get())
                         .build()
         );
     }
@@ -564,10 +544,9 @@ public class RaftServerImpl implements RaftServer {
         }
 
         RaftPeerWrapper wrapper = context.getRaftPeers().get(installSnapshotResponse.getNodeId());
-        log.info("INSTALL RESPONSE. SUCCESS {} LAST INDEX {}", installSnapshotResponse.isSuccess(), installSnapshotResponse.getLastIndex());
         if (installSnapshotResponse.isSuccess()) {
-            wrapper.getNextIndex().getAndSet(installSnapshotResponse.getLastIndex() + 1);
-            wrapper.getMatchIndex().getAndSet(installSnapshotResponse.getLastIndex());
+            RaftUtils.updateIncrementalAtomicLong(wrapper.getNextIndex(), installSnapshotResponse.getLastIndex() + 1);
+            RaftUtils.updateIncrementalAtomicLong(wrapper.getMatchIndex(), installSnapshotResponse.getLastIndex());
         }
     }
 }
