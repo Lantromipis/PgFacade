@@ -50,7 +50,8 @@ pg-facade:
       helper-object-name: "pg-facade-temp"
       pg-facade:
         local-files-directory: "/var/run/pgfacade"
-        network-name: pg-facade-internal-network
+        internal-network-name: pg-facade-internal-network
+        external-network-name: pg-facade-external-network
         container-name: pg-facade-node
         expected-docker-sock-file-name: docker.sock
       postgres:

@@ -106,10 +106,17 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             // validate PgFacade network exist
             try {
                 dockerClient.inspectNetworkCmd()
-                        .withNetworkId(orchestrationProperties.docker().pgFacade().networkName())
+                        .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
                         .exec();
             } catch (NotFoundException e) {
-                throw new InitializationException("Docker network for PgFacade not found. Expected network name: '" + orchestrationProperties.docker().postgres().networkName() + "'. Create this network or/and change PgFacade configuration.");
+                throw new InitializationException("Docker network for PgFacade internal needs not found. Expected network name: '" + orchestrationProperties.docker().pgFacade().internalNetworkName() + "'. Create this network or/and change PgFacade configuration.");
+            }
+            try {
+                dockerClient.inspectNetworkCmd()
+                        .withNetworkId(orchestrationProperties.docker().pgFacade().externalNetworkName())
+                        .exec();
+            } catch (NotFoundException e) {
+                throw new InitializationException("Docker networks for PgFacade external usage not found. Expected network name: '" + orchestrationProperties.docker().pgFacade().externalNetworkName() + "'. Create this network or/and change PgFacade configuration.");
             }
         } catch (InitializationException e) {
             throw e;
@@ -559,7 +566,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         Network pgFacadeInternalNetwork;
         try {
             pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().networkName())
+                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
                     .exec();
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
@@ -588,7 +595,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         Network pgFacadeInternalNetwork;
         try {
             pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().networkName())
+                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
                     .exec();
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
@@ -653,7 +660,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .address(
                         inspectContainerResponse.getNetworkSettings()
                                 .getNetworks()
-                                .get(orchestrationProperties.docker().pgFacade().networkName())
+                                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
                                 .getIpAddress()
                 )
                 .createdWhen(Instant.parse(inspectContainerResponse.getCreated()))

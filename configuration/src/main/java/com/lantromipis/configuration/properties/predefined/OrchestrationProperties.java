@@ -74,7 +74,9 @@ public interface OrchestrationProperties {
         interface PgFacadeProperties {
             String localFilesDirectory();
 
-            String networkName();
+            String internalNetworkName();
+
+            String externalNetworkName();
 
             String containerName();
 

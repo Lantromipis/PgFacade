@@ -4,11 +4,13 @@
   * [Settings types](#settings-types)
   * [How to get setting name and it's environment variable](#how-to-get-setting-name-and-its-environment-variable)
   * [Important settings](#important-settings)
+    * [Raft for PgFacade](#raft-for-pgfacade)
     * [Orchestration](#orchestration)
     * [Archiving](#archiving)
     * [Proxy](#proxy)
     * [REST API](#rest-api)
   * [General installation steps](#general-installation-steps)
+    * [When you want to test PgFacade](#when-you-want-to-test-pgfacade)
     * [When archiving required](#when-archiving-required)
       * [S3 compatible storage](#s3-compatible-storage)
   * [Installation for Docker](#installation-for-docker)
@@ -40,15 +42,24 @@ After you have figured out setting name, convert it to environment variable usin
 
 ## Important settings
 
+### Raft for PgFacade
+
+| Environment variable       | Type | Values      | Description                                                                                                                                                                                           |
+|----------------------------|------|-------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| PG_FACADE_RAFT_NODES_COUNT | int  | 3 or 5 or 7 | Number of PgFacade nodes that will be active all the time. 3 nodes allows `one` PgFacade node failure, 5 nodes allows `two` PgFacade node failures and 7 nodes allows `three` PgFacade node failures. |
+
+
 ### Orchestration
 
-| Environment variable                                           | Type   | Values                | Description                                                                                                                                        |
-|----------------------------------------------------------------|--------|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
-| PG_FACADE_ORCHESTRATION_ADAPTER                                | enum   | `docker` `no_adapter` | Which adapter to use for orchestration. `no_adapter` means no orchestration will be done.                                                          |
-| PG_FACADE_ORCHESTRATION_DOCKER_HOST                            |        | string                | Docker host to use when `docker` adapter specified. Default: `unix:///var/run/pgfacade/docker.sock`                                                |
-| PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_IMAGE_TAG              | string |                       | Docker Postgres image tag. Must be same as target Postgres version.                                                                                |
-| PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_IMAGE_PG_DATA          | string |                       | Where is PG_DATA located in Postgres image. For example, for official docker images this is `/var/lib/postgresql/data` (and this is default value) |
-| PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_NETWORK_NAME           | string |                       | Docker network which will connect PgFacade and Postgres                                                                                            |
+| Environment variable                                          | Type   | Values                | Description                                                                                                                                        |
+|---------------------------------------------------------------|--------|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| PG_FACADE_ORCHESTRATION_ADAPTER                               | enum   | `docker` `no_adapter` | Which adapter to use for orchestration. `no_adapter` means no orchestration will be done.                                                          |
+| PG_FACADE_ORCHESTRATION_DOCKER_HOST                           |        | string                | Docker host to use when `docker` adapter specified. Default: `unix:///var/run/pgfacade/docker.sock`                                                |
+| PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_IMAGE_TAG             | string |                       | Docker Postgres image tag. Must be same as target Postgres version.                                                                                |
+| PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_IMAGE_PG_DATA         | string |                       | Where is PG_DATA located in Postgres image. For example, for official docker images this is `/var/lib/postgresql/data` (and this is default value) |
+| PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_NETWORK_NAME          | string |                       | Docker network which will connect PgFacade and Postgres                                                                                            |
+| PG_FACADE_ORCHESTRATION_DOCKER_PGFACADE_INTERNAL_NETWORK_NAME | string |                       | Docker network for PgFacade internal usage (Raft consensus algorithm)                                                                              |
+| PG_FACADE_ORCHESTRATION_DOCKER_PGFACADE_EXTERNAL_NETWORK_NAME | string |                       | Docker network which other containers should use to connect to PgFacade Postgres proxy                                                             |
 
 
 ### Archiving
@@ -81,6 +92,9 @@ After you have figured out setting name, convert it to environment variable usin
 
 ## General installation steps
 
+### When you want to test PgFacade
+1. Enable set environment variable `PG_FACADE_ORCHESTRATION_POSTGRES_CLUSTER_RESTORE_ALLOW_CREATING_NEW_EMPTY_PRIMARY_IF_RESTORE_ON_STARTUP_FAILED` to `true`. When true, PgFacade will automatically create new empty Postgres database.
+
 ### When archiving required
 
 #### S3 compatible storage
@@ -89,9 +103,15 @@ After you have figured out setting name, convert it to environment variable usin
 3. Specify S3 storage connection parameters
 
 ## Installation for Docker
-1. Select Dockerfile or image to use. Postgres version must be the same as target version.
+1. Select Dockerfile or image to use. For that, check Postgres version and select Dockerfile for that Postgres version. For example, for Postgres 15, use file `Dockerfile.jvm-postgres-15`
 2. Create network for postgres and PgFacade. Default network name: `pg-facade-postgres-network`. If you want to create network with another name, then additionally set environment variable `PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_NETWORK_NAME`
-3. Mount volume in PgFacade container location `/var/run/pgfacade`
-4. Mount Docker socket if you are going to access Docker API using it. Example `/var/run/docker.sock:/var/run/pgfacade/docker.sock` 
-5. Connect PgFacade container to network from point 1
-6. Connect PgFacade container to network with S3 storage
+3. Create network for PgFacade internal use. Default network name: `pg-facade-internal-network`. If you want to create network with another name, then additionally set environment variable `PG_FACADE_ORCHESTRATION_DOCKER_PGFACADE_INTERNAL_NETWORK_NAME`
+4. Create network for PgFacade external usa (this network should be used by containers, which need Postgres). Default network name: `pg-facade-external-network`. If you want to create network with another name, then additionally set environment variable `PG_FACADE_ORCHESTRATION_DOCKER_PGFACADE_EXTERNAL_NETWORK_NAME`
+5. Create PgFacade container.
+6. Mount Docker socket if you are going to access Docker API using it. Default example `/var/run/docker.sock:/var/run/pgfacade/docker.sock` 
+7. Connect PgFacade container to network from point 2 (postgres network)
+8. Connect PgFacade container to network from point 3 (internal network)
+9. Connect PgFacade container to network from point 4 (external network)
+10. If you are planning to use archiving with S3, then connect PgFacade container to network with S3 storage
+11. Start PgFacade container
+12. Wait for PgFacade to scale up Postgres nodes and PgFacade nodes.
