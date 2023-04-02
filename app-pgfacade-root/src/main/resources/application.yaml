@@ -1,4 +1,9 @@
 pg-facade:
+  raft:
+    nodes-count: 3
+    nodes-check-interval: PT5S
+    app-checks-retry-before-kill: 3
+    raft-no-response-timeout-before-kill: PT5S
   shutdown:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
@@ -45,6 +50,10 @@ pg-facade:
       helper-object-name: "pg-facade-temp"
       pg-facade:
         local-files-directory: "/var/run/pgfacade"
+        internal-network-name: pg-facade-internal-network
+        external-network-name: pg-facade-external-network
+        container-name: pg-facade-node
+        expected-docker-sock-file-name: docker.sock
       postgres:
         image-tag: "postgres:latest"
         image-pg-data: "/var/lib/postgresql/data"
@@ -77,8 +86,8 @@ pg-facade:
     s3:
       protocol: http
       endpoint: http://minio:9000
-      access-key: 0d9JNXROXxMwab4Y
-      secret-key: 8vE6Ih1SyoVaz8NL6BKFjX6yRkXpknQ9
+      access-key: Rre6lc6yiubAgi9H
+      secret-key: EEmKeAC4ocIX2qOp2cvxNO3bnOsRN121
       region: eu-central-1
       multipart-upload-part-size-mb: 5
       backups-bucket: pgfacade
@@ -105,7 +114,8 @@ quarkus:
   log:
     level: INFO
     console:
-      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] - %s%e%n"
+      format: "[%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}] [%-5p] [%-64.64c{3.}] [%-24.24M] [%-8.8X{raftRole}] - %s%e%n"
+      filter: custom-filter
     category:
       "com.lantromipis.proxy":
         level: INFO
@@ -113,8 +123,12 @@ quarkus:
         level: INFO
       "com.lantromipis.connectionpool" :
         level: INFO
+      "com.lantromipis.pgfacadeprotocol":
+        level: INFO
       "org.apache.hc" :
-        level: ERROR
+        level: WARN
+      "org.apache.http":
+        level: WARN
   banner:
     enabled: true
     path: banner
@@ -129,6 +143,8 @@ quarkus:
   quarkus:
     log:
       category:
+        "com.lantromipis.orchestration":
+          level: DEBUG
         "com.lantromipis.proxy.initializer":
           min-level: TRACE
           level: DEBUG
@@ -138,6 +154,9 @@ quarkus:
           level: DEBUG
         "org.apache.hc":
           level: ERROR
+        "com.lantromipis.pgfacadeprotocol":
+          min-level: TRACE
+          level: DEBUG
     devservices:
       enabled: false
     test:

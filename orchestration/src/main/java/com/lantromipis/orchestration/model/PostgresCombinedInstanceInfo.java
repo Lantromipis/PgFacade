@@ -1,6 +1,6 @@
 package com.lantromipis.orchestration.model;
 
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

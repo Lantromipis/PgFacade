@@ -1,17 +1,28 @@
 package com.lantromipis.orchestration.service.api;
 
-import com.lantromipis.orchestration.exception.OrchestratorNotFoundException;
-import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
-import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
-import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
+import com.lantromipis.orchestration.exception.*;
 
 import java.util.Map;
 import java.util.UUID;
 
 public interface PostgresOrchestrator {
-    boolean initialize();
 
-    void shutdown();
+    /**
+     * Start orchestration of running cluster
+     */
+    void initializeFastWhenClusterRunning();
+
+    /**
+     * Initializes orchestrator AND Postgres cluster. Should be used only when initializing after full shutdown
+     *
+     * @throws InitializationException if initialization failed
+     */
+    void initializeFull() throws InitializationException;
+
+    /**
+     * Stop orchestrator with an ability to reinitialize in later
+     */
+    void stopOrchestrator();
 
     boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException;
 

@@ -1,24 +1,41 @@
 package com.lantromipis.quarkusroot;
 
+import com.lantromipis.configuration.event.PgFacadeImmediateShutdownEvent;
+import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
+import com.lantromipis.configuration.model.PgFacadeRaftRole;
+import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
+import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.ShutdownProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
+import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
+import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
+import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.proxy.service.impl.PgProxyServiceImpl;
 import com.lantromipis.quarkusroot.validator.ConfigurationValidator;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.EventLoopGroup;
 import io.quarkus.arc.All;
+import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.http.runtime.HttpConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.Priority;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Observes;
+import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.interceptor.Interceptor;
+import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -52,48 +69,104 @@ public class QuarkusStartupAndShutdownHandler {
     @All
     List<ConfigurationValidator> configurationValidators;
 
+    @Inject
+    Instance<PlatformAdapter> platformAdapter;
+
+    @Inject
+    Instance<ArchiverStorageAdapter> archiverStorageAdapter;
+
+    @Inject
+    ArchivingProperties archivingProperties;
+
+    @Inject
+    PgFacadeRaftService pgFacadeRaftService;
+
+    @Inject
+    OrchestrationProperties orchestrationProperties;
+
+    @Inject
+    PostgresConfigurator postgresConfigurator;
+
+    @Inject
+    ClusterRuntimeProperties clusterRuntimeProperties;
+
+    @Inject
+    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
+
+    @Inject
+    HttpConfiguration httpConfiguration;
+
+    private boolean shutdownImmidiatly = false;
+
     public void startup(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) StartupEvent startupEvent) {
-        log.info("Checking provided configuration...");
-        AtomicBoolean configurationValid = new AtomicBoolean(true);
-        configurationValidators.forEach(configurationValidator -> {
-            if (!configurationValidator.validate()) {
-                configurationValid.set(false);
-            }
-        });
-
-        if (!configurationValid.get()) {
-            log.error("CONFIGURATION INVALID. PGFACADE WILL NOT WORK!!!");
-            return;
-        }
-        log.info("Provided configuration is valid!");
-
-        log.info("PgFacade initialization started!");
-
         try {
-            if (!postgresOrchestrator.initialize()) {
-                log.error("Failed to initialize orchestrator! PgFacade will not work!");
-                postgresOrchestrator.shutdown();
+            log.info("Checking provided configuration values...");
+            AtomicBoolean configurationValid = new AtomicBoolean(true);
+            configurationValidators.forEach(configurationValidator -> {
+                if (!configurationValidator.validate()) {
+                    configurationValid.set(false);
+                }
+            });
+
+            pgFacadeRuntimeProperties.setHttpPort(httpConfiguration.port);
+
+            if (!configurationValid.get()) {
+                log.error("CONFIGURATION INVALID. PGFACADE FAILED TO START!");
+                shutdownImmediately();
                 return;
             }
-        } catch (Exception e) {
-            log.error("Failed to initialize orchestrator due to error! PgFacade will not work!", e);
-            postgresOrchestrator.shutdown();
-            return;
-        }
+            log.info("Provided configuration is valid!");
 
+            log.info("PgFacade initialization started!");
+
+            // If no adapter, do nothing
+            if (orchestrationProperties.adapter().equals(OrchestrationProperties.AdapterType.NO_ADAPTER)) {
+                log.info("No orchestrator adapter is configured. PgFacade will work like proxy + connection pool without any HA features. Consider choosing another adapter if you need HA features.");
+                initializeForNoAdapter();
+            } else {
+                if (!initializeDefault()) {
+                    log.error("Failed to initialize PgFacade!");
+                    shutdownImmediately();
+                    return;
+                }
+            }
+
+            log.info("PgFacade initialization completed!");
+        } catch (Throwable t) {
+            log.error("Error while starting PgFacade up!", t);
+            shutdownImmediately();
+        }
+    }
+
+    public void syncedWithRaftLog(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) RaftLogSyncedOnStartupEvent raftLogSyncedOnStartupEvent) {
         userAuthInfoProvider.initialize();
         connectionPool.initialize();
-
         pgProxyServiceImpl.initialize();
+    }
 
-        log.info("PgFacade initialization completed!");
+    public void shutdownImmediately(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) PgFacadeImmediateShutdownEvent shutdownEvent) {
+        shutdownImmediately();
+    }
+
+    public void shutdownImmediately() {
+        log.error("Exceptional situation occurred and it is impossible to recover! Immediately shutting down PgFacade!");
+        shutdownImmidiatly = true;
+        Quarkus.asyncExit(123);
     }
 
     public void shutdown(@Observes @Priority(Interceptor.Priority.PLATFORM_AFTER) ShutdownEvent shutdownEvent) {
         log.info("PgFacade is shutting down...");
 
-        pgProxyServiceImpl.shutdown(shutdownProperties.awaitClients(), shutdownProperties.waitForClientsDuration());
-        postgresOrchestrator.shutdown();
+        pgFacadeRaftService.shutdown();
+
+        if (shutdownImmidiatly) {
+            pgProxyServiceImpl.shutdown(false, Duration.ZERO);
+        } else {
+            pgProxyServiceImpl.shutdown(shutdownProperties.awaitClients(), shutdownProperties.waitForClientsDuration());
+        }
+
+        postgresOrchestrator.stopOrchestrator();
+        platformAdapter.get().shutdown();
 
         try {
             bossGroup.shutdownGracefully().sync();
@@ -109,6 +182,66 @@ public class QuarkusStartupAndShutdownHandler {
             Thread.currentThread().interrupt();
         }
 
-        log.info("PgFacade shut down.");
+        log.info("PgFacade was shut down.");
+    }
+
+    private void initializeForNoAdapter() {
+        UUID instanceId = UUID.randomUUID();
+
+        // Add single Postgres instance to properties
+        clusterRuntimeProperties.getAllPostgresInstancesInfos().put(
+                instanceId,
+                RuntimePostgresInstanceInfo
+                        .builder()
+                        .primary(true)
+                        .address(orchestrationProperties.noAdapter().primaryHost())
+                        .port(orchestrationProperties.noAdapter().primaryPort())
+                        .instanceId(instanceId)
+                        .build()
+        );
+
+        // Set runtime properties
+        postgresConfigurator.initialize();
+        pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.RAFT_DISABLED);
+
+        userAuthInfoProvider.initialize();
+        connectionPool.initialize();
+        pgProxyServiceImpl.initialize();
+    }
+
+    private boolean initializeDefault() {
+        // All adapters must be initialized successfully BEFORE creating Raft server
+        // If initialization fails, then Raft server is not crated, so this node will never become new Leader
+
+        // Initialize platform adapter
+        try {
+            platformAdapter.get().initializeAndValidate();
+        } catch (Exception e) {
+            log.error("Failed to initialize platform adapter!", e);
+            return false;
+        }
+
+        // Initialize archiver adapter if required
+        if (archivingProperties.enabled()) {
+            try {
+                archiverStorageAdapter.get().initializeAndValidate();
+            } catch (Exception e) {
+                log.error("Failed to initialize archiver adapter!", e);
+                return false;
+            }
+        } else {
+            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
+        }
+
+        // All adapters initialized. Start raft server.
+        // If this node becomes raft leader, then Orchestration and Archiving will be initialized in Raft state machine.
+        try {
+            pgFacadeRaftService.initialize();
+        } catch (Exception e) {
+            log.error("Failed to initialize raft service!", e);
+            return false;
+        }
+
+        return true;
     }
 }

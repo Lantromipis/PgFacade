@@ -11,6 +11,7 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
+import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
@@ -18,14 +19,12 @@ import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.constant.PostgresConstants;
+import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.mapper.DockerMapper;
-import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
-import com.lantromipis.orchestration.model.BaseBackupCreationResult;
-import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
-import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
+import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -40,10 +39,12 @@ import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -70,26 +71,58 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     private DockerClient dockerClient;
 
-    public void initialize() {
-        log.info("Docker is selected as orchestrator adapter.");
-        OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+    public void initializeAndValidate() {
+        log.info("Docker is selected as platform adapter.");
 
-        DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                .withDockerHost(dockerProperties.host())
+        try {
+            OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
+
+            DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
+                    .withDockerHost(dockerProperties.host())
 /*                .withDockerTlsVerify(true)
                 .withDockerCertPath("/home/user/.docker")
                 .withRegistryUsername(registryUser)
                 .withRegistryPassword(registryPass)
                 .withRegistryEmail(registryMail)
                 .withRegistryUrl(registryUrl)*/
-                .build();
+                    .build();
 
-        DockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()
-                .dockerHost(config.getDockerHost())
-                .sslConfig(config.getSSLConfig())
-                .build();
+            DockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()
+                    .dockerHost(config.getDockerHost())
+                    .sslConfig(config.getSSLConfig())
+                    .build();
 
-        dockerClient = DockerClientImpl.getInstance(config, httpClient);
+            dockerClient = DockerClientImpl.getInstance(config, httpClient);
+
+            // validate Postgres network exist
+            try {
+                dockerClient.inspectNetworkCmd()
+                        .withNetworkId(orchestrationProperties.docker().postgres().networkName())
+                        .exec();
+            } catch (NotFoundException e) {
+                throw new InitializationException("Docker network for Postgres not found. Expected network name: '" + orchestrationProperties.docker().postgres().networkName() + "'. Create this network or/and change PgFacade configuration.");
+            }
+
+            // validate PgFacade network exist
+            try {
+                dockerClient.inspectNetworkCmd()
+                        .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
+                        .exec();
+            } catch (NotFoundException e) {
+                throw new InitializationException("Docker network for PgFacade internal needs not found. Expected network name: '" + orchestrationProperties.docker().pgFacade().internalNetworkName() + "'. Create this network or/and change PgFacade configuration.");
+            }
+            try {
+                dockerClient.inspectNetworkCmd()
+                        .withNetworkId(orchestrationProperties.docker().pgFacade().externalNetworkName())
+                        .exec();
+            } catch (NotFoundException e) {
+                throw new InitializationException("Docker networks for PgFacade external usage not found. Expected network name: '" + orchestrationProperties.docker().pgFacade().externalNetworkName() + "'. Create this network or/and change PgFacade configuration.");
+            }
+        } catch (InitializationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new InitializationException("Failed to initialize Docker platform adapter! Unexpected error ", e);
+        }
 
         log.info("Successfully created Docker client for cluster management.");
     }
@@ -212,7 +245,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public PostgresAdapterInstanceInfo getInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
+    public PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
         try {
             InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(adapterInstanceId).exec();
 
@@ -233,7 +266,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public boolean deletePostgresInstance(String adapterInstanceId) {
+    public boolean deleteInstance(String adapterInstanceId) {
         if (adapterInstanceId == null) {
             return true;
         }
@@ -276,23 +309,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         }
 
         return executeCmdInContainer(adapterInstanceId, shellCommand, okExitCodes, null);
-    }
-
-    public String getPostgresSubnetIp() {
-        List<Network> networks = dockerClient.listNetworksCmd()
-                .withNameFilter(orchestrationProperties.docker().postgres().networkName())
-                .exec();
-
-        if (CollectionUtils.isEmpty(networks) || networks.size() > 1) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Found no or several networks for Postgres. There must be only one network for Postgres and this network must have unique name because filtering by name must return only one network.");
-        }
-
-        Network pgFacadePostgresNetwork = networks.get(0);
-        if (CollectionUtils.isEmpty(pgFacadePostgresNetwork.getIpam().getConfig()) || pgFacadePostgresNetwork.getIpam().getConfig().size() > 1) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Found no or several IPAM config for Postgres network. Network must have exactly one IPAM config with subnet in it.");
-        }
-
-        return pgFacadePostgresNetwork.getIpam().getConfig().get(0).getSubnet();
     }
 
     @Override
@@ -525,6 +541,131 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 throw new PostgresRestoreException("Failed to restore! ", e);
             }
         }
+    }
+
+    public String getPostgresSubnetIp() {
+        Network pgFacadePostgresNetwork;
+
+        try {
+            pgFacadePostgresNetwork = dockerClient.inspectNetworkCmd()
+                    .withNetworkId(orchestrationProperties.docker().postgres().networkName())
+                    .exec();
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find Postgres network. ", e);
+        }
+
+        if (CollectionUtils.isEmpty(pgFacadePostgresNetwork.getIpam().getConfig()) || pgFacadePostgresNetwork.getIpam().getConfig().size() > 1) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. Found no or several IPAM config for Postgres network. Network must have exactly one IPAM config with subnet in it.");
+        }
+
+        return pgFacadePostgresNetwork.getIpam().getConfig().get(0).getSubnet();
+    }
+
+    @Override
+    public List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException {
+        Network pgFacadeInternalNetwork;
+        try {
+            pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
+                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
+                    .exec();
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
+        }
+
+        try {
+            return pgFacadeInternalNetwork.getContainers()
+                    .keySet()
+                    .stream()
+                    .map(containerNetworkConfig -> dockerClient.inspectContainerCmd(containerNetworkConfig).exec())
+                    .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Failed to get Raft nodes info. ", e);
+        }
+    }
+
+    @Override
+    public PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException {
+        String hostname = System.getenv(DockerConstants.DOCKER_ENV_VAR_HOSTNAME);
+
+        if (hostname == null) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
+        }
+
+        Network pgFacadeInternalNetwork;
+        try {
+            pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
+                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
+                    .exec();
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
+        }
+
+        return pgFacadeInternalNetwork.getContainers()
+                .entrySet()
+                .stream()
+                .filter(configEntry -> configEntry.getKey().contains(hostname))
+                .findFirst()
+                .map(configEntry -> dockerClient.inspectContainerCmd(configEntry.getKey()).exec())
+                .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
+                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain Docker container ID start symbols."));
+    }
+
+    @Override
+    public PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException {
+        PgFacadeRaftNodeInfo self = getSelfRaftNodeInfo();
+        InspectContainerResponse inspectSelfResponse = dockerClient.inspectContainerCmd(self.getPlatformAdapterIdentifier()).exec();
+
+        UUID instanceId = UUID.randomUUID();
+
+        CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(inspectSelfResponse.getImageId())
+                .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().pgFacade().containerName(), instanceId.toString()));
+
+        if (inspectSelfResponse.getHostConfig().getBinds() != null) {
+            for (var bind : inspectSelfResponse.getHostConfig().getBinds()) {
+                if (bind.getVolume().getPath().contains(orchestrationProperties.docker().pgFacade().expectedDockerSockFileName())) {
+                    createContainerCmd.withHostConfig(
+                            HostConfig.newHostConfig()
+                                    .withBinds(
+                                            new Bind(
+                                                    bind.getPath(),
+                                                    new Volume(bind.getVolume().getPath())
+                                            )
+                                    )
+                    );
+                    break;
+                }
+            }
+        }
+
+        CreateContainerResponse createContainerResponse = createContainerCmd.exec();
+
+        for (var selfNetwork : inspectSelfResponse.getNetworkSettings().getNetworks().keySet()) {
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(createContainerResponse.getId())
+                    .withNetworkId(selfNetwork)
+                    .exec();
+        }
+
+        dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
+        InspectContainerResponse inspectNewContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();
+
+        return inspectContainerResponseToPgFacadeRaftNodeInfo(inspectNewContainerResponse);
+    }
+
+    private PgFacadeRaftNodeInfo inspectContainerResponseToPgFacadeRaftNodeInfo(InspectContainerResponse inspectContainerResponse) {
+        return PgFacadeRaftNodeInfo
+                .builder()
+                .platformAdapterIdentifier(inspectContainerResponse.getId())
+                .address(
+                        inspectContainerResponse.getNetworkSettings()
+                                .getNetworks()
+                                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
+                                .getIpAddress()
+                )
+                .createdWhen(Instant.parse(inspectContainerResponse.getCreated()))
+                .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
+                .build();
     }
 
     private void forceDeleteContainerSafe(String containerId) {

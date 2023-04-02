@@ -2,10 +2,12 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
@@ -15,8 +17,10 @@ import com.lantromipis.orchestration.model.ArchiverWalStreamingState;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.model.FailedToUploadWalInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.util.PostgresUtils;
+import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -37,14 +41,13 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-import static java.nio.file.StandardWatchEventKinds.*;
+import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 
 @Slf4j
 @ApplicationScoped
@@ -74,12 +77,19 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
-    private boolean archiverReady = false;
-    private boolean archiverInStartupRecoveryMode = false;
+    @Inject
+    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
+
+    @Inject
+    RaftFunctionalityCombinator raftFunctionalityCombinator;
+
+    private boolean archiverActiveAndIsLeader = false;
+    private boolean archiverInitialized = false;
 
     private AtomicBoolean backupModificationInProgress = new AtomicBoolean(false);
     private AtomicBoolean streamingCheckInProgress = new AtomicBoolean(false);
     private AtomicBoolean uploadFailedWalInProgress = new AtomicBoolean(false);
+    private AtomicBoolean clusterRestoreInProgress = new AtomicBoolean(false);
 
     private ArchiverWalStreamingState archiverWalStreamingState = new ArchiverWalStreamingState();
     private CountDownLatch switchoverLatch = null;
@@ -87,18 +97,37 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     private ConcurrentMap<String, FailedToUploadWalInfo> failedToUploadWal = new ConcurrentHashMap<>();
 
     @Override
-    public void initializeForRecovery() {
-        archiverAdapter.get().initialize();
-        archiverInStartupRecoveryMode = true;
+    public void initialize() {
+        if (!archiverInitialized) {
+            archiverAdapter.get().initializeAndValidate();
+            archiverInitialized = true;
+        }
     }
 
     @Override
-    public void initialize() {
+    public void stop() {
+        archiverActiveAndIsLeader = false;
+        stopWalArchiving();
+    }
+
+    @Override
+    public void startArchiving() {
+        if (!archivingProperties.enabled()) {
+            log.info("Archiving is disabled. Consider enabling it to perform continuous archiving and Point-in-Time recover.");
+            return;
+        }
+
         log.info("Initializing archiver.");
 
-        archiverInStartupRecoveryMode = false;
+        if (!archiverInitialized) {
+            initialize();
+        }
 
-        archiverAdapter.get().initialize();
+        if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+            log.info("Not starting archiving because this PgFacade instance is not current raft leader.");
+            archiverActiveAndIsLeader = false;
+            return;
+        }
 
         File walDir = new File(filesPathsProducer.getPostgresWalStreamUploaderDirectoryPath());
 
@@ -126,11 +155,21 @@ public class PostgresArchiverImpl implements PostgresArchiver {
             }
         }
 
+        PostgresPersistedArchiveInfo archiveInfo = raftFunctionalityCombinator.getArchiveInfo();
+        if (archiveInfo != null && archiveInfo.getNextWal() != null) {
+            File fakePartitialFile = new File(filesPathsProducer.getPostgresWalStreamUploaderDirectoryPath() + "/" + archiveInfo.getNextWal() + ArchiverConstants.PARTIAL_WAL_FILE_ENDING);
+            try {
+                fakePartitialFile.createNewFile();
+                log.info("Created .partial file to continue WAL streaming");
+            } catch (Exception e) {
+                log.error("Failed to create .partial file for archiving.", e);
+            }
+        }
+
         startWalArchiving();
-
-        archiverReady = true;
-
         checkBackupsState();
+
+        archiverActiveAndIsLeader = true;
 
         log.info("Archiver initialization completed.");
     }
@@ -142,13 +181,22 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Override
     public String restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException {
-        boolean archiverWasReady = archiverReady;
+        BaseBackupDownload baseBackupDownload = null;
         try {
-            if (!archiverReady && !archiverInStartupRecoveryMode) {
+            if (!clusterRestoreInProgress.compareAndSet(false, true)) {
+                throw new PostgresRestoreException("Cluster restore already in progress.");
+            }
+
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
+
+            if (!archiverActiveAndIsLeader) {
                 throw new PostgresRestoreException("Archiver not initialized or is disabled by configuration. Can not restore Postgres from backup.");
             }
 
-            archiverReady = false;
+            if (!archiverInitialized) {
+                initialize();
+            }
+
             stopWalArchiving();
 
             List<Instant> instants = archiverAdapter.get().getBackupInstants();
@@ -158,11 +206,13 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
             Instant lastBackupInstant = instants.stream().sorted().findFirst().get();
 
-            BaseBackupDownload baseBackupDownload = archiverAdapter.get().downloadBaseBackup(lastBackupInstant);
+            baseBackupDownload = archiverAdapter.get().downloadBaseBackup(lastBackupInstant);
             List<String> walFiles = archiverAdapter.get().getAllWalFileNamesSortedStartingFrom(baseBackupDownload.getFirstWalFile());
             if (!walFiles.contains(baseBackupDownload.getFirstWalFile())) {
                 throw new PostgresRestoreException("Can not recover! Can not find first WAL for backup in storage. Required WAL file name: " + baseBackupDownload.getFirstWalFile());
             }
+
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
 
             String instanceId = platformAdapter.get().restorePrimaryFromBackup(
                     baseBackupDownload.getInputStreamWithBackupTar(),
@@ -178,8 +228,12 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         } catch (Exception e) {
             throw new PostgresRestoreException("Unexpected error during restoring Postgres from backup", e);
         } finally {
-            if (archiverWasReady) {
-                archiverReady = true;
+            clusterRestoreInProgress.set(false);
+            if (baseBackupDownload != null && baseBackupDownload.getInputStreamWithBackupTar() != null) {
+                try {
+                    baseBackupDownload.getInputStreamWithBackupTar().close();
+                } catch (Exception ignored) {
+                }
             }
         }
     }
@@ -187,6 +241,12 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     @Override
     public void createAndUploadBackup() throws BackupCreationException {
         log.info("Started creating basebackup for archiving.");
+        try {
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
+        } catch (Exception e) {
+            throw new BackupCreationException("Failed to create backup due to Raft error!");
+        }
+
         Instant instant = Instant.now();
 
         BaseBackupCreationResult baseBackupCreationResult = platformAdapter.get().createBaseBackupAndGetAsStream();
@@ -196,6 +256,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         try {
             log.info("Uploading new basebackup for archiving.");
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
             archiverAdapter.get().uploadBackupTar(
                     baseBackupCreationResult.getStream(),
                     instant,
@@ -216,12 +277,15 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Scheduled(every = "${pg-facade.archiving.basebackup.list-backups-interval}")
     public void checkBackupsState() {
-        if (archiverReady && backupModificationInProgress.compareAndSet(false, true)) {
+        if (archiverActiveAndIsLeader && backupModificationInProgress.compareAndSet(false, true)) {
             try {
                 List<Instant> backups = archiverAdapter.get().getBackupInstants();
 
                 // will never remove backup if it is the last one
                 if (archivingProperties.basebackup().cleanUp().removeOld() && backups != null && backups.size() > 1) {
+                    // if not leader -> do not remove backups
+                    raftFunctionalityCombinator.testIfAbleToCommitToRaft();
+
                     Instant oldestPermittedBackupInstant = Instant.now().minus(archivingProperties.basebackup().cleanUp().keepOldInterval());
 
                     if (archiverAdapter.get().removeBackupsAndWalOlderThanInstant(oldestPermittedBackupInstant, archivingProperties.basebackup().cleanUp().removeOldWalFilesWhenRemoving()) > 0) {
@@ -256,7 +320,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Scheduled(every = "${pg-facade.archiving.wal-streaming.retry-upload-wal-files-interval}")
     public void retryUploadFailedWalFiles() {
-        if (archiverReady && uploadFailedWalInProgress.compareAndSet(false, true)) {
+        if (archiverActiveAndIsLeader && uploadFailedWalInProgress.compareAndSet(false, true)) {
             try {
                 failedToUploadWal.values()
                         .forEach(failedWalFileInfo ->
@@ -270,7 +334,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Scheduled(every = "${pg-facade.archiving.wal-streaming.fault-tolerance.streaming-active-check-interval}")
     public void checkWalStreamingActive() {
-        if (archiverReady && streamingCheckInProgress.compareAndSet(false, true)) {
+        if (archiverActiveAndIsLeader && streamingCheckInProgress.compareAndSet(false, true)) {
             try {
                 if (archiverWalStreamingState.getWatchServiceActive().get() && archiverWalStreamingState.getProcessActive().get()) {
                     archiverWalStreamingState.getUnsuccessfulRetries().set(0);
@@ -389,9 +453,18 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         for (int i = 0; i < archivingProperties.walStreaming().uploadWalRetries(); i++) {
             try {
                 File file = new File(walFileAbsolutePath);
+                raftFunctionalityCombinator.testIfAbleToCommitToRaft();
                 archiverAdapter.get().uploadWalFile(file, timestamp);
-                file.delete();
                 failedToUploadWal.remove(walFileAbsolutePath);
+
+                if (!StringUtils.endsWith(walFileAbsolutePath, ArchiverConstants.HISTORY_FILE_ENDING)) {
+                    PostgresPersistedArchiveInfo postgresPersistedArchiveInfo = raftFunctionalityCombinator.getArchiveInfo();
+                    postgresPersistedArchiveInfo.setLastUploadedWal(file.getName().replace(ArchiverConstants.PARTIAL_WAL_FILE_ENDING, ""));
+                    raftFunctionalityCombinator.saveArchiveInfoInRaft(postgresPersistedArchiveInfo);
+                }
+
+                file.delete();
+
                 return;
             } catch (Exception ignored) {
                 // do not log this exception due to stack trace spam
@@ -408,7 +481,6 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         log.error("FAILED TO UPLOAD WAL FILE! WILL KEEP IT AND RETRY LATER. MOST LIKELY IT IS STORAGE ISSUE.");
     }
 
-    // true if successfully started
     private void startWalArchiving() {
         log.info("Starting WAL streaming from primary...");
         try {
@@ -441,6 +513,10 @@ public class PostgresArchiverImpl implements PostgresArchiver {
                             String fileName = ((Path) event.context()).getFileName().toString();
                             if (!StringUtils.endsWith(fileName, ArchiverConstants.PARTIAL_WAL_FILE_ENDING) && !StringUtils.endsWith(fileName, ArchiverConstants.TMP_HISTORY_FILE_ENDING)) {
                                 uploadWalOrHistoryFileByNameAsync(fileName, Instant.now());
+                            } else if (StringUtils.endsWith(fileName, ArchiverConstants.PARTIAL_WAL_FILE_ENDING)) {
+                                PostgresPersistedArchiveInfo postgresPersistedArchiveInfo = raftFunctionalityCombinator.getArchiveInfo();
+                                postgresPersistedArchiveInfo.setNextWal(fileName.replace(ArchiverConstants.PARTIAL_WAL_FILE_ENDING, ""));
+                                raftFunctionalityCombinator.saveArchiveInfoInRaft(postgresPersistedArchiveInfo);
                             }
                         }
                         poll = key.reset();

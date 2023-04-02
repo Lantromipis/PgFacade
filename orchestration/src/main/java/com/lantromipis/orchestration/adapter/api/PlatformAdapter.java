@@ -1,12 +1,10 @@
 package com.lantromipis.orchestration.adapter.api;
 
+import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
-import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
-import com.lantromipis.orchestration.model.BaseBackupCreationResult;
-import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
-import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.*;
 
 import java.io.InputStream;
 import java.util.List;
@@ -17,10 +15,13 @@ import java.util.function.Function;
  * The main concept is to use some adapter-specific identifier for any existing instance. For example, Docker adapter is using container ID as such identifier.
  */
 public interface PlatformAdapter {
+
     /**
-     * Initialize adapter
+     * Initializes adapter and performs basic calls to check if initialized successfully and if configuration is valid.
+     *
+     * @throws InitializationException if failed to initialize
      */
-    void initialize();
+    void initializeAndValidate() throws InitializationException;
 
     /**
      * Shutdown adapter and free all used resources.
@@ -74,15 +75,15 @@ public interface PlatformAdapter {
      * @throws PlatformAdapterNotFoundException           if there is no instance with provided identifier
      * @throws PlatformAdapterOperationExecutionException if unexpected error occurred
      */
-    PostgresAdapterInstanceInfo getInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
+    PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
 
     /**
-     * Delete Postgres instance
+     * Delete Postgres or PgFacade instance
      *
-     * @param adapterInstanceId adapter identifier of existing Postgres instance
-     * @return true if successfully deleted Postgres instance or if it is already deleted. False if failed to delete.
+     * @param adapterInstanceId adapter identifier of existing Postgres or PgFacade instance
+     * @return true if successfully deleted instance or if it is already deleted. False if failed to delete.
      */
-    boolean deletePostgresInstance(String adapterInstanceId);
+    boolean deleteInstance(String adapterInstanceId);
 
     /**
      * Executes shell command for Postgres instance
@@ -93,14 +94,6 @@ public interface PlatformAdapter {
      * @return object containing execution result
      */
     AdapterShellCommandExecutionResult executeShellCommandForInstance(String adapterInstanceId, String shellCommand, List<Long> okExitCodes);
-
-    /**
-     * Return subnet to which Postgres and PgFacade belong to allow communications between them.
-     *
-     * @return subnet IP address
-     * @throws PlatformAdapterOperationExecutionException
-     */
-    String getPostgresSubnetIp() throws PlatformAdapterOperationExecutionException;
 
     //TODO Better to implement Postgres replication protocol https://www.postgresql.org/docs/current/protocol-replication.html
     BaseBackupCreationResult createBaseBackupAndGetAsStream();
@@ -115,4 +108,24 @@ public interface PlatformAdapter {
      * @throws PostgresRestoreException when something went wrong and restore failed
      */
     String restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException;
+
+    /**
+     * Return subnet to which Postgres and PgFacade belong to allow communications between them.
+     *
+     * @return subnet IP address
+     * @throws PlatformAdapterOperationExecutionException
+     */
+    String getPostgresSubnetIp() throws PlatformAdapterOperationExecutionException;
+
+    List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException;
+
+    PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException;
+
+    /**
+     * Create and start new PgFacade instance.
+     *
+     * @return object containing raft node info for new instance
+     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
+     */
+    PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException;
 }

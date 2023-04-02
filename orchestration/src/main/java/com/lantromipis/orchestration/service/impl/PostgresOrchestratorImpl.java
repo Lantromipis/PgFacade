@@ -1,27 +1,31 @@
 package com.lantromipis.orchestration.service.impl;
 
-import com.lantromipis.configuration.event.*;
-import com.lantromipis.configuration.model.PostgresPersistedInstanceInfo;
+import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
+import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.configuration.properties.stored.api.PostgresPersistedProperties;
+import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
-import com.lantromipis.orchestration.model.*;
+import com.lantromipis.orchestration.model.InstanceHealth;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.util.OrchestratorUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
+import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
-import org.checkerframework.checker.units.qual.A;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Event;
 import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.sql.Connection;
@@ -44,18 +48,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     OrchestrationProperties orchestrationProperties;
 
     @Inject
-    Event<PrimaryReadyEvent> primaryReadyEvent;
-
-    @Inject
-    Event<SwitchoverCompletedEvent> switchoverCompletedEvent;
-
-    @Inject
-    Event<SwitchoverStartedEvent> switchoverStartedEvent;
-
-    @Inject
-    Event<StandbyRemovedEvent> standbyRemovedEvent;
-
-    @Inject
     PostgresConfigurator postgresConfigurator;
 
     @Inject
@@ -68,13 +60,16 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     ArchivingProperties archivingProperties;
 
     @Inject
-    PostgresPersistedProperties postgresPersistedProperties;
-
-    @Inject
     PostgresArchiver postgresArchiver;
 
     @Inject
     OrchestratorUtils orchestratorUtils;
+
+    @Inject
+    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
+
+    @Inject
+    RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
@@ -85,40 +80,39 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
 
     @Override
-    public boolean initialize() {
-        if (OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
-            log.info("No orchestrator adapter is configured. PgFacade will work like proxy + connection pool without any HA features for Postgres. Consider choosing another adapter if you need HA features.");
-            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(
-                    PostgresCombinedInstanceInfo
-                            .builder()
-                            .persisted(PostgresPersistedInstanceInfo
-                                    .builder()
-                                    .instanceId(UUID.randomUUID())
-                                    .primary(true)
-                                    .build()
-                            )
-                            .adapter(
-                                    PostgresAdapterInstanceInfo
-                                            .builder()
-                                            .isActive(true)
-                                            .instancePort(orchestrationProperties.noAdapter().primaryPort())
-                                            .instanceAddress(orchestrationProperties.noAdapter().primaryHost())
-                                            .build()
-                            )
-                            .build()
-            );
-
-            // to set runtime properties
+    public void initializeFastWhenClusterRunning() {
+        if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+            log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
-
-            return true;
+            postgresArchiver.initialize();
+            return;
         }
 
-        platformAdapter.get().initialize();
+        log.info("Fast orchestrator initialization completed!");
+
+        if (archivingProperties.enabled()) {
+            postgresArchiver.startArchiving();
+        } else {
+            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
+        }
+        orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream().forEach(
+                instanceInfo -> orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(instanceInfo)
+        );
+
+        orchestratorReady.set(true);
+    }
+
+    @Override
+    public void initializeFull() throws InitializationException {
+        if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+            log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
+            postgresConfigurator.initialize();
+            return;
+        }
 
         boolean primaryStarted = false;
 
-        PostgresPersistedInstanceInfo primaryPersistedInstanceInfo = postgresPersistedProperties.getPostgresNodeInfos()
+        PostgresPersistedInstanceInfo primaryPersistedInstanceInfo = raftFunctionalityCombinator.getPostgresNodeInfos()
                 .stream()
                 .filter(PostgresPersistedInstanceInfo::isPrimary)
                 .findFirst()
@@ -127,7 +121,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         PostgresCombinedInstanceInfo primaryInstanceInfo = null;
 
         if (primaryPersistedInstanceInfo != null) {
-            PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getInstanceInfo(primaryPersistedInstanceInfo.getAdapterIdentifier());
+            PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(primaryPersistedInstanceInfo.getAdapterIdentifier());
 
             if (adapterInstanceInfo.isActive()) {
                 primaryInstanceInfo = PostgresCombinedInstanceInfo
@@ -158,7 +152,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         if (primaryPersistedInstanceInfo == null || !primaryStarted) {
-            if (orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
+            if (archivingProperties.enabled() && orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
                 primaryInstanceInfo = restoreClusterFromBackup(true);
             } else {
                 log.error("No known Postgres primary found but restore from backup is not allowed!");
@@ -167,20 +161,16 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             if (primaryInstanceInfo == null && orchestrationProperties.postgresClusterRestore().allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed()) {
                 log.info("Will create and start new and empty Primary because configuration allows it.");
                 primaryInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
-                orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(primaryInstanceInfo);
                 postgresConfigurator.configureNewlyCreatedPrimary(primaryInstanceInfo);
 
             } else {
-                log.error("Orchestrator failed to start because there is no active Postgres primary and all attempts to create new one failed. Restore primary manually and restart PgFacade in 'RECOVERY' mode!");
-                return false;
+                throw new InitializationException("Orchestrator failed to start because there is no active Postgres primary and all attempts to create new one failed. Restore primary manually and restart PgFacade in 'RECOVERY' mode!");
             }
         }
 
         orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(primaryInstanceInfo);
 
         log.info("Primary is up and running!");
-
-        primaryReadyEvent.fire(new PrimaryReadyEvent());
 
         // standby section
         List<PostgresCombinedInstanceInfo> standbyInfos = orchestratorUtils.getCombinedInfosForStandbyInstances();
@@ -199,8 +189,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     }
                 } catch (Exception e) {
                     log.error("Error while starting standby. It will be removed.");
-                    platformAdapter.get().deletePostgresInstance(standbyInfo.getAdapter().getAdapterInstanceId());
-                    postgresPersistedProperties.deletePostgresNodeInfo(standbyInfo.getPersisted().getInstanceId());
+                    platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
+                    raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInfo.getPersisted().getInstanceId());
                 }
             }
         }
@@ -215,6 +205,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         if (archivingProperties.enabled()) {
             postgresArchiver.initialize();
+            postgresArchiver.startArchiving();
         } else {
             log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
@@ -222,18 +213,13 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         log.info("Orchestrator initialization completed!");
 
         orchestratorReady.set(true);
-
-        return true;
     }
 
     @Override
-    public void shutdown() {
+    public void stopOrchestrator() {
         orchestratorReady.set(false);
+        postgresArchiver.stop();
         waitForActiveOperationsToComplete();
-        postgresPersistedProperties.getPostgresNodeInfos().forEach(info ->
-                platformAdapter.get().stopPostgresInstance(info.getAdapterIdentifier())
-        );
-        platformAdapter.get().shutdown();
     }
 
     @Override
@@ -316,7 +302,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
                 // using switchover event because for application restart looks the same
                 UUID switchoverEventId = UUID.randomUUID();
-                switchoverStartedEvent.fire(new SwitchoverStartedEvent(switchoverEventId));
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
 
                 try {
                     postgresConfigurator.changePostgresSettings(primaryCombinedInstanceInfo, newSettingNamesAndValuesMap);
@@ -327,14 +313,14 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 } catch (Exception e) {
                     // most likely we faced config parameter issue, so primary can not start.
                     // Because of that, there is no ability to revert settings (for non-running instance), so instance must be deleted
-                    platformAdapter.get().deletePostgresInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                    platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
                     log.error("CLUSTER FAILED TO RESTART. WILL TRY TO RECOVER.");
-                    switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, false));
+                    raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
                     throw e;
                 }
 
                 log.warn("PRIMARY RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. PRIMARY IS AVAILABLE NOW.");
-                switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, true));
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
 
                 // all good for primary, so it will be good for every other Postgres instance
                 for (PostgresCombinedInstanceInfo availableStandby : availableStandbys) {
@@ -349,7 +335,11 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             }
         }
 
-        postgresPersistedProperties.savePostgresSettingsInfos(newSettingNamesAndValuesMap);
+        try {
+            raftFunctionalityCombinator.savePostgresSettingsInfosInRaft(newSettingNamesAndValuesMap);
+        } catch (RaftException e) {
+            throw new OrchestratorOperationExecutionException("Failed to save settings in Raft!", e);
+        }
     }
 
     @Scheduled(every = "${pg-facade.orchestration.common.postgres-dead-check.interval}")
@@ -376,7 +366,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
     private PostgresCombinedInstanceInfo restoreClusterFromBackup(boolean initializeArchiver) {
         if (initializeArchiver) {
-            postgresArchiver.initializeForRecovery();
+            postgresArchiver.initialize();
         }
 
         log.info("Started restoring cluster from backup.");
@@ -387,11 +377,11 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             try {
                 log.info("Restoring primary from backup. This will take some time...");
                 try {
-                    postgresPersistedProperties.getPostgresNodeInfos().forEach(info -> platformAdapter.get().deletePostgresInstance(info.getAdapterIdentifier()));
+                    raftFunctionalityCombinator.getPostgresNodeInfos().forEach(info -> platformAdapter.get().deleteInstance(info.getAdapterIdentifier()));
                 } catch (Exception ignored) {
                 }
 
-                postgresPersistedProperties.clearPostgresNodesInfos();
+                raftFunctionalityCombinator.clearPostgresNodesInfosInRaft();
                 String newPrimaryAdapterId = postgresArchiver.restorePostgresToLatestVersionFromArchive();
                 platformAdapter.get().startPostgresInstance(newPrimaryAdapterId);
                 PostgresAdapterInstanceInfo primaryAdapterInstanceInfo = waitUntilPostgresInstanceHealthy(newPrimaryAdapterId);
@@ -403,7 +393,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                         .adapterIdentifier(primaryAdapterInstanceInfo.getAdapterInstanceId())
                         .build();
 
-                postgresPersistedProperties.savePostgresNodeInfo(persistedInstanceInfo);
+                raftFunctionalityCombinator.savePostgresNodeInfoInRaft(persistedInstanceInfo);
 
                 PostgresCombinedInstanceInfo combinedInstanceInfo = PostgresCombinedInstanceInfo
                         .builder()
@@ -425,7 +415,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private void validateDefaultSettingsPresence() {
         Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(clusterRuntimeProperties.getPostgresVersion());
 
-        Map<String, String> persistedSettings = postgresPersistedProperties.getPostgresSettingInfos();
+        Map<String, String> persistedSettings = raftFunctionalityCombinator.getPostgresSettingInfos();
         Map<String, String> mergedSettings = new HashMap<>(persistedSettings);
 
         defaultSettings.forEach(mergedSettings::putIfAbsent);
@@ -437,7 +427,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                         .forEach(
                                 instance -> postgresConfigurator.changePostgresSettings(instance, mergedSettings)
                         );
-                postgresPersistedProperties.savePostgresSettingsInfos(mergedSettings);
+                raftFunctionalityCombinator.savePostgresSettingsInfosInRaft(mergedSettings);
             } catch (Exception e) {
                 log.error("Failed to apply required settings default values ", e);
             }
@@ -485,17 +475,17 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     UUID switchoverEventId = UUID.randomUUID();
 
                     log.error("RESTORING PRIMARY USING LATEST AVAILABLE VERSION FROM ARCHIVE.");
-                    switchoverStartedEvent.fire(new SwitchoverStartedEvent(switchoverEventId));
+                    raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
 
                     PostgresCombinedInstanceInfo combinedInstanceInfo = restoreClusterFromBackup(false);
                     if (combinedInstanceInfo == null) {
-                        switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, false));
+                        raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
                         log.error("FAILED TO RESTORE PRIMARY FROM BACKUP!");
                         orchestratorReady.set(true);
                         return;
                     }
 
-                    switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, true));
+                    raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
 
                     log.info("SUCCESFULY RESTORED LOST CLUSTER FROM BACKUP!");
                     healthcheckFailedCount = 0;
@@ -545,6 +535,23 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void checkAndFixStandbyCount(List<PostgresCombinedInstanceInfo> availableInstances) {
+        //remove unhealthy or inactive standby
+        availableInstances
+                .stream()
+                .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
+                .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
+                .filter(info ->
+                        !info.getAdapter().isActive()
+                                || InstanceHealth.UNHEALTHY.equals(info.getAdapter().getHealth())
+
+                )
+                .forEach(info -> {
+                    if (raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
+                        log.info("Found unhealthy or inactive standby. Removing it.");
+                        removeStandby(info);
+                    }
+                });
+
         List<PostgresCombinedInstanceInfo> healthyOrStartingStandby = availableInstances
                 .stream()
                 .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
@@ -556,7 +563,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         long countDiff = orchestrationProperties.common().standby().count() - healthyOrStartingStandby.size();
 
-        if (healthyOrStartingStandby.size() < orchestrationProperties.common().standby().count()) {
+        if (healthyOrStartingStandby.size() < orchestrationProperties.common().standby().count() && raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
             log.warn("Found {} starting or healthy standby while it is required to have {}. Need to start {} more.",
                     healthyOrStartingStandby.size(),
                     orchestrationProperties.common().standby().count(),
@@ -567,8 +574,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             for (int i = 0; i < countDiff; i++) {
                 completableFutureList.add(managedExecutor.runAsync(() -> {
-                            PostgresCombinedInstanceInfo instanceInfo = createStartAndWaitForNewInstanceToBeReady(false);
-                            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(instanceInfo);
+                            createStartAndWaitForNewInstanceToBeReady(false);
                             log.info("Standby is up and running!");
                         })
                 );
@@ -587,47 +593,32 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             );
 
             for (int i = 0; i < Math.abs(countDiff); i++) {
-                platformAdapter.get().deletePostgresInstance(healthyOrStartingStandby.get(i).getAdapter().getAdapterInstanceId());
+                platformAdapter.get().deleteInstance(healthyOrStartingStandby.get(i).getAdapter().getAdapterInstanceId());
             }
         }
-
-        //remove unhealthy or inactive standby
-        availableInstances
-                .stream()
-                .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
-                .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
-                .filter(info ->
-                        !info.getAdapter().isActive()
-                                || InstanceHealth.UNHEALTHY.equals(info.getAdapter().getHealth())
-
-                )
-                .forEach(info -> {
-                    log.info("Found unhealthy or inactive standby. Removing it.");
-                    postgresPersistedProperties.deletePostgresNodeInfo(info.getPersisted().getInstanceId());
-                    removeStandby(info);
-                });
     }
 
     private void removeStandby(PostgresCombinedInstanceInfo standbyInstanceInfo) {
-        standbyRemovedEvent.fire(
-                new StandbyRemovedEvent(
-                        standbyInstanceInfo.getPersisted().getInstanceId()
-                )
-        );
-
-        clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(standbyInstanceInfo.getPersisted().getInstanceId());
-        postgresPersistedProperties.deletePostgresNodeInfo(standbyInstanceInfo.getPersisted().getInstanceId());
-        platformAdapter.get().deletePostgresInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
+        try {
+            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getPersisted().getInstanceId());
+        } catch (RaftException e) {
+            log.error("Failed to delete instance {} in raft!", standbyInstanceInfo.getPersisted().getInstanceId(), e);
+        }
+        platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
     }
 
     private synchronized boolean switchover(PostgresCombinedInstanceInfo newPrimaryInstanceInfo, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
         UUID switchoverEventId = UUID.randomUUID();
 
+        if (!raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
+            return false;
+        }
+
         switchoverInProgress.set(true);
 
         try {
-            switchoverStartedEvent.fire(new SwitchoverStartedEvent(switchoverEventId));
-            standbyRemovedEvent.fireAsync(new StandbyRemovedEvent(newPrimaryInstanceInfo.getPersisted().getInstanceId()));
+            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
+
             log.info("SWITCHOVER STARTED. SWITCHING TO INSTANCE WITH IP {} AND PORT {}", newPrimaryInstanceInfo.getAdapter().getInstanceAddress(), newPrimaryInstanceInfo.getAdapter().getInstancePort());
 
             Connection standbyConnection = postgresUtils.getConnectionForPgFacadeUser(
@@ -648,22 +639,25 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
 
             newPrimaryInstanceInfo.getPersisted().setPrimary(true);
-            postgresPersistedProperties.savePostgresNodeInfo(newPrimaryInstanceInfo.getPersisted());
-            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(newPrimaryInstanceInfo);
+            raftFunctionalityCombinator.savePostgresNodeInfoInRaft(newPrimaryInstanceInfo.getPersisted());
 
-            platformAdapter.get().deletePostgresInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
-            postgresPersistedProperties.deletePostgresNodeInfo(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+            platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
+            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
 
             //remove all standby because of new timeline
             //TODO it is possible to repair such nodes instead of deleting them. Use recovery_target_timeline = 'latest'
             log.info("NEW PRIMARY PROMOTED. REMOVING ALL FORMER STANDBY BECAUSE OF NEW TIMELINE.");
             orchestratorUtils.getCombinedInfosForStandbyInstances().forEach(this::removeStandby);
 
-            switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, true));
+            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");
             return true;
         } catch (Exception e) {
-            switchoverCompletedEvent.fire(new SwitchoverCompletedEvent(switchoverEventId, false));
+            try {
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
+            } catch (RaftException ex) {
+                log.error("Failed to notify all PgFacade nodes about failed switchover!", ex);
+            }
             log.error("ERROR DURING SWITCHOVER", e);
             return false;
         } finally {
@@ -677,23 +671,17 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(instanceId);
 
         try {
+            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(instanceId);
             platformAdapter.get().restartPostgresInstance(standbyInfo.getAdapter().getAdapterInstanceId());
 
-            PostgresAdapterInstanceInfo restartedAdapterInstanceInfo = waitUntilPostgresInstanceHealthy(standbyInfo.getAdapter().getAdapterInstanceId());
+            waitUntilPostgresInstanceHealthy(standbyInfo.getAdapter().getAdapterInstanceId());
 
-            PostgresCombinedInstanceInfo newInstanceInfo = PostgresCombinedInstanceInfo
-                    .builder()
-                    .adapter(restartedAdapterInstanceInfo)
-                    .persisted(standbyInfo.getPersisted())
-                    .build();
-
-            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(newInstanceInfo);
+            raftFunctionalityCombinator.savePostgresNodeInfoInRaft(standbyInfo.getPersisted());
 
         } catch (Exception e) {
             log.error("Error while restarting standby! ", e);
             restartingStandbyInstanceIds.remove(instanceId);
-            postgresPersistedProperties.deletePostgresNodeInfo(instanceId);
-            platformAdapter.get().deletePostgresInstance(standbyInfo.getAdapter().getAdapterInstanceId());
+            removeStandby(standbyInfo);
         }
     }
 
@@ -704,7 +692,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                         .builder()
                         .futureInstanceId(UUID.randomUUID())
                         .primary(primary)
-                        .settings(postgresPersistedProperties.getPostgresSettingInfos())
+                        .settings(raftFunctionalityCombinator.getPostgresSettingInfos())
                         .build()
         );
 
@@ -712,42 +700,49 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             throw new InstanceCreationException("Can not create new Postgres instance.");
         }
 
-        boolean started = platformAdapter.get().startPostgresInstance(adapterIdentifier);
+        try {
 
-        if (!started) {
-            throw new InstanceCreationException("Can not start new Postgres instance");
+            boolean started = platformAdapter.get().startPostgresInstance(adapterIdentifier);
+
+            if (!started) {
+                throw new InstanceCreationException("Can not start new Postgres instance");
+            }
+
+            log.info("Started new instance. Will wait until it is healthy...");
+
+            PostgresAdapterInstanceInfo adapterInstanceInfo = waitUntilPostgresInstanceHealthy(adapterIdentifier);
+
+            PostgresPersistedInstanceInfo persistedInstanceInfo = PostgresPersistedInstanceInfo
+                    .builder()
+                    .primary(primary)
+                    .instanceId(futureInstanceId)
+                    .adapterIdentifier(adapterIdentifier)
+                    .build();
+
+            raftFunctionalityCombinator.savePostgresNodeInfoInRaft(persistedInstanceInfo);
+
+            return PostgresCombinedInstanceInfo
+                    .builder()
+                    .adapter(adapterInstanceInfo)
+                    .persisted(persistedInstanceInfo)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to start or wait for new Postgres instance. Removing instance...");
+            platformAdapter.get().deleteInstance(adapterIdentifier);
+            throw e;
         }
-
-        log.info("Started new instance. Will wait until it is healthy...");
-
-        PostgresAdapterInstanceInfo adapterInstanceInfo = waitUntilPostgresInstanceHealthy(adapterIdentifier);
-
-        PostgresPersistedInstanceInfo persistedInstanceInfo = PostgresPersistedInstanceInfo
-                .builder()
-                .primary(primary)
-                .instanceId(futureInstanceId)
-                .adapterIdentifier(adapterIdentifier)
-                .build();
-
-        postgresPersistedProperties.savePostgresNodeInfo(persistedInstanceInfo);
-
-        return PostgresCombinedInstanceInfo
-                .builder()
-                .adapter(adapterInstanceInfo)
-                .persisted(persistedInstanceInfo)
-                .build();
     }
 
     private PostgresAdapterInstanceInfo waitUntilPostgresInstanceHealthy(String adapterInstanceId) throws AwaitHealthyInstanceException {
         OrchestrationProperties.CommonProperties.PostgresStartupCheckProperties startupCheckProperties = orchestrationProperties.common().postgresStartupCheck();
 
         long endTime = System.currentTimeMillis() + (startupCheckProperties.interval() * startupCheckProperties.retries()) + startupCheckProperties.startPeriod();
-        PostgresAdapterInstanceInfo instanceInfo = platformAdapter.get().getInstanceInfo(adapterInstanceId);
+        PostgresAdapterInstanceInfo instanceInfo = platformAdapter.get().getPostgresInstanceInfo(adapterInstanceId);
 
         try {
             while (!InstanceHealth.HEALTHY.equals(instanceInfo.getHealth()) && endTime > System.currentTimeMillis()) {
                 Thread.sleep(startupCheckProperties.interval());
-                instanceInfo = platformAdapter.get().getInstanceInfo(adapterInstanceId);
+                instanceInfo = platformAdapter.get().getPostgresInstanceInfo(adapterInstanceId);
             }
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();

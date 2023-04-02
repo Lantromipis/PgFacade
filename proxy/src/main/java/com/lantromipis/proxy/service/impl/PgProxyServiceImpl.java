@@ -82,6 +82,10 @@ public class PgProxyServiceImpl implements PgProxyService {
 
     @Override
     public void shutdown(boolean awaitClients, Duration awaitClientsDuration) {
+        if (primaryProxyChannelFuture == null) {
+            return;
+        }
+
         primaryProxyChannelFuture.channel().close();
 
         if (!awaitClients) {

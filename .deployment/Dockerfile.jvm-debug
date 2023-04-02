@@ -12,10 +12,14 @@ RUN sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-
     && apt-get -y install postgresql-client \
     && apt-get clean all
 
+RUN ["chsh", "-s", "/bin/bash"]
+
 RUN useradd --create-home --shell /bin/bash pgfacade
 
 RUN ["mkdir", "/var/run/pgfacade"]
 RUN ["chown", "pgfacade", "/var/run/pgfacade"]
+
+VOLUME /var/run/pgfacade
 
 # We make four distinct layers so if there are application changes the library layers can be re-used
 COPY --chown=pgfacade target/quarkus-app/lib/ /deployments/lib/
@@ -26,7 +30,7 @@ COPY --chown=pgfacade target/quarkus-app/quarkus/ /deployments/quarkus/
 # docker.sock permission denied. To fix that, id of users in host and container must match
 USER root
 
-ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005 -Dquarkus.package.type=mutable-jar -Dquarkus.live-reload.password=123"
+ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Dquarkus.package.type=mutable-jar -Dquarkus.live-reload.password=123"
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
 ENV QUARKUS_LAUNCH_DEVMODE=true

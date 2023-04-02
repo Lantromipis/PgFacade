@@ -73,6 +73,14 @@ public interface OrchestrationProperties {
 
         interface PgFacadeProperties {
             String localFilesDirectory();
+
+            String internalNetworkName();
+
+            String externalNetworkName();
+
+            String containerName();
+
+            String expectedDockerSockFileName();
         }
 
         interface PostgresProperties {

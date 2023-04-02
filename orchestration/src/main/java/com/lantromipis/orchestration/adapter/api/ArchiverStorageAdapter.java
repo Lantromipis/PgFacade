@@ -1,5 +1,6 @@
 package com.lantromipis.orchestration.adapter.api;
 
+import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.DownloadException;
 import com.lantromipis.orchestration.exception.UploadException;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
@@ -17,7 +18,13 @@ import java.util.List;
  * For easiness, PgFacade references backups by their creation Instance.
  */
 public interface ArchiverStorageAdapter {
-    void initialize();
+
+    /**
+     * Initializes adapter and performs basic calls to check if initialized successfully and if configuration is valid.
+     *
+     * @throws InitializationException if failed to initialize
+     */
+    void initializeAndValidate() throws InitializationException;
 
     /**
      * Searches for all available backups and their creation time

@@ -3,7 +3,7 @@ package com.lantromipis.usermanagement.provider.impl;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
-import com.lantromipis.usermanagement.model.PgShadowTableRow;
+import com.lantromipis.usermanagement.model.UserAuthInfo;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -24,7 +24,7 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
     @Inject
     PostgresProperties postgresProperties;
 
-    private Map<String, PgShadowTableRow> pgShadowTableRowsMap = new HashMap<>();
+    private Map<String, UserAuthInfo> pgShadowTableRowsMap = new HashMap<>();
 
     public void initialize() {
         log.info("Initializing database users auth info using custom pg_authid table view.");
@@ -43,7 +43,7 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
 
                 pgShadowTableRowsMap.put(
                         username,
-                        PgShadowTableRow
+                        UserAuthInfo
                                 .builder()
                                 .username(username)
                                 .passwd(password)
@@ -65,14 +65,14 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
 
     @Override
     public PostgresProtocolAuthenticationMethod getAuthMethodForUser(String username) {
-        PgShadowTableRow pgShadowTableRow = pgShadowTableRowsMap.get(username);
-        if (pgShadowTableRow == null) {
+        UserAuthInfo userAuthInfo = pgShadowTableRowsMap.get(username);
+        if (userAuthInfo == null) {
             return null;
         }
 
-        if (StringUtils.startsWith("md5", pgShadowTableRow.getPasswd())) {
+        if (StringUtils.startsWith("md5", userAuthInfo.getPasswd())) {
             return PostgresProtocolAuthenticationMethod.MD5;
-        } else if (StringUtils.startsWith(pgShadowTableRow.getPasswd(), "SCRAM-SHA-256")) {
+        } else if (StringUtils.startsWith(userAuthInfo.getPasswd(), "SCRAM-SHA-256")) {
             return PostgresProtocolAuthenticationMethod.SCRAM_SHA256;
         } else {
             return PostgresProtocolAuthenticationMethod.PLAIN_TEXT;
@@ -81,11 +81,11 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
 
     @Override
     public String getPasswdForUser(String username) {
-        PgShadowTableRow pgShadowTableRow = pgShadowTableRowsMap.get(username);
-        if (pgShadowTableRow == null) {
+        UserAuthInfo userAuthInfo = pgShadowTableRowsMap.get(username);
+        if (userAuthInfo == null) {
             return null;
         }
 
-        return pgShadowTableRow.getPasswd();
+        return userAuthInfo.getPasswd();
     }
 }

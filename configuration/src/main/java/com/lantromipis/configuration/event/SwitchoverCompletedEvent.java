@@ -2,6 +2,7 @@ package com.lantromipis.configuration.event;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
@@ -9,6 +10,7 @@ import java.util.UUID;
  * Event which is fired when switchover completed. SwitchoverStartedEvent must be fired before this event.
  */
 @Data
+@NoArgsConstructor
 @AllArgsConstructor
 public class SwitchoverCompletedEvent {
     /**

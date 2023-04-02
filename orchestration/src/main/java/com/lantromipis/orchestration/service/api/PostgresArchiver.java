@@ -9,14 +9,19 @@ import java.util.List;
 public interface PostgresArchiver {
 
     /**
-     * Minimal initialization for archiver just to be able to restore from backup.
-     */
-    void initializeForRecovery();
-
-    /**
-     * Initialize archiver. Must be called after orchestrator initialization completed.
+     * Initializes archiver
      */
     void initialize();
+
+    /**
+     * Stops archiver
+     */
+    void stop();
+
+    /**
+     * Starts continuous archiving. Must be called when primary healthiness achieved.
+     */
+    void startArchiving();
 
     List<Instant> getBackupInstants();
 

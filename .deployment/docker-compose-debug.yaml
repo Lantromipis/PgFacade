@@ -3,10 +3,12 @@ name: pgfacade
 services:
   pgfacade:
     build:
-      dockerfile: ../.deployment/Dockerfile.jvm-debug
+      dockerfile: ../.deployment/Dockerfile.jvm-postgres-15
       context: ../app-pgfacade-root
     networks:
       - pg-facade-postgres-network
+      - pg-facade-internal-network
+      - pg-facade-external-network
       - minio-network
     ports:
       - "5005:5005"
@@ -14,9 +16,9 @@ services:
       - "5433:5433"
     volumes:
       - /var/run/docker.sock:/var/run/pgfacade/docker.sock
-      - pg-facade-storage:/var/run/pgfacade/
     environment:
       - pg-facade.archiving.s3.endpoint=http://minio:9000
+      - PG_FACADE_ORCHESTRATION_POSTGRES_CLUSTER_RESTORE_ALLOW_CREATING_NEW_EMPTY_PRIMARY_IF_RESTORE_ON_STARTUP_FAILED=true
 
   minio:
     image: minio/minio
@@ -34,9 +36,12 @@ services:
 
 volumes:
   minio_storage: {}
-  pg-facade-storage: {}
 
 networks:
   pg-facade-postgres-network:
+    external: true
+  pg-facade-internal-network:
+    external: true
+  pg-facade-external-network:
     external: true
   minio-network:
