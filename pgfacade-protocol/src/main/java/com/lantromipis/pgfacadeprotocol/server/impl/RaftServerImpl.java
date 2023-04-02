@@ -24,6 +24,8 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -105,7 +107,7 @@ public class RaftServerImpl implements RaftServer {
 
         serverChannelFuture = serverBootstrap
                 .group(context.getBossGroup(), context.getWorkerGroup())
-                .channel(NioServerSocketChannel.class)
+                .channel(Epoll.isAvailable() ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
                 .childHandler(new RaftServerChannelInitializer(this::processRaftNodeRequestCallback))
                 .childOption(ChannelOption.AUTO_READ, false)
                 .bind(properties.getPort())
