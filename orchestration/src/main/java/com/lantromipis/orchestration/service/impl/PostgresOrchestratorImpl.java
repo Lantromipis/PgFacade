@@ -84,13 +84,13 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
+            postgresArchiver.initialize();
             return;
         }
 
         log.info("Fast orchestrator initialization completed!");
 
         if (archivingProperties.enabled()) {
-            postgresArchiver.initialize();
             postgresArchiver.startArchiving();
         } else {
             log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");

@@ -98,16 +98,16 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Override
     public void initialize() {
-        archiverAdapter.get().initializeAndValidate();
-        archiverInitialized = true;
+        if (!archiverInitialized) {
+            archiverAdapter.get().initializeAndValidate();
+            archiverInitialized = true;
+        }
     }
 
     @Override
     public void stop() {
-        if (archiverInitialized) {
-            archiverInitialized = false;
-            stopWalArchiving();
-        }
+        archiverActiveAndIsLeader = false;
+        stopWalArchiving();
     }
 
     @Override
@@ -120,7 +120,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         log.info("Initializing archiver.");
 
         if (!archiverInitialized) {
-            archiverAdapter.get().initializeAndValidate();
+            initialize();
         }
 
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
@@ -181,13 +181,20 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Override
     public String restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException {
+        BaseBackupDownload baseBackupDownload = null;
         try {
             if (!clusterRestoreInProgress.compareAndSet(false, true)) {
                 throw new PostgresRestoreException("Cluster restore already in progress.");
             }
 
-            if (!archiverActiveAndIsLeader && !archiverInitialized) {
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
+
+            if (!archiverActiveAndIsLeader) {
                 throw new PostgresRestoreException("Archiver not initialized or is disabled by configuration. Can not restore Postgres from backup.");
+            }
+
+            if (!archiverInitialized) {
+                initialize();
             }
 
             stopWalArchiving();
@@ -199,11 +206,13 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
             Instant lastBackupInstant = instants.stream().sorted().findFirst().get();
 
-            BaseBackupDownload baseBackupDownload = archiverAdapter.get().downloadBaseBackup(lastBackupInstant);
+            baseBackupDownload = archiverAdapter.get().downloadBaseBackup(lastBackupInstant);
             List<String> walFiles = archiverAdapter.get().getAllWalFileNamesSortedStartingFrom(baseBackupDownload.getFirstWalFile());
             if (!walFiles.contains(baseBackupDownload.getFirstWalFile())) {
                 throw new PostgresRestoreException("Can not recover! Can not find first WAL for backup in storage. Required WAL file name: " + baseBackupDownload.getFirstWalFile());
             }
+
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
 
             String instanceId = platformAdapter.get().restorePrimaryFromBackup(
                     baseBackupDownload.getInputStreamWithBackupTar(),
@@ -220,12 +229,24 @@ public class PostgresArchiverImpl implements PostgresArchiver {
             throw new PostgresRestoreException("Unexpected error during restoring Postgres from backup", e);
         } finally {
             clusterRestoreInProgress.set(false);
+            if (baseBackupDownload != null && baseBackupDownload.getInputStreamWithBackupTar() != null) {
+                try {
+                    baseBackupDownload.getInputStreamWithBackupTar().close();
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
     @Override
     public void createAndUploadBackup() throws BackupCreationException {
         log.info("Started creating basebackup for archiving.");
+        try {
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
+        } catch (Exception e) {
+            throw new BackupCreationException("Failed to create backup due to Raft error!");
+        }
+
         Instant instant = Instant.now();
 
         BaseBackupCreationResult baseBackupCreationResult = platformAdapter.get().createBaseBackupAndGetAsStream();
@@ -235,6 +256,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         try {
             log.info("Uploading new basebackup for archiving.");
+            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
             archiverAdapter.get().uploadBackupTar(
                     baseBackupCreationResult.getStream(),
                     instant,
@@ -261,6 +283,9 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
                 // will never remove backup if it is the last one
                 if (archivingProperties.basebackup().cleanUp().removeOld() && backups != null && backups.size() > 1) {
+                    // if not leader -> do not remove backups
+                    raftFunctionalityCombinator.testIfAbleToCommitToRaft();
+
                     Instant oldestPermittedBackupInstant = Instant.now().minus(archivingProperties.basebackup().cleanUp().keepOldInterval());
 
                     if (archiverAdapter.get().removeBackupsAndWalOlderThanInstant(oldestPermittedBackupInstant, archivingProperties.basebackup().cleanUp().removeOldWalFilesWhenRemoving()) > 0) {
@@ -428,6 +453,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         for (int i = 0; i < archivingProperties.walStreaming().uploadWalRetries(); i++) {
             try {
                 File file = new File(walFileAbsolutePath);
+                raftFunctionalityCombinator.testIfAbleToCommitToRaft();
                 archiverAdapter.get().uploadWalFile(file, timestamp);
                 failedToUploadWal.remove(walFileAbsolutePath);
 

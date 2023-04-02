@@ -20,8 +20,10 @@ import com.lantromipis.quarkusroot.validator.ConfigurationValidator;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.EventLoopGroup;
 import io.quarkus.arc.All;
+import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.http.runtime.HttpConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.Priority;
@@ -91,6 +93,11 @@ public class QuarkusStartupAndShutdownHandler {
     @Inject
     PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
 
+    @Inject
+    HttpConfiguration httpConfiguration;
+
+    private boolean shutdownImmidiatly = false;
+
     public void startup(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) StartupEvent startupEvent) {
         try {
             log.info("Checking provided configuration values...");
@@ -100,6 +107,8 @@ public class QuarkusStartupAndShutdownHandler {
                     configurationValid.set(false);
                 }
             });
+
+            pgFacadeRuntimeProperties.setHttpPort(httpConfiguration.port);
 
             if (!configurationValid.get()) {
                 log.error("CONFIGURATION INVALID. PGFACADE FAILED TO START!");
@@ -141,28 +150,8 @@ public class QuarkusStartupAndShutdownHandler {
 
     public void shutdownImmediately() {
         log.error("Exceptional situation occurred and it is impossible to recover! Immediately shutting down PgFacade!");
-        pgFacadeRaftService.shutdown();
-
-        pgProxyServiceImpl.shutdown(false, Duration.ZERO);
-        postgresOrchestrator.stopOrchestrator();
-        platformAdapter.get().shutdown();
-
-        try {
-            bossGroup.shutdownGracefully().sync();
-        } catch (InterruptedException e) {
-            log.error(e.getMessage(), e);
-            Thread.currentThread().interrupt();
-        }
-
-        try {
-            workerGroup.shutdownGracefully().sync();
-        } catch (InterruptedException e) {
-            log.error(e.getMessage(), e);
-            Thread.currentThread().interrupt();
-        }
-
-        log.info("PgFacade was shut down.");
-        System.exit(1);
+        shutdownImmidiatly = true;
+        Quarkus.asyncExit(123);
     }
 
     public void shutdown(@Observes @Priority(Interceptor.Priority.PLATFORM_AFTER) ShutdownEvent shutdownEvent) {
@@ -170,7 +159,12 @@ public class QuarkusStartupAndShutdownHandler {
 
         pgFacadeRaftService.shutdown();
 
-        pgProxyServiceImpl.shutdown(shutdownProperties.awaitClients(), shutdownProperties.waitForClientsDuration());
+        if (shutdownImmidiatly) {
+            pgProxyServiceImpl.shutdown(false, Duration.ZERO);
+        } else {
+            pgProxyServiceImpl.shutdown(shutdownProperties.awaitClients(), shutdownProperties.waitForClientsDuration());
+        }
+
         postgresOrchestrator.stopOrchestrator();
         platformAdapter.get().shutdown();
 

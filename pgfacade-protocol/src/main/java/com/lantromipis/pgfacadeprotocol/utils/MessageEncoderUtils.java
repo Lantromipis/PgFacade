@@ -78,7 +78,7 @@ public class MessageEncoderUtils {
         target.writeLong(voteRequest.getTerm());
         target.writeLong(voteRequest.getLastLogIndex());
         target.writeLong(voteRequest.getLastLogTerm());
-        target.writeInt(voteRequest.getRound());
+        target.writeLong(voteRequest.getRound());
     }
 
     private static void encodeVoteResponseMessage(VoteResponse voteResponse, ByteBuf target) {
@@ -86,7 +86,7 @@ public class MessageEncoderUtils {
 
         target.writeLong(voteResponse.getTerm());
         target.writeBoolean(voteResponse.isAgreed());
-        target.writeInt(voteResponse.getRound());
+        target.writeLong(voteResponse.getRound());
     }
 
     private static void encodeAppendRequestMessage(AppendRequest appendRequest, ByteBuf target) {

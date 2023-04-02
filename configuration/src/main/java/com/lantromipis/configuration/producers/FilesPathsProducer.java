@@ -25,6 +25,7 @@ public class FilesPathsProducer {
         try {
             Files.createDirectories(Paths.get(getPersistedPropertiesDirPath()));
             Files.createDirectories(Paths.get(getPostgresWalStreamReceiverDirectoryPath()));
+            Files.createDirectories(Paths.get(getPostgresWalStreamUploaderDirectoryPath()));
             File raftDir = new File(getRaftDirPath());
             if (raftDir.exists()) {
                 FileUtils.forceDelete(raftDir);

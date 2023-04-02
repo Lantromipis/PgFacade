@@ -18,6 +18,7 @@ public class RaftTimer {
 
     private boolean started = false;
     private boolean resetSignal = false;
+    private boolean paused = false;
 
 
     public RaftTimer(int initialDelay, int rate, Runnable actionOnTimeout, Supplier<Boolean> isRunningCheck) {
@@ -28,7 +29,6 @@ public class RaftTimer {
         timer = new Timer();
     }
 
-
     public void start() {
         if (started) {
             return;
@@ -37,7 +37,7 @@ public class RaftTimer {
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                if (isRunningCheck.get()) {
+                if (isRunningCheck.get() && !paused) {
                     if (!resetSignal) {
                         try {
                             actionOnTimeout.run();
@@ -53,11 +53,17 @@ public class RaftTimer {
         started = true;
     }
 
+    public void pause() {
+        paused = true;
+    }
+
+    public void resume() {
+        paused = false;
+    }
 
     public void reset() {
         resetSignal = true;
     }
-
 
     public void stop() {
         timer.cancel();

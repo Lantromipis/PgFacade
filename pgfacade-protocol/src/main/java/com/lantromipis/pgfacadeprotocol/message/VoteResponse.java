@@ -1,7 +1,8 @@
 package com.lantromipis.pgfacadeprotocol.message;
 
 import com.lantromipis.pgfacadeprotocol.constant.MessageMarkerConstants;
-import lombok.*;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.experimental.SuperBuilder;
 
 @Getter
@@ -10,7 +11,7 @@ import lombok.experimental.SuperBuilder;
 public class VoteResponse extends AbstractMessage {
     private long term;
     private boolean agreed;
-    private int round;
+    private long round;
 
     @Override
     public byte getMessageMarker() {

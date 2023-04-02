@@ -5,16 +5,13 @@ import com.lantromipis.pgfacadeprotocol.message.VoteResponse;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftRole;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftNodeCallbackInfo;
-import com.lantromipis.pgfacadeprotocol.model.internal.RaftPeerWrapper;
 import com.lantromipis.pgfacadeprotocol.model.internal.RaftServerContext;
+import com.lantromipis.pgfacadeprotocol.server.impl.RaftTimer;
 import com.lantromipis.pgfacadeprotocol.utils.RaftUtils;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Slf4j
 public class RaftElectionProcessor {
@@ -85,7 +82,7 @@ public class RaftElectionProcessor {
                 .build();
     }
 
-    public synchronized void processElection() {
+    public synchronized void processElection(Runnable hearthBeatRunnable) {
         // already leader
         if (context.getSelfRole().equals(RaftRole.LEADER)) {
             return;
@@ -93,9 +90,13 @@ public class RaftElectionProcessor {
 
         log.info("Starting Raft election!");
 
+        RaftTimer voteTimer = context.getVoteTimer();
+
         context.setSelfRole(RaftRole.CANDIDATE);
         long startTerm = context.getCurrentTerm().incrementAndGet();
         context.setVotedForNodeId(context.getSelfNodeId());
+
+        voteTimer.pause();
 
         // because voted for self
         int grantedVotes = 1;
@@ -103,99 +104,104 @@ public class RaftElectionProcessor {
 
         context.getVoteResponses().clear();
 
-        int round = ThreadLocalRandom.current().nextInt();
+        long round = System.currentTimeMillis();
 
-        Map<String, RaftPeerWrapper> nodesIdsToSend = context.getRaftPeers()
+        // not count previous leader
+        int expectedResponsesCount = context.getRaftPeers().size() - 1;
+
+        VoteRequest voteRequest = VoteRequest.builder()
+                .groupId(context.getRaftGroupId())
+                .nodeId(context.getSelfNodeId())
+                .term(context.getCurrentTerm().get())
+                .lastLogTerm(context.getOperationLog().getLastTerm())
+                .lastLogIndex(context.getOperationLog().getEffectiveLastIndex().get())
+                .round(round)
+                .build();
+
+        context.getRaftPeers()
                 .values()
                 .stream()
                 .filter(wrapper -> !wrapper.getRaftNode().getId().equals(context.getSelfNodeId()))
-                .collect(
-                        Collectors.toMap(
-                                wrapper -> wrapper.getRaftNode().getId(),
-                                Function.identity()
+                .forEach(wrapper ->
+                        RaftUtils.tryToSendMessageToPeer(
+                                wrapper,
+                                voteRequest,
+                                context,
+                                raftServerProperties,
+                                responseCallback
                         )
                 );
 
-        // not count previous leader
-        int expectedResponses = nodesIdsToSend.size() - 1;
+        long startTime = System.currentTimeMillis();
 
-        while (isBeingElected(startTerm, context)) {
-            VoteRequest voteRequest = VoteRequest.builder()
-                    .groupId(context.getRaftGroupId())
-                    .nodeId(context.getSelfNodeId())
-                    .term(context.getCurrentTerm().get())
-                    .lastLogTerm(context.getOperationLog().getLastTerm())
-                    .lastLogIndex(context.getOperationLog().getEffectiveLastIndex().get())
-                    .round(round)
-                    .build();
+        while (System.currentTimeMillis() - startTime < raftServerProperties.getVoteTimeout() && context.getVoteResponses().size() < expectedResponsesCount) {
+            // spin lock
+        }
 
-            nodesIdsToSend.values().forEach(wrapper ->
-                    RaftUtils.tryToSendMessageToPeer(
-                            wrapper,
-                            voteRequest,
-                            context,
-                            raftServerProperties,
-                            responseCallback
-                    )
-            );
-
-            long startTime = System.currentTimeMillis();
-
-            while (System.currentTimeMillis() - startTime < raftServerProperties.getVoteTimeout() && context.getVoteResponses().size() < expectedResponses) {
-                // spin lock
+        for (var voteResponse : context.getVoteResponses().values()) {
+            if (voteResponse.getRound() != round) {
+                continue;
             }
 
-            for (var voteResponse : context.getVoteResponses()) {
-                if (voteResponse.getRound() != round) {
-                    // some old async response or hack
-                    context.getVoteResponses().remove(voteResponse);
-                }
-
-                if (voteResponse.getTerm() > context.getCurrentTerm().get()) {
-                    // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
-                    processTermGreaterThanCurrent(voteResponse.getTerm());
-                    return;
-                }
-
-                if (voteResponse.isAgreed()) {
-                    log.debug("Node with id {} GRANTED vote!", voteResponse.getNodeId());
-                    grantedVotes++;
-                } else {
-                    log.debug("Node with id {} NOT GRANTED vote!", voteResponse.getNodeId());
-                    revokeVotes++;
-                }
-                nodesIdsToSend.remove(voteResponse.getNodeId());
+            if (voteResponse.getTerm() > context.getCurrentTerm().get()) {
+                // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+                processTermGreaterThanCurrent(voteResponse.getTerm());
+                voteTimer.resume();
+                return;
             }
 
-            int quorum = RaftUtils.calculateQuorum(context);
-
-            if (isBeingElected(startTerm, context)) {
-                if (grantedVotes >= quorum) {
-                    log.debug("Election WON!");
-                    context.getRaftPeers().values()
-                            .forEach(wrapper -> wrapper.getNextIndex().getAndSet(
-                                            context.getOperationLog().getEffectiveLastIndex().get() + 1
-                                    )
-                            );
-                    context.setSelfRole(RaftRole.LEADER);
-                    return;
-                } else if (revokeVotes >= quorum) {
-                    log.debug("Election LOST");
-                    context.setSelfRole(RaftRole.FOLLOWER);
-                    return;
-                }
-                log.warn("Raft quorum NOT reached! Quorum = {}, granted votes = {}, revoked votes = {}. Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...",
-                        quorum,
-                        grantedVotes,
-                        revokeVotes
-                );
-            }
-
-            try {
-                Thread.sleep(raftServerProperties.getVoteTimeout());
-            } catch (InterruptedException ignored) {
+            if (voteResponse.isAgreed()) {
+                log.debug("Node with id {} GRANTED vote!", voteResponse.getNodeId());
+                grantedVotes++;
+            } else {
+                log.debug("Node with id {} NOT GRANTED vote!", voteResponse.getNodeId());
+                revokeVotes++;
             }
         }
+
+        int quorum = RaftUtils.calculateQuorum(context);
+
+        if (isBeingElected(startTerm, context)) {
+            if (grantedVotes >= quorum) {
+                log.debug("Election WON!");
+                context.getRaftPeers().values()
+                        .forEach(wrapper -> {
+                                    RaftUtils.updateIncrementalAtomicLong(wrapper.getNextIndex(), context.getOperationLog().getEffectiveLastIndex().get() + 1);
+                                    wrapper.setLastTimeActive(System.currentTimeMillis());
+                                }
+                        );
+                context.setSelfRole(RaftRole.LEADER);
+                voteTimer.resume();
+                hearthBeatRunnable.run();
+                return;
+            } else if (revokeVotes >= quorum) {
+                log.debug("Election LOST");
+                context.setSelfRole(RaftRole.FOLLOWER);
+                voteTimer.resume();
+                return;
+            }
+            log.warn("Raft quorum NOT reached! Quorum = {}, granted votes = {}, revoked votes = {}. Are there enough nodes in cluster for quorum? Quorum = N/2 + 1, where N is number of nodes initially. Restarting election...",
+                    quorum,
+                    grantedVotes,
+                    revokeVotes
+            );
+        } else {
+            log.debug("Election was stopped. Most likely other node became leader.");
+            voteTimer.resume();
+            return;
+        }
+
+        long timeToDelay = ThreadLocalRandom.current()
+                .nextInt(
+                        raftServerProperties.getElectionRestartTimeoutMax() - raftServerProperties.getElectionRestartTimeoutMin()
+                ) + raftServerProperties.getElectionRestartTimeoutMin();
+
+        try {
+            Thread.sleep(timeToDelay);
+        } catch (InterruptedException ignored) {
+        }
+
+        voteTimer.resume();
     }
 
     public void processTermGreaterThanCurrent(long term) {

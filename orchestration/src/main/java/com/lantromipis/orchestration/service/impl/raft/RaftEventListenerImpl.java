@@ -5,8 +5,6 @@ import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
-import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
-import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftRole;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
@@ -61,10 +59,10 @@ public class RaftEventListenerImpl implements RaftEventListener {
     public void selfRoleChanged(RaftRole newRaftRole) {
         try {
             if (RaftRole.LEADER.equals(newRaftRole)) {
-                log.info("This PgFacade node is leader now! Starting orchestration...");
                 pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.LEADER);
+                log.info("This PgFacade node is leader now! Starting orchestration...");
                 if (synced) {
-                    // This node became leader but was synced with leader on startup. Means that this node was just promoted to leader now and previously was follower.
+                    // This node became leader and was synced with leader on startup. Means that this node was just promoted to leader now and previously was follower.
                     postgresOrchestrator.initializeFastWhenClusterRunning();
                 } else {
                     // This node became leader but was NOT synced with leader on startup. Means that this node is alone in cluster and elected itself to manage cluster.
@@ -72,9 +70,10 @@ public class RaftEventListenerImpl implements RaftEventListener {
                     postgresOrchestrator.initializeFull();
                 }
                 pgFacadeOrchestrator.startOrchestration();
-            } else {
+            } else if (!PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+                pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.FOLLOWER);
                 postgresOrchestrator.stopOrchestrator();
-                log.info("This PgFacade node is not leader anymore!");
+                log.info("This PgFacade node is now follower!");
             }
         } catch (Throwable t) {
             log.error("Error performing raft role change! Impossible to recover!", t);

@@ -1,7 +1,9 @@
 pg-facade:
   raft:
-    nodes: 3
-    nodes-count-check-interval: PT10S
+    nodes-count: 3
+    nodes-check-interval: PT5S
+    app-checks-retry-before-kill: 3
+    raft-no-response-timeout-before-kill: PT5S
   shutdown:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
@@ -124,8 +126,8 @@ quarkus:
         level: INFO
       "org.apache.hc" :
         level: WARN
-      "org.apache.ratis":
-        level: INFO
+      "org.apache.http":
+        level: WARN
   banner:
     enabled: true
     path: banner

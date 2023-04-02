@@ -73,7 +73,7 @@ public class MessageDecoderUtils {
                 .term(byteBuf.readLong())
                 .lastLogIndex(byteBuf.readLong())
                 .lastLogTerm(byteBuf.readLong())
-                .round(byteBuf.readInt())
+                .round(byteBuf.readLong())
                 .build();
     }
 
@@ -84,7 +84,7 @@ public class MessageDecoderUtils {
                 .nodeId(readString(byteBuf))
                 .term(byteBuf.readLong())
                 .agreed(byteBuf.readBoolean())
-                .round(byteBuf.readInt())
+                .round(byteBuf.readLong())
                 .build();
     }
 

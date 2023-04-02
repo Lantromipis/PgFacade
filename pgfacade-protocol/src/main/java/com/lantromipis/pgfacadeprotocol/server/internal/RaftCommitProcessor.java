@@ -11,7 +11,10 @@ import com.lantromipis.pgfacadeprotocol.utils.RaftUtils;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class RaftCommitProcessor {
@@ -89,10 +92,8 @@ public class RaftCommitProcessor {
 
         callStateMachine(commitIndex);
 
-        if (!context.isNotifiedStartupSync() && commitIndex == leaderCommit) {
-            log.info("Log synced with leader! Raft server is fully ready.");
+        if (!context.getNotifiedStartupSync().get() && commitIndex == leaderCommit && context.getNotifiedStartupSync().compareAndSet(false, true)) {
             context.getEventListener().syncedWithLeaderOrSelfIsLeaderOnStartup();
-            context.setNotifiedStartupSync(true);
         }
     }
 
@@ -102,23 +103,38 @@ public class RaftCommitProcessor {
 
             String command = logEntry.getCommand();
 
-            if (InternalRaftCommandsConstants.ADD_NEW_RAFT_NODE_COMMAND.equals(command)) {
-                RaftNode raftNode = InternalCommandsEncoderDecoder.decodeAddRaftNodeCommandData(logEntry.getData());
+            if (InternalRaftCommandsConstants.UPDATE_RAFT_MEMBERSHIP_COMMAND.equals(command)) {
+                List<RaftNode> newMembership = InternalCommandsEncoderDecoder.decodeUpdateRaftMembershipCommandData(logEntry.getData());
 
-                if (!raftNode.getId().equals(context.getSelfNodeId())) {
-                    context.getRaftPeers()
-                            .put(
-                                    raftNode.getId(),
-                                    new RaftPeerWrapper(
-                                            RaftNode.builder()
-                                                    .id(raftNode.getId())
-                                                    .groupId(context.getRaftGroupId())
-                                                    .ipAddress(raftNode.getIpAddress())
-                                                    .port(raftNode.getPort())
-                                                    .build()
-                                    )
-                            );
+                Map<String, RaftPeerWrapper> newMembershipWithoutSelf = newMembership
+                        .stream()
+                        .filter(node -> !node.getId().equals(context.getSelfNodeId()))
+                        .collect(
+                                Collectors.toMap(
+                                        RaftNode::getId,
+                                        node -> new RaftPeerWrapper(
+                                                RaftNode.builder()
+                                                        .id(node.getId())
+                                                        .groupId(node.getGroupId())
+                                                        .ipAddress(node.getIpAddress())
+                                                        .port(node.getPort())
+                                                        .build()
+                                        )
+                                )
+                        );
+
+                context.getRaftPeers().clear();
+                context.getRaftPeers().putAll(newMembershipWithoutSelf);
+
+                StringBuilder stringBuilder = new StringBuilder();
+                stringBuilder.append("Updated Raft membership. New membership with peers: ");
+
+                for (var peer : context.getRaftPeers().values()) {
+                    stringBuilder.append("{").append(peer.getRaftNode().getId()).append("} ");
                 }
+
+                log.debug(stringBuilder.toString());
+
             } else {
                 context.getRaftStateMachine().operationCommitted(
                         commitIndex,

@@ -1,6 +1,7 @@
 package com.lantromipis.pgfacadeprotocol.server.impl;
 
 import com.lantromipis.pgfacadeprotocol.constant.InternalRaftCommandsConstants;
+import com.lantromipis.pgfacadeprotocol.exception.ConfigurationException;
 import com.lantromipis.pgfacadeprotocol.exception.NotActiveException;
 import com.lantromipis.pgfacadeprotocol.exception.NotLeaderException;
 import com.lantromipis.pgfacadeprotocol.message.*;
@@ -27,12 +28,8 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.lantromipis.pgfacadeprotocol.constant.MessageMarkerConstants.*;
@@ -43,14 +40,11 @@ public class RaftServerImpl implements RaftServer {
     private RaftServerProperties properties;
     private RaftServerContext context;
 
-    private RaftTimer heartbeatTimer;
-    private RaftTimer voteTimer;
-
     private ChannelFuture serverChannelFuture;
     private RaftElectionProcessor electionProcessor;
     private RaftCommitProcessor commitProcessor;
 
-    public RaftServerImpl(EventLoopGroup bossGroup, EventLoopGroup workerGroup, RaftGroup raftGroup, String selfRaftNodeId, RaftServerProperties raftServerProperties, RaftEventListener raftEventListener, RaftStateMachine raftStateMachine) {
+    public RaftServerImpl(EventLoopGroup bossGroup, EventLoopGroup workerGroup, RaftGroup raftGroup, String selfRaftNodeId, RaftServerProperties raftServerProperties, RaftEventListener raftEventListener, RaftStateMachine raftStateMachine) throws ConfigurationException {
         properties = raftServerProperties;
 
         context = new RaftServerContext();
@@ -58,36 +52,37 @@ public class RaftServerImpl implements RaftServer {
         context.setWorkerGroup(workerGroup);
         context.setRaftGroupId(raftGroup.getGroupId());
 
-        context.setRaftPeers(
-                raftGroup.getRaftNodes()
-                        .stream()
-                        .filter(raftNode -> !raftNode.getId().equals(selfRaftNodeId))
-                        .collect(
-                                Collectors.toMap(
-                                        RaftNode::getId,
-                                        item -> new RaftPeerWrapper(
-                                                RaftNode.builder()
-                                                        .id(item.getId())
-                                                        .groupId(raftGroup.getGroupId())
-                                                        .ipAddress(item.getIpAddress())
-                                                        .port(item.getPort())
-                                                        .build()
-                                        )
-                                )
-                        )
-        );
+        if (CollectionUtils.isNotEmpty(raftGroup.getRaftNodes())) {
+            raftGroup.getRaftNodes()
+                    .stream()
+                    .filter(raftNode -> !raftNode.getId().equals(selfRaftNodeId))
+                    .forEach(
+                            item -> {
+                                RaftPeerWrapper wrapper = new RaftPeerWrapper(
+                                        RaftNode.builder()
+                                                .id(item.getId())
+                                                .groupId(raftGroup.getGroupId())
+                                                .ipAddress(item.getIpAddress())
+                                                .port(item.getPort())
+                                                .build()
+                                );
+                                context.getRaftPeers().put(item.getId(), wrapper);
+                            }
+                    );
+        }
+
+        RaftNode selfNode = raftGroup.getRaftNodes()
+                .stream()
+                .filter(node -> node.getId().equals(selfRaftNodeId))
+                .findFirst()
+                .orElseThrow(() -> new ConfigurationException("RaftGroup does not contain node with provided selfId!"));
 
         context.setSelfNodeId(selfRaftNodeId);
+        context.setSelfNode(selfNode);
         context.setSelfRole(RaftRole.FOLLOWER);
-        context.setCurrentTerm(new AtomicLong(0));
-        context.setCommitIndex(new AtomicLong(-1));
-        context.setStateMachineApplyIndex(new AtomicLong(-1));
         context.setEventListener(raftEventListener);
         context.setRaftStateMachine(raftStateMachine);
         context.setOperationLog(new RaftServerOperationsLog());
-        context.setVoteResponses(new CopyOnWriteArrayList<>());
-        context.setActive(false);
-        context.setCommitInProgress(new AtomicBoolean(false));
 
         electionProcessor = new RaftElectionProcessor(
                 context,
@@ -116,27 +111,34 @@ public class RaftServerImpl implements RaftServer {
                 .bind(properties.getPort())
                 .sync();
 
-
-        heartbeatTimer = new RaftTimer(
-                0,
-                properties.getHeartbeatTimeout(),
-                this::heartBeat,
-                () -> context.getSelfRole().equals(RaftRole.LEADER)
-        );
-        voteTimer = new RaftTimer(
-                properties.getStartupLeaderHeartbeatAwait(),
-                properties.getVoteTimeout(),
-                () -> electionProcessor.processElection(),
-                () -> context.getSelfRole().equals(RaftRole.FOLLOWER)
+        context.setHeartbeatTimer(
+                new RaftTimer(
+                        0,
+                        properties.getHeartbeatTimeout(),
+                        this::heartBeat,
+                        () -> context.getSelfRole().equals(RaftRole.LEADER)
+                )
         );
 
-        voteTimer.start();
-        heartbeatTimer.start();
+        context.setVoteTimer(new RaftTimer(
+                        properties.getStartupLeaderHeartbeatAwait(),
+                        properties.getVoteTimeout(),
+                        () -> electionProcessor.processElection(this::heartBeat),
+                        () -> context.getSelfRole().equals(RaftRole.FOLLOWER)
+                )
+        );
+
+        context.getVoteTimer().start();
+        context.getHeartbeatTimer().start();
         context.setActive(true);
     }
 
     @Override
     public void addNewNode(RaftNode raftNode) throws NotLeaderException, NotActiveException {
+        if (raftNode.getId().equals(context.getSelfNodeId())) {
+            return;
+        }
+
         RaftNode newRaftNode = RaftNode.builder()
                 .id(raftNode.getId())
                 .groupId(context.getRaftGroupId())
@@ -144,19 +146,65 @@ public class RaftServerImpl implements RaftServer {
                 .port(raftNode.getPort())
                 .build();
 
-        appendToLog(
-                InternalRaftCommandsConstants.ADD_NEW_RAFT_NODE_COMMAND,
-                InternalCommandsEncoderDecoder.encodeAddRaftNodeCommandData(newRaftNode)
-        );
+        Map<String, RaftNode> newMembership = context.getRaftPeers().values()
+                .stream()
+                .map(RaftPeerWrapper::getRaftNode)
+                .collect(
+                        Collectors.toMap(
+                                RaftNode::getId,
+                                Function.identity()
+                        )
+                );
 
-        commitProcessor.leaderCommit();
+        newMembership.put(context.getSelfNodeId(), context.getSelfNode());
+        newMembership.put(raftNode.getId(), newRaftNode);
+
+        updateMembership(newMembership);
+    }
+
+    @Override
+    public void removeNode(String nodeId) throws NotLeaderException, NotActiveException {
+        if (nodeId.equals(context.getSelfNodeId())) {
+            return;
+        }
+
+        Map<String, RaftNode> newMembership = context.getRaftPeers().values()
+                .stream()
+                .map(RaftPeerWrapper::getRaftNode)
+                .collect(
+                        Collectors.toMap(
+                                RaftNode::getId,
+                                Function.identity()
+                        )
+                );
+
+        newMembership.put(context.getSelfNodeId(), context.getSelfNode());
+        newMembership.remove(nodeId);
+
+        updateMembership(newMembership);
+    }
+
+    @Override
+    public List<RaftPeerInfo> getRaftPeers() {
+        return context.getRaftPeers().values()
+                .stream()
+                .map(wrapper -> RaftPeerInfo
+                        .builder()
+                        .id(wrapper.getRaftNode().getId())
+                        .groupId(wrapper.getRaftNode().getGroupId())
+                        .ipAddress(wrapper.getRaftNode().getIpAddress())
+                        .port(wrapper.getRaftNode().getPort())
+                        .lastTimeActive(wrapper.getLastTimeActive())
+                        .build()
+                )
+                .collect(Collectors.toList());
     }
 
     @Override
     public void shutdown() {
         context.setActive(false);
-        voteTimer.stop();
-        heartbeatTimer.stop();
+        context.getVoteTimer().stop();
+        context.getHeartbeatTimer().stop();
         serverChannelFuture.channel().close().syncUninterruptibly();
     }
 
@@ -186,12 +234,24 @@ public class RaftServerImpl implements RaftServer {
         return index;
     }
 
+    private void updateMembership(Map<String, RaftNode> newMembership) throws NotLeaderException, NotActiveException {
+        context.getOperationLog().getCommitsFromLastShrink().set(0);
+
+        appendToLog(
+                InternalRaftCommandsConstants.UPDATE_RAFT_MEMBERSHIP_COMMAND,
+                InternalCommandsEncoderDecoder.encodeUpdateRaftMembershipCommandData(newMembership.values().stream().toList())
+        );
+
+        commitProcessor.leaderCommit();
+    }
+
     private void heartBeat() {
         for (var wrapper : context.getRaftPeers().values()) {
             long nextPeerIndex = wrapper.getNextIndex().get();
             long prevPeerIndex = nextPeerIndex - 1;
             long lastIndex = context.getOperationLog().getEffectiveLastIndex().get();
             long firstIndex = context.getOperationLog().getFirstIndexInLog().get();
+            long commitIndex = context.getCommitIndex().get();
 
             AbstractMessage message;
 
@@ -208,8 +268,8 @@ public class RaftServerImpl implements RaftServer {
                         .nodeId(context.getSelfNodeId())
                         .term(context.getCurrentTerm().get())
                         .leaderId(context.getSelfNodeId())
-                        .leaderCommit(context.getCommitIndex().get())
-                        .lastIncludedIndex(lastIndex)
+                        .leaderCommit(commitIndex)
+                        .lastIncludedIndex(commitIndex)
                         .chunks(chunks.
                                 stream()
                                 .map(chunk -> InstallSnapshotRequest.ChunkData
@@ -244,7 +304,7 @@ public class RaftServerImpl implements RaftServer {
                         .previousLogIndex(prevPeerIndex)
                         .previousTerm(context.getOperationLog().getTerm(prevPeerIndex))
                         .currentTerm(context.getCurrentTerm().get())
-                        .leaderCommit(context.getCommitIndex().get())
+                        .leaderCommit(commitIndex)
                         .operations(operations)
                         .shrinkIndex(firstIndex)
                         .build();
@@ -290,13 +350,26 @@ public class RaftServerImpl implements RaftServer {
             return;
         }
 
+        Optional.ofNullable(context.getRaftPeers().get(message.getNodeId()))
+                .ifPresent(peer -> peer.setLastTimeActive(System.currentTimeMillis()));
+
         switch (message.getMessageMarker()) {
             case VOTE_RESPONSE_MESSAGE_MARKER -> {
-                //log.trace("Received VOTE RESPONSE from node {}", message.getNodeId());
-                context.getVoteResponses().add((VoteResponse) callbackInfo.getMessage());
+                VoteResponse voteResponse = (VoteResponse) callbackInfo.getMessage();
+                context.getVoteResponses()
+                        .merge(
+                                voteResponse.getNodeId(),
+                                voteResponse,
+                                (oldVal, newVal) -> {
+                                    if (oldVal.getRound() <= newVal.getRound()) {
+                                        return newVal;
+                                    } else {
+                                        return oldVal;
+                                    }
+                                }
+                        );
             }
             case APPEND_RESPONSE_MESSAGE_MARKER -> {
-                //log.trace("Received APPEND RESPONSE from node {}", message.getNodeId());
                 processAppendResponse(callbackInfo);
             }
             case INSTALL_SNAPSHOT_RESPONSE_MESSAGE_MARKER -> {
@@ -336,6 +409,9 @@ public class RaftServerImpl implements RaftServer {
             );
             return;
         }
+
+        Optional.ofNullable(context.getRaftPeers().get(message.getNodeId()))
+                .ifPresent(peer -> peer.setLastTimeActive(System.currentTimeMillis()));
 
         switch (message.getMessageMarker()) {
             case VOTE_REQUEST_MESSAGE_MARKER -> {
@@ -400,7 +476,7 @@ public class RaftServerImpl implements RaftServer {
             return;
         }
 
-        voteTimer.reset();
+        context.getVoteTimer().reset();
 
         if (appendRequest.getCurrentTerm() > context.getCurrentTerm().get()) {
             //If RPC request or response contains term T > currentTerm: set currentTerm = T
@@ -499,7 +575,7 @@ public class RaftServerImpl implements RaftServer {
             );
             return;
         }
-        voteTimer.reset();
+        context.getVoteTimer().reset();
 
         if (request.getLastIncludedIndex() > context.getOperationLog().getEffectiveLastIndex().get()) {
             if (context.getRaftStateMachine() != null) {
@@ -519,6 +595,9 @@ public class RaftServerImpl implements RaftServer {
             RaftUtils.updateIncrementalAtomicLong(context.getCommitIndex(), request.getLastIncludedIndex());
             RaftUtils.updateIncrementalAtomicLong(context.getStateMachineApplyIndex(), request.getLastIncludedIndex());
             context.getOperationLog().shrinkLog(request.getLastIncludedIndex());
+            if (!context.getNotifiedStartupSync().get() && context.getNotifiedStartupSync().compareAndSet(false, true)) {
+                context.getEventListener().syncedWithLeaderOrSelfIsLeaderOnStartup();
+            }
         }
 
         NettyUtils.writeAndFlushIfChannelActive(

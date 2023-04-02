@@ -16,6 +16,7 @@ public class RaftPeerWrapper {
     private AtomicLong matchIndex;
     private AtomicLong commitIndex;
     private Channel channelCreatedBySelf;
+    private long lastTimeActive;
 
     public RaftPeerWrapper(RaftNode raftNode) {
         this.raftNode = raftNode;
