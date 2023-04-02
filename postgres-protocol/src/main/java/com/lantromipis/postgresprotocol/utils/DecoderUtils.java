@@ -67,11 +67,16 @@ public class DecoderUtils {
             ByteBuf message = Unpooled.buffer(entireMessageLength);
             message.writeBytes(packet, entireMessageLength);
 
+            byte[] messageBytes = new byte[message.readableBytes()];
+            message.readBytes(messageBytes, 0, messageBytes.length);
+
+            message.release();
+
             messageInfos.add(MessageInfo
                     .builder()
                     .startByte(startByte)
                     .length(length)
-                    .entireMessage(message)
+                    .entireMessage(messageBytes)
                     .build()
             );
 
@@ -137,12 +142,17 @@ public class DecoderUtils {
                 message.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
                 message.writeBytes(packet, needToReadFromPacket);
 
+                byte[] messageBytes = new byte[message.readableBytes()];
+                message.readBytes(messageBytes, 0, messageBytes.length);
+
+                message.release();
+
                 messageInfos.add(
                         MessageInfo
                                 .builder()
                                 .length(prevMsgLength)
                                 .startByte(prevMsgStartByte)
-                                .entireMessage(message)
+                                .entireMessage(messageBytes)
                                 .build()
                 );
 
@@ -160,6 +170,7 @@ public class DecoderUtils {
                         .lastIncompleteMessage(leftovers)
                         .build();
             }
+            previousPacketLastIncompleteMessage.release();
         }
 
         SplitResult splitResult = splitToMessages(packet);

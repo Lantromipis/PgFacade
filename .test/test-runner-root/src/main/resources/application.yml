@@ -1,0 +1,16 @@
+tests:
+  performance:
+    postgres-conf:
+      host: localhost
+      port: 6432
+      database: postgres
+      user: postgres
+      password: postgres
+    test-aquire-connection-time:
+      retries: 1000
+      wait-between: 30
+quarkus:
+  devservices:
+    enabled: false
+  http:
+    port: 8086

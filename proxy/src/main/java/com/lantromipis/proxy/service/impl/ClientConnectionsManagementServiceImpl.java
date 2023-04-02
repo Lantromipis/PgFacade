@@ -38,7 +38,10 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
     @Override
     public void registerNewClientChannelHandler(AbstractClientChannelHandler handler) throws ConnectionLimitReachedException {
         if (activeChannelsHandlers.size() + 1 > proxyProperties.maxConnections()) {
-            throw new ConnectionLimitReachedException("Can not register new connection because connection limit is reached.");
+            checkInactiveClients();
+            if (activeChannelsHandlers.size() + 1 > proxyProperties.maxConnections()) {
+                throw new ConnectionLimitReachedException("Can not register new connection because connection limit is reached.");
+            }
         }
         activeChannelsHandlers.add(handler);
     }
@@ -68,10 +71,6 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
 
     @Scheduled(every = "${pg-facade.proxy.inactive-clients.check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkInactiveClients() {
-        if (!proxyProperties.inactiveClients().disconnect()) {
-            return;
-        }
-
         long endTime = System.currentTimeMillis() - timeout;
         long inactiveCount = 0;
         for (AbstractClientChannelHandler client : activeChannelsHandlers) {
@@ -81,10 +80,14 @@ public class ClientConnectionsManagementServiceImpl implements ClientConnections
             }
 
             boolean channelClosed = !Optional.ofNullable(client.getInitialChannelHandlerContext()).map(ctx -> ctx.channel().isActive()).orElse(true);
-            if ((client.getLastActiveTimeMilliseconds() > 0 && client.getLastActiveTimeMilliseconds() < endTime) || channelClosed) {
-                client.forceDisconnectAndClearResources();
-                unregisterClientChannelHandler(client);
-                inactiveCount++;
+            boolean timeoutReached = client.getLastActiveTimeMilliseconds() > 0 && client.getLastActiveTimeMilliseconds() < endTime && proxyProperties.inactiveClients().disconnect();
+
+            if (timeoutReached || channelClosed) {
+                if (timeoutReached) {
+                    client.forceDisconnectAndClearResources();
+                    unregisterClientChannelHandler(client);
+                    inactiveCount++;
+                }
             }
         }
 

@@ -9,7 +9,7 @@ pg-facade:
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   proxy:
     primary-port: 5433
-    max-connections: 500
+    max-connections: 2000
     connection-pool:
       enabled: true
       await-connection-when-pool-empty: true
@@ -23,7 +23,7 @@ pg-facade:
     inactive-clients:
       disconnect: true
       inactive-connection-timeout: PT3M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
-      check-interval: PT15S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      check-interval: PT10S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   orchestration:
     adapter: docker
     postgres-cluster-restore:

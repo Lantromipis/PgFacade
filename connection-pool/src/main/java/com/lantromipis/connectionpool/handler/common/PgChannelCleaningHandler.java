@@ -41,17 +41,13 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
         SplitResult splitResult = DecoderUtils.splitToMessages(leftovers, message);
         messageInfos.addAll(splitResult.getMessageInfos());
 
-        if (splitResult.getLastIncompleteMessage() == null || splitResult.getLastIncompleteMessage().readableBytes() == 0) {
-            if (DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
-                callback.accept(new PgChannelCleanResult(true));
-            } else {
-                callback.accept(new PgChannelCleanResult(false));
-            }
-            return;
+        if (DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
+            callback.accept(new PgChannelCleanResult(true));
         }
 
         leftovers = splitResult.getLastIncompleteMessage();
 
+        ctx.channel().read();
         super.channelRead(ctx, msg);
     }
 
