@@ -11,6 +11,8 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import lombok.extern.slf4j.Slf4j;
 
@@ -59,7 +61,7 @@ public class PgProxyServiceImpl implements PgProxyService {
                         }
 
                         primaryProxyChannelFuture = primaryProxyBootstrap.group(bossGroup, workerGroup)
-                                .channel(NioServerSocketChannel.class)
+                                .channel(Epoll.isAvailable() ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
                                 .childHandler(channelInitializer)
                                 .childOption(ChannelOption.AUTO_READ, false)
                                 .bind(proxyProperties.primaryPort())

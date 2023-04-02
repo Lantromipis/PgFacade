@@ -17,6 +17,8 @@ import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftServer;
 import com.lantromipis.pgfacadeprotocol.server.impl.RaftServerImpl;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import lombok.extern.slf4j.Slf4j;
 
@@ -81,8 +83,8 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
 
         try {
             raftServer = new RaftServerImpl(
-                    new NioEventLoopGroup(),
-                    new NioEventLoopGroup(),
+                    Epoll.isAvailable() ? new EpollEventLoopGroup(1) : new NioEventLoopGroup(1),
+                    Epoll.isAvailable() ? new EpollEventLoopGroup() : new NioEventLoopGroup(),
                     raftGroup,
                     selfNodeInfo.getPlatformAdapterIdentifier(),
                     new RaftServerProperties(),

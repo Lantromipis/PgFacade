@@ -22,6 +22,8 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.quarkus.scheduler.Scheduled;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +37,8 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -351,7 +354,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     private Bootstrap createInstanceBootstrap(RuntimePostgresInstanceInfo instanceInfo) {
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(workerGroup)
-                .channel(NioSocketChannel.class)
+                .channel(Epoll.isAvailable() ? EpollSocketChannel.class : NioSocketChannel.class)
                 .option(ChannelOption.AUTO_READ, false)
                 .handler(new EmptyHandler())
                 .remoteAddress(
