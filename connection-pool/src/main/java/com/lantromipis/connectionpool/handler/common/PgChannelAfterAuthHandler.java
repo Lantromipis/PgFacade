@@ -11,7 +11,6 @@ import io.netty.channel.ChannelHandlerContext;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandler {
 
@@ -51,11 +50,16 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
                     .anyMatch(messageInfo -> {
                         if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR
                                 && messageInfo.getLength() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_LENGTH) {
-                            // remove start byte and length
-                            messageInfo.getEntireMessage().readByte();
-                            messageInfo.getEntireMessage().readInt();
+                            ByteBuf byteBuf = ctx.alloc().buffer(messageInfo.getEntireMessage().length);
+                            byteBuf.writeBytes(messageInfo.getEntireMessage());
 
-                            int data = messageInfo.getEntireMessage().readInt();
+                            // remove start byte and length
+                            byteBuf.readByte();
+                            byteBuf.readInt();
+
+                            int data = byteBuf.readInt();
+
+                            byteBuf.release();
 
                             return data == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA;
                         }

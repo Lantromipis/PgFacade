@@ -10,7 +10,7 @@ public class PostgresProtocolGeneralConstants {
     public static final int SASL_AUTH_INT_MARKER = 10;
     public static final int SASL_AUTH_CHALLENGE_MARKER = 11;
     public static final int SASL_AUTH_COMPLETED_MARKER = 12;
-    public static final String ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE = "N";
+    public static final byte[] ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE = "N".getBytes();
     public static final String STARTUP_PARAMETER_USER = "user";
     public static final String STARTUP_PARAMETER_DATABASE = "database";
 

@@ -222,11 +222,13 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         .stream()
                         .filter(messageInfo -> messageInfo.getStartByte() == PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR)
                         .forEach(messageInfo ->
-                                serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), messageInfo.getEntireMessage().readableBytes())
+                                serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().length)
                         );
 
                 byte[] serverParameterMessagesBytes = new byte[serverParameterMessagesBuf.readableBytes()];
                 serverParameterMessagesBuf.readBytes(serverParameterMessagesBytes);
+
+                serverParameterMessagesBuf.release();
 
                 pooledConnectionInternalInfo = storage.addNewChannelAndMarkAsTaken(
                         startupMessageInfo,
@@ -311,6 +313,8 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                             }
                                     )
                             );
+
+                            pooledConnectionInternalInfo.getRealPostgresConnection().read();
 
                             boolean awaitSuccess = cleanAwaitLatch.await(proxyProperties.connectionPool().cleanRealUsedConnectionTimeout().toMillis(), TimeUnit.MILLISECONDS);
 

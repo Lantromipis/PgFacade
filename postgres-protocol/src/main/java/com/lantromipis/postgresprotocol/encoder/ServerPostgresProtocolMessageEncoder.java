@@ -3,6 +3,7 @@ package com.lantromipis.postgresprotocol.encoder;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import lombok.extern.slf4j.Slf4j;
 
@@ -48,13 +49,13 @@ public class ServerPostgresProtocolMessageEncoder {
     }
 
     // no support fro SCRAM-SHA256-PLUS
-    public static ByteBuf createAuthenticationSASLMessage() {
+    public static ByteBuf createAuthenticationSASLMessage(ByteBufAllocator allocator) {
         byte[] nameOfSaslAuthMechanism = PostgresProtocolAuthenticationMethod.SCRAM_SHA256.getProtocolMethodName().getBytes();
         int length = nameOfSaslAuthMechanism.length;
         // 4 bytes length + terminator + last byte
         length += 10;
 
-        ByteBuf buf = Unpooled.buffer(length + 1);
+        ByteBuf buf = allocator.buffer(length + 1);
 
         buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
@@ -68,13 +69,13 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    public static ByteBuf createAuthenticationSaslContinueMessage(String message) {
+    public static ByteBuf createAuthenticationSaslContinueMessage(String message, ByteBufAllocator allocator) {
         byte[] messageBytes = message.getBytes();
 
         //4 bytes length + 4 bytes marker
         int length = 8 + messageBytes.length;
 
-        ByteBuf buf = Unpooled.buffer(length + 1);
+        ByteBuf buf = allocator.buffer(length + 1);
 
         buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
@@ -84,8 +85,8 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    public static ByteBuf createAuthenticationOkMessage() {
-        ByteBuf buf = Unpooled.buffer(9);
+    public static ByteBuf createAuthenticationOkMessage(ByteBufAllocator allocator) {
+        ByteBuf buf = allocator.buffer(9);
 
         buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         // 4 bytes length + 4 bytes marker
@@ -95,13 +96,13 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    public static ByteBuf createAuthenticationSASLFinalMessage(String message) {
+    public static ByteBuf createAuthenticationSASLFinalMessage(String message, ByteBufAllocator allocator) {
         byte[] messageBytes = message.getBytes();
 
         //4 bytes length + 4 bytes marker
         int length = 8 + messageBytes.length;
 
-        ByteBuf buf = Unpooled.buffer(length + 1);
+        ByteBuf buf = allocator.buffer(length + 1);
 
         buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
@@ -130,11 +131,11 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    public static ByteBuf encodeReadyForQueryMessage() {
+    public static ByteBuf encodeReadyForQueryMessage(ByteBufAllocator allocator) {
         //constant
         int length = 5;
 
-        ByteBuf buf = Unpooled.buffer(6);
+        ByteBuf buf = allocator.buffer(6);
 
         buf.writeByte(PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR);
         buf.writeInt(length);

@@ -37,6 +37,7 @@ public class PooledProxyChannelInitializer extends ChannelInitializer<Channel> {
         channel.closeFuture().addListener((ChannelFutureListener) future -> {
             AbstractClientChannelHandler clientChannelHandler = future.channel().pipeline().get(AbstractClientChannelHandler.class);
             clientConnectionsManagementService.unregisterClientChannelHandler(clientChannelHandler);
+            log.debug("Client disconnected");
         });
     }
 }

@@ -20,7 +20,9 @@ import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.UUID;
@@ -77,6 +79,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     @Override
     public void forceDisconnectAndClearResources() {
         HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        setActive(false);
     }
 
     @Override
@@ -116,14 +119,14 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         String combinedNonce = clientNonce + serverNonce;
         serverFirstMessage = String.format(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_FORMAT, combinedNonce, salt, iterationCount);
 
-        ByteBuf responseBuf = ServerPostgresProtocolMessageEncoder.createAuthenticationSaslContinueMessage(serverFirstMessage);
+        ByteBuf responseBuf = ServerPostgresProtocolMessageEncoder.createAuthenticationSaslContinueMessage(serverFirstMessage, ctx.alloc());
 
         saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
         ctx.channel().writeAndFlush(responseBuf);
         ctx.channel().read();
     }
 
-    private void processFinalMessage(ChannelHandlerContext ctx, Object msg) {
+    private void processFinalMessage(ChannelHandlerContext ctx, Object msg) throws NoSuchAlgorithmException, InvalidKeyException {
         SaslResponse saslResponse = ClientPostgresProtocolMessageDecoder.decodeSaslResponse((ByteBuf) msg);
 
         Pattern saslFinalMessagePattern = PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_PATTERN;
@@ -159,50 +162,52 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         byte[] storedKeyBytes = Base64.getDecoder().decode(storedKey);
         byte[] serverKeyBytes = Base64.getDecoder().decode(serverKey);
 
-        try {
-            byte[] clientSignature = ScramUtils.computeHmac(storedKeyBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
-            byte[] serverSignature = ScramUtils.computeHmac(serverKeyBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
-            byte[] proofBytes = Base64.getDecoder().decode(clientProof);
+        byte[] clientSignature = ScramUtils.computeHmac(storedKeyBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
+        byte[] serverSignature = ScramUtils.computeHmac(serverKeyBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
+        byte[] proofBytes = Base64.getDecoder().decode(clientProof);
 
-            byte[] computedClientKey = clientSignature.clone();
-            for (int i = 0; i < computedClientKey.length; i++) {
-                computedClientKey[i] ^= proofBytes[i];
-            }
-
-            byte[] hashedComputedKey = MessageDigest.getInstance(PostgresProtocolScramConstants.SHA256_DIGEST_NAME).digest(computedClientKey);
-            if (!Arrays.equals(storedKeyBytes, hashedComputedKey)) {
-                log.error("Incorrect password provided");
-                forceCloseConnectionWithAuthError();
-                return;
-            }
-
-            String saslServerFinalMessage = "v=" + new String(Base64.getEncoder().encode(serverSignature), StandardCharsets.UTF_8);
-
-            ByteBuf finalSaslResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationSASLFinalMessage(saslServerFinalMessage);
-            ByteBuf authOkResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationOkMessage();
-            ByteBuf combinedMessage = Unpooled.copiedBuffer(finalSaslResponse, authOkResponse);
-
-            ctx.channel().pipeline().addLast(
-                    proxyChannelHandlersProducer.createNewSessionPooledConnectionHandler(
-                            startupMessage,
-                            ScramAuthInfo
-                                    .builder()
-                                    .clientKey(computedClientKey)
-                                    .storedKeyBase64(storedKey)
-                                    .build(),
-                            combinedMessage
-                    )
-            );
-
-            ctx.channel().pipeline().remove(this);
-            setActive(false);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            forceCloseConnectionWithAuthError();
+        byte[] computedClientKey = clientSignature.clone();
+        for (int i = 0; i < computedClientKey.length; i++) {
+            computedClientKey[i] ^= proofBytes[i];
         }
+
+        byte[] hashedComputedKey = MessageDigest.getInstance(PostgresProtocolScramConstants.SHA256_DIGEST_NAME).digest(computedClientKey);
+        if (!Arrays.equals(storedKeyBytes, hashedComputedKey)) {
+            log.debug("Incorrect password provided");
+            forceCloseConnectionWithAuthError();
+            return;
+        }
+
+        String saslServerFinalMessage = "v=" + new String(Base64.getEncoder().encode(serverSignature), StandardCharsets.UTF_8);
+
+        ByteBuf finalSaslResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationSASLFinalMessage(saslServerFinalMessage, ctx.alloc());
+        ByteBuf authOkResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationOkMessage(ctx.alloc());
+        ByteBuf combinedMessage = Unpooled.copiedBuffer(finalSaslResponse, authOkResponse);
+
+        ctx.channel().pipeline().addLast(
+                proxyChannelHandlersProducer.createNewSessionPooledConnectionHandler(
+                        startupMessage,
+                        ScramAuthInfo
+                                .builder()
+                                .clientKey(computedClientKey)
+                                .storedKeyBase64(storedKey)
+                                .build(),
+                        combinedMessage
+                )
+        );
+
+        ctx.channel().pipeline().remove(this);
+        setActive(false);
     }
 
     private void forceCloseConnectionWithAuthError() {
         HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+        setActive(false);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.error("Exception during SASL-SCRUM auth!", cause);
+        forceCloseConnectionWithAuthError();
     }
 }
