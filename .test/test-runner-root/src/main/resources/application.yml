@@ -15,17 +15,17 @@ tests:
       user: postgres
       password: postgres
     test-aquire-connection-time:
-      retries: 10
+      retries: 1000
       wait-between: 100
     delay-test:
-      retries: 10
-      table-size-kb: 16
+      retries: 1000
+      table-size-kb: 128
     load-test:
-      retries: 10
-      table-size-kb: 16
+      retries: 1000
+      table-size-kb: 128
       first-num-of-connections: 8
       second-num-of-connections: 16
-      third-num-of-connections: 24
+      third-num-of-connections: 32
 quarkus:
   devservices:
     enabled: false
