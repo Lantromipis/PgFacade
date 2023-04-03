@@ -24,14 +24,19 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
     private ByteBuf leftovers;
     private List<MessageInfo> messageInfos;
 
+    private boolean ready;
+
     public PgChannelCleaningHandler(Consumer<PgChannelCleanResult> callback) {
         this.callback = callback;
         messageInfos = new ArrayList<>();
+        ready = false;
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("rollback;"));
+        ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("deallocate all;"));
+        ready = true;
         super.handlerAdded(ctx);
     }
 
@@ -41,7 +46,7 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
         SplitResult splitResult = DecoderUtils.splitToMessages(leftovers, message);
         messageInfos.addAll(splitResult.getMessageInfos());
 
-        if (DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
+        if (ready && DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
             callback.accept(new PgChannelCleanResult(true));
         }
 

@@ -53,7 +53,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         ByteBuf response = Unpooled.buffer(primaryConnectionWrapper.getServerParameterMessagesBytes().length + PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_LENGTH);
         response.writeBytes(authOkCombined);
         response.writeBytes(primaryConnectionWrapper.getServerParameterMessagesBytes());
-        response.writeBytes(ServerPostgresProtocolMessageEncoder.encodeReadyForQueryMessage());
+        response.writeBytes(ServerPostgresProtocolMessageEncoder.encodeReadyForQueryMessage(ctx.alloc()));
 
         ctx.writeAndFlush(response);
 

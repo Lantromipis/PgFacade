@@ -1,14 +1,31 @@
 tests:
   performance:
-    postgres-conf:
+    run-pg-bouncer: true
+    pg-facade-host:
       host: localhost
-      port: 6432
+      port: 5433
+    original-postgres-host:
+      host: localhost
+      port: 5436
+    pg-bouncer-host:
+      host: localhost
+      port: 5437
+    pg-user:
       database: postgres
       user: postgres
       password: postgres
     test-aquire-connection-time:
-      retries: 1000
-      wait-between: 30
+      retries: 10
+      wait-between: 100
+    delay-test:
+      retries: 10
+      table-size-kb: 16
+    load-test:
+      retries: 10
+      table-size-kb: 16
+      first-num-of-connections: 8
+      second-num-of-connections: 16
+      third-num-of-connections: 24
 quarkus:
   devservices:
     enabled: false

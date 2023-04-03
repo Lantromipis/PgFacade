@@ -29,9 +29,9 @@ public class EventLoopGroupProducer {
     @ApplicationScoped
     public EventLoopGroup produceWorkerGroup() {
         if (Epoll.isAvailable()) {
-            return new EpollEventLoopGroup();
+            return new EpollEventLoopGroup(4);
         } else {
-            return new NioEventLoopGroup();
+            return new NioEventLoopGroup(4);
         }
     }
 

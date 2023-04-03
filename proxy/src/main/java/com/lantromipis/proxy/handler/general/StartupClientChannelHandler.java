@@ -11,7 +11,6 @@ import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,6 +19,8 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     private final UserAuthInfoProvider userAuthInfoProvider;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
+
+    private String username;
 
 
     public StartupClientChannelHandler(final UserAuthInfoProvider userAuthInfoProvider, final ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
@@ -30,6 +31,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
     @Override
     public void forceDisconnectAndClearResources() {
         forceCloseConnectionWithEmptyError();
+        setActive(false);
     }
 
     @Override
@@ -41,7 +43,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
         //means initial message was GSSENCRequest or SSLRequest
         if (firstInt == PostgresProtocolGeneralConstants.INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT) {
             ctx.channel().writeAndFlush(
-                    Unpooled.copiedBuffer(PostgresProtocolGeneralConstants.ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE.getBytes())
+                    ctx.alloc().buffer(1).writeBytes(PostgresProtocolGeneralConstants.ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE)
             );
             ctx.channel().read();
         } else {
@@ -55,7 +57,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             }
 
             if (startupMessage.getMajorVersion() != 3 && startupMessage.getMinorVersion() != 0) {
-                String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
+                username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
                 log.error("User with role {} attempted to connect with wrong protocol version: major={}; minor={}. Closing connection.",
                         username,
                         startupMessage.getMajorVersion(),
@@ -70,7 +72,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             );
 
             if (postgresProtocolAuthenticationMethod == null) {
-                String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
+                username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
                 log.error("User with role {} not found or has unknown auth method. Closing connection.", username);
                 forceCloseConnectionWithAuthError(username);
                 return;
@@ -86,7 +88,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                     break;
                 }
                 case SCRAM_SHA256 -> {
-                    ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSASLMessage());
+                    ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSASLMessage(ctx.alloc()));
                     ctx.channel().pipeline().addLast(
                             proxyChannelHandlersProducer.createNewSaslScramSha256AuthHandler(startupMessage)
                     );
@@ -107,10 +109,17 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     private void forceCloseConnectionWithAuthError(String username) {
         HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+        setActive(false);
     }
 
     private void forceCloseConnectionWithEmptyError() {
         HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
         setActive(false);
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.error("Exception while reading startup message!", cause);
+        forceCloseConnectionWithAuthError(username == null ? "root" : username);
     }
 }
