@@ -29,14 +29,15 @@ public class LoadTest {
     ManagedExecutor managedExecutor;
 
     public void runTest() {
+        Map<Integer, List<Long>> pgTest, pgFacadeTest, pgBouncerTest;
         try {
             log.info("Starting load test for original Postgres. Test plan: measure start time -> create connection -> execute select * -> close connection -> measure end time");
-            Map<Integer, List<Long>> pgTest = runTest(performanceTestsProperties.originalPostgresHost());
+            pgTest = runTest(performanceTestsProperties.originalPostgresHost());
 
             log.info("Starting load test for PgFacade. Test plan: measure start time -> create connection -> execute select * -> close connection -> measure end time");
-            Map<Integer, List<Long>> pgFacadeTest = runTest(performanceTestsProperties.pgFacadeHost());
+            pgFacadeTest = runTest(performanceTestsProperties.pgFacadeHost());
 
-            Map<Integer, List<Long>> pgBouncerTest = null;
+            pgBouncerTest = null;
             if (performanceTestsProperties.runPgBouncer()) {
                 log.info("Starting load test for PgBouncer. Test plan: measure start time -> create connection -> execute select * -> close connection -> measure end time");
                 pgBouncerTest = runTest(performanceTestsProperties.pgBouncerHost());
@@ -49,7 +50,7 @@ public class LoadTest {
 
             log.info(getLogString(pgTest));
 
-            log.info("Delay test results for PgFacade proxy after {} SELECT retries for table of size {} kb :",
+            log.info("Load test results for PgFacade proxy after {} SELECT retries for table of size {} kb :",
                     performanceTestsProperties.delayTest().retries(),
                     performanceTestsProperties.delayTest().tableSizeKb()
             );
@@ -57,7 +58,7 @@ public class LoadTest {
             log.info(getLogString(pgFacadeTest));
 
             if (performanceTestsProperties.runPgBouncer() && pgBouncerTest != null) {
-                log.info("Delay test results for PgBouncer after {} SELECT retries for table of size {} kb :",
+                log.info("Load test results for PgBouncer after {} SELECT retries for table of size {} kb :",
                         performanceTestsProperties.delayTest().retries(),
                         performanceTestsProperties.delayTest().tableSizeKb()
                 );

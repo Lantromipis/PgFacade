@@ -28,11 +28,11 @@ public class Runner {
 
     public void startup(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) StartupEvent startupEvent) {
         logLine();
-        loadTest.runTest();
-        logLine();
         aquireConnectionTimeTest.runTest();
         logLine();
         proxyEffectOnDelayTest.runTest();
+        logLine();
+        loadTest.runTest();
         logLine();
 
         Quarkus.asyncExit();
