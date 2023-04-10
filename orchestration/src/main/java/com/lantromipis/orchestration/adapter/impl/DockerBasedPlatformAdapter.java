@@ -638,6 +638,11 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             }
         }
 
+        if (inspectSelfResponse.getConfig().getEnv() != null) {
+            createContainerCmd
+                    .withEnv(inspectSelfResponse.getConfig().getEnv());
+        }
+
         CreateContainerResponse createContainerResponse = createContainerCmd.exec();
 
         for (var selfNetwork : inspectSelfResponse.getNetworkSettings().getNetworks().keySet()) {
