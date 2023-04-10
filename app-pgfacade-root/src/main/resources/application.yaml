@@ -85,7 +85,7 @@ pg-facade:
         create-new-backup-in-case-of-force-retry: true
     s3:
       protocol: http
-      endpoint: http://minio:9000
+      endpoint: http://s3:9000
       access-key: Rre6lc6yiubAgi9H
       secret-key: EEmKeAC4ocIX2qOp2cvxNO3bnOsRN121
       region: eu-central-1
