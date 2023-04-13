@@ -20,6 +20,7 @@ import io.netty.channel.Channel;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import java.util.function.Consumer;
 
 @ApplicationScoped
 public class ProxyChannelHandlersProducer {
@@ -57,7 +58,7 @@ public class ProxyChannelHandlersProducer {
         return handler;
     }
 
-    public SessionPooledSwitchoverClosingDataProxyChannelHandler createNewSessionPooledConnectionHandler(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo, ByteBuf authMessagesCombined) {
+    public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo, ByteBuf authMessagesCombined, Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback) {
         String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
 
         StartupMessageInfo startupMessageInfo = StartupMessageInfo
@@ -67,15 +68,21 @@ public class ProxyChannelHandlersProducer {
                 .parameters(startupMessage.getParameters())
                 .build();
 
-        SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
-                username,
-                authMessagesCombined,
-                connectionPool.getPrimaryConnection(startupMessageInfo, authAdditionalInfo),
-                this,
-                clientConnectionsManagementService
+        connectionPool.getPrimaryConnection(
+                startupMessageInfo,
+                authAdditionalInfo,
+                pooledConnectionWrapper -> {
+                    SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
+                            username,
+                            authMessagesCombined,
+                            pooledConnectionWrapper,
+                            this,
+                            clientConnectionsManagementService
+                    );
+                    createdCallback.accept(handler);
+                    clientConnectionsManagementService.registerNewClientChannelHandler(handler);
+                }
         );
-        clientConnectionsManagementService.registerNewClientChannelHandler(handler);
-        return handler;
     }
 
     public NoPoolProxyClientHandler createNewNoPoolProxyClientHandler(boolean primaryRequired) {

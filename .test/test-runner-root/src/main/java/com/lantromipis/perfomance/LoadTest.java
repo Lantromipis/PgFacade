@@ -13,9 +13,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
@@ -29,7 +29,7 @@ public class LoadTest {
     ManagedExecutor managedExecutor;
 
     public void runTest() {
-        Map<Integer, List<Long>> pgTest, pgFacadeTest, pgBouncerTest;
+        Map<Integer, List<Long>> pgTest = null, pgFacadeTest = null, pgBouncerTest = null;
         try {
             log.info("Starting load test for original Postgres. Test plan: measure start time -> create connection -> execute select * -> close connection -> measure end time");
             pgTest = runTest(performanceTestsProperties.originalPostgresHost());
@@ -37,7 +37,6 @@ public class LoadTest {
             log.info("Starting load test for PgFacade. Test plan: measure start time -> create connection -> execute select * -> close connection -> measure end time");
             pgFacadeTest = runTest(performanceTestsProperties.pgFacadeHost());
 
-            pgBouncerTest = null;
             if (performanceTestsProperties.runPgBouncer()) {
                 log.info("Starting load test for PgBouncer. Test plan: measure start time -> create connection -> execute select * -> close connection -> measure end time");
                 pgBouncerTest = runTest(performanceTestsProperties.pgBouncerHost());
@@ -73,7 +72,7 @@ public class LoadTest {
     private String getLogString(Map<Integer, List<Long>> pgTest) {
         StringBuilder stringBuilder = new StringBuilder();
         for (var entry : pgTest.entrySet()) {
-            stringBuilder.append("Nun of connections: ")
+            stringBuilder.append("\n").append("Num of connections: ")
                     .append(entry.getKey())
                     .append(" math expected value: ")
                     .append(MathUtils.calculateExpectedValue(entry.getValue()))
@@ -81,7 +80,7 @@ public class LoadTest {
                     .append(MathUtils.calculateMinValue(entry.getValue()))
                     .append(" ms max: ")
                     .append(MathUtils.calculateMaxValue(entry.getValue()))
-                    .append(" ms\n");
+                    .append(" ms");
         }
 
         return stringBuilder.toString();
@@ -103,7 +102,7 @@ public class LoadTest {
                 password
         );
 
-        Map<Integer, List<Long>> ret = new HashMap<>();
+        Map<Integer, List<Long>> ret = new TreeMap<>();
 
         connection.createStatement().executeUpdate("DROP TABLE IF EXISTS test");
         connection.createStatement().executeUpdate("CREATE TABLE test(id bigserial, data varchar(32))");
@@ -131,6 +130,7 @@ public class LoadTest {
 
         log.info("Table prepared! Starting test...");
 
+        steps = performanceTestsProperties.loadTest().retries();
         logProgressStep = performanceTestsProperties.loadTest().retries() / 10;
         currentStep = 1;
 

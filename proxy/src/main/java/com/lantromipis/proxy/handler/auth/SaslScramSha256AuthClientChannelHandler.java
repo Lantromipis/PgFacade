@@ -184,20 +184,20 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         ByteBuf authOkResponse = ServerPostgresProtocolMessageEncoder.createAuthenticationOkMessage(ctx.alloc());
         ByteBuf combinedMessage = Unpooled.copiedBuffer(finalSaslResponse, authOkResponse);
 
-        ctx.channel().pipeline().addLast(
-                proxyChannelHandlersProducer.createNewSessionPooledConnectionHandler(
-                        startupMessage,
-                        ScramAuthInfo
-                                .builder()
-                                .clientKey(computedClientKey)
-                                .storedKeyBase64(storedKey)
-                                .build(),
-                        combinedMessage
-                )
+        proxyChannelHandlersProducer.getNewSessionPooledConnectionHandlerByCallback(
+                startupMessage,
+                ScramAuthInfo
+                        .builder()
+                        .clientKey(computedClientKey)
+                        .storedKeyBase64(storedKey)
+                        .build(),
+                combinedMessage,
+                handler -> {
+                    ctx.channel().pipeline().addLast(handler);
+                    ctx.channel().pipeline().remove(this);
+                    setActive(false);
+                }
         );
-
-        ctx.channel().pipeline().remove(this);
-        setActive(false);
     }
 
     private void forceCloseConnectionWithAuthError() {
