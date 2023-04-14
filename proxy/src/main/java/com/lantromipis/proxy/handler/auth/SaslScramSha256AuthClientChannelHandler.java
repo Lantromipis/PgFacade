@@ -114,22 +114,23 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
             return;
         }
 
-        gs2Header = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_GS2_HEADER_MATCHER_GROUP);
-        clientFirstMessageBare = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_MATCHER_GROUP);
         clientNonce = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_NONCE_MATCHER_GROUP);
 
-        String combinedNonce = clientNonce + serverNonce;
-        serverFirstMessage = String.format(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_FORMAT, combinedNonce, salt, iterationCount);
+        serverFirstMessage =
+                "r=" + clientNonce + serverNonce +
+                        ",s=" + salt +
+                        ",i=" + iterationCount;
 
-        ByteBuf responseBuf = ServerPostgresProtocolMessageEncoder.createAuthenticationSaslContinueMessage(serverFirstMessage, ctx.alloc());
-
-        saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
-
-        ctx.channel().writeAndFlush(responseBuf);
+        ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSaslContinueMessage(serverFirstMessage, ctx.alloc()));
 
         // free actions for performance, because response was sent
+        gs2Header = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_GS2_HEADER_MATCHER_GROUP);
+        clientFirstMessageBare = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_MATCHER_GROUP);
+
         storedKeyDecodedBytes = Base64.getDecoder().decode(storedKey);
         serverKeyDecodedBytes = Base64.getDecoder().decode(serverKey);
+
+        saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
 
         ctx.channel().read();
     }
@@ -166,9 +167,10 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         String finalMessageWithoutProof = saslFinalMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_WITHOUT_PROOF_MATCHER_GROUP);
 
         String authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + finalMessageWithoutProof;
+        byte[] authMessageBytes = authMessage.getBytes(StandardCharsets.US_ASCII);
 
-        byte[] clientSignature = ScramUtils.computeHmac(storedKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
-        byte[] serverSignature = ScramUtils.computeHmac(serverKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
+        byte[] clientSignature = ScramUtils.computeHmac(storedKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
+        byte[] serverSignature = ScramUtils.computeHmac(serverKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
         byte[] proofBytes = Base64.getDecoder().decode(clientProof);
 
         byte[] computedClientKey = clientSignature.clone();

@@ -61,11 +61,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     private Bootstrap primaryBootstrap;
 
-    private CountDownLatch switchoverLatch = new CountDownLatch(0);
-
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
+    private AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
 
     @Override
     public void initialize() {
@@ -102,23 +101,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
             return;
         }
 
-        if (switchoverLatch.getCount() != 0) {
-            try {
-                if (!switchoverLatch.await(15, TimeUnit.SECONDS)) {
-                    readyCallback.accept(null);
-                    return;
-                }
-
-                if (!poolActive.get()) {
-                    readyCallback.accept(null);
-                    return;
-                }
-            } catch (InterruptedException interruptedException) {
-                log.error("Connection pool can not give connection to primary. Error while waiting for switchover to complete.", interruptedException);
-                Thread.currentThread().interrupt();
-                readyCallback.accept(null);
-                return;
-            }
+        if (switchoverInProgress.get()) {
+            // TODO add scheduler and cancel
+            readyCallback.accept(null);
+            return;
         }
 
         PooledConnectionInternalInfo pooledConnectionInternalInfo = storage.getFreeConnection(startupMessageInfo);
@@ -269,7 +255,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     public void listenToSwitchoverStartedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverStartedEvent switchoverStartedEvent) {
-        switchoverLatch = new CountDownLatch(1);
+        switchoverInProgress.set(true);
         poolActive.set(false);
     }
 
@@ -279,7 +265,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
             primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
         }
         primaryConnectionsStorage.removeAllConnections().forEach(HandlerUtils::closeOnFlush);
-        switchoverLatch.countDown();
+        switchoverInProgress.set(false);
         poolActive.set(switchoverCompletedEvent.isSuccess());
     }
 

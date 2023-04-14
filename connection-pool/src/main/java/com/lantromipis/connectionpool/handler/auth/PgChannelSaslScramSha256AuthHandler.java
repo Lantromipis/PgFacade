@@ -18,6 +18,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -59,7 +60,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        clientFirstMessageBare = String.format(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_FORMAT, "*", clientNonce);
+        clientFirstMessageBare = "n=*,r=" + clientNonce;
 
         SaslInitialResponse saslInitialResponse = SaslInitialResponse
                 .builder()
@@ -95,29 +96,25 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
 
             String g2HeaderEncoded = new String(Base64.getEncoder().encode(PostgresProtocolScramConstants.GS2_HEADER.getBytes()));
 
-            String clientFinalMessageWithoutProof = String.format(
-                    PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_WITHOUT_PROOF_FORMAT,
-                    g2HeaderEncoded,
-                    serverNonce
-            );
+            String clientFinalMessageWithoutProof = "c=" + g2HeaderEncoded +
+                    ",r=" + serverNonce;
+
             String authMessage = clientFirstMessageBare + "," + saslContinue.getSaslMechanismSpecificData() + "," + clientFinalMessageWithoutProof;
+            byte[] authMessageBytes = authMessage.getBytes(StandardCharsets.US_ASCII);
 
             byte[] clientKey = scramAuthInfo.getClientKey();
             byte[] storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
 
-            byte[] clientSignature = ScramUtils.computeHmac(storedKey, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessage);
+            byte[] clientSignature = ScramUtils.computeHmac(storedKey, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
 
             byte[] clientProof = clientKey.clone();
             for (int i = 0; i < clientProof.length; i++) {
                 clientProof[i] ^= clientSignature[i];
             }
 
-            String clientFinalMessage = String.format(
-                    PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_FORMAT,
-                    g2HeaderEncoded,
-                    serverNonce,
-                    new String(Base64.getEncoder().encode(clientProof))
-            );
+            String clientFinalMessage = "c=" + g2HeaderEncoded +
+                    ",r=" + serverNonce +
+                    ",p=" + new String(Base64.getEncoder().encode(clientProof));
 
             SaslResponse saslResponse = SaslResponse
                     .builder()
