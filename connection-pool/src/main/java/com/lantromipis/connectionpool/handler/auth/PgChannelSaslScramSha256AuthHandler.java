@@ -8,8 +8,8 @@ import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationSASLContinue;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
@@ -21,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 

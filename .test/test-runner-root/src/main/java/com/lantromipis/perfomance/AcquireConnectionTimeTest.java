@@ -37,7 +37,7 @@ public class AcquireConnectionTimeTest {
 
             List<Long> pgBouncer = null;
             if (performanceTestsProperties.runPgBouncer()) {
-                log.info("Running aquire connection test for PgFacade on host {} and port {}. Will connect to Postgres {} times an measure mean acquire connection time.",
+                log.info("Running aquire connection test for PgBouncer on host {} and port {}. Will connect to Postgres {} times an measure mean acquire connection time.",
                         performanceTestsProperties.pgBouncerHost().host(),
                         performanceTestsProperties.pgBouncerHost().port(),
                         performanceTestsProperties.testAquireConnectionTime().retries());

@@ -58,7 +58,7 @@ public class ProxyChannelHandlersProducer {
         return handler;
     }
 
-    public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo, ByteBuf authMessagesCombined, Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback) {
+    public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo, ByteBuf authOkMessagesCombined, Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback) {
         String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
 
         StartupMessageInfo startupMessageInfo = StartupMessageInfo
@@ -74,7 +74,7 @@ public class ProxyChannelHandlersProducer {
                 pooledConnectionWrapper -> {
                     SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
                             username,
-                            authMessagesCombined,
+                            authOkMessagesCombined,
                             pooledConnectionWrapper,
                             this,
                             clientConnectionsManagementService

@@ -10,7 +10,6 @@ import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
@@ -50,14 +49,17 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
             return;
         }
 
-        ByteBuf response = Unpooled.buffer(primaryConnectionWrapper.getServerParameterMessagesBytes().length + PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_LENGTH);
+        ByteBuf response = ctx.alloc().buffer(primaryConnectionWrapper.getServerParameterMessagesBytes().length + PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_LENGTH);
+        ByteBuf readyForQuery = ServerPostgresProtocolMessageEncoder.encodeReadyForQueryWithIdleTsxMessage(ctx.alloc());
+
         response.writeBytes(authOkCombined);
         response.writeBytes(primaryConnectionWrapper.getServerParameterMessagesBytes());
-        response.writeBytes(ServerPostgresProtocolMessageEncoder.encodeReadyForQueryMessage(ctx.alloc()));
+        response.writeBytes(readyForQuery);
 
         ctx.writeAndFlush(response);
 
-        authOkCombined.clear();
+        authOkCombined.release();
+        readyForQuery.release();
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
                 proxyChannelHandlersProducer.createNewSimpleDatabasePrimaryConnectionHandler(
