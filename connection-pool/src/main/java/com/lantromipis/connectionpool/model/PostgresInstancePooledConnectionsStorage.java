@@ -7,7 +7,6 @@ import lombok.Setter;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -34,6 +33,17 @@ public class PostgresInstancePooledConnectionsStorage {
         freeConnections = new ConcurrentHashMap<>();
         connectionsCount = new AtomicInteger(0);
         awaitQueue = new ConcurrentLinkedQueue<>();
+    }
+
+    public int getFreeConnectionsCount() {
+        return freeConnections.values()
+                .stream()
+                .mapToInt(ConcurrentLinkedDeque::size)
+                .sum();
+    }
+
+    public int getAllConnectionsCount() {
+        return connectionsCount.get();
     }
 
     public void waitForConnection(StorageAwaitRequest awaitRequest) {

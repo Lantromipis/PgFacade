@@ -3,6 +3,7 @@ package com.lantromipis.connectionpool.pooler.api;
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 
 import java.util.function.Consumer;
 
@@ -18,4 +19,6 @@ public interface ConnectionPool {
      *                           Otherwise, callback will provide wrapper containing connection to primary or null if failed to acquire connection. Wrapper contains Netty channel and callback for returning connection.
      */
     void getPrimaryConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback);
+
+    ConnectionPoolStats getStats();
 }

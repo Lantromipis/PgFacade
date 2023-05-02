@@ -9,7 +9,7 @@ import javax.inject.Inject;
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
 
-@Path(ApiConstants.API_PREFIX + "/postgresManagement")
+@Path(ApiConstants.API_V1_PREFIX + "/postgresManagement")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class PostgresManagementController {

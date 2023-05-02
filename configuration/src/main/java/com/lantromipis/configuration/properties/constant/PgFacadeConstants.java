@@ -1,6 +1,5 @@
 package com.lantromipis.configuration.properties.constant;
 
-import java.time.Instant;
 import java.util.UUID;
 
 public class PgFacadeConstants {
@@ -23,8 +22,7 @@ public class PgFacadeConstants {
     public static final String POSTGRES_ARCHIVE_INFO_FILE_NAME = "postgres-archive-info.json";
 
     public static final int DOCKER_SPECIFIC_PGFACADE_RAFT_PORT = 31000;
-
-    public static final Instant DEFAULT_INSTANT_TO_COUNT_FROM = Instant.parse("2023-03-21T22:23:13.572586Z");
+    public static final String DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL = "pg-facade-discovery-label";
 
     private PgFacadeConstants() {
     }

@@ -11,6 +11,7 @@ import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProduc
 import com.lantromipis.connectionpool.handler.common.EmptyHandler;
 import com.lantromipis.connectionpool.model.*;
 import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
@@ -62,6 +63,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     private Bootstrap primaryBootstrap;
 
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
+    private List<PostgresInstancePooledConnectionsStorage> standbyConnectionsStorages;
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
     private AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
@@ -76,6 +78,37 @@ public class ConnectionPoolImpl implements ConnectionPool {
     @Override
     public void getPrimaryConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback) {
         getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
+    }
+
+    @Override
+    public ConnectionPoolStats getStats() {
+        int standbyPoolAllConnectionsCount = -1;
+        int standbyPoolConnectionsLimit = -1;
+        int standbyPoolFreeConnectionsLimit = -1;
+
+        if (CollectionUtils.isNotEmpty(standbyConnectionsStorages)) {
+            standbyPoolAllConnectionsCount = standbyConnectionsStorages.stream()
+                    .mapToInt(PostgresInstancePooledConnectionsStorage::getAllConnectionsCount)
+                    .sum();
+
+            standbyPoolConnectionsLimit = standbyConnectionsStorages.stream()
+                    .mapToInt(PostgresInstancePooledConnectionsStorage::getMaxConnections)
+                    .sum();
+
+            standbyPoolFreeConnectionsLimit = standbyConnectionsStorages.stream()
+                    .mapToInt(PostgresInstancePooledConnectionsStorage::getFreeConnectionsCount)
+                    .sum();
+        }
+
+        return ConnectionPoolStats
+                .builder()
+                .primaryPoolAllConnectionsCount(primaryConnectionsStorage.getAllConnectionsCount())
+                .standbyPoolAllConnectionsCount(standbyPoolAllConnectionsCount)
+                .primaryPoolFreeConnectionsCount(primaryConnectionsStorage.getFreeConnectionsCount())
+                .standbyPoolFreeConnectionsCount(standbyPoolFreeConnectionsLimit)
+                .primaryPoolConnectionsLimit(primaryConnectionsStorage.getMaxConnections())
+                .standbyPoolConnectionsLimit(standbyPoolConnectionsLimit)
+                .build();
     }
 
     @Scheduled(every = "${pg-facade.proxy.connection-pool.pool-cleanup-interval}")

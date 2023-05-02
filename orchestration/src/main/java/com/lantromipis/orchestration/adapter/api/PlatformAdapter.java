@@ -128,4 +128,6 @@ public interface PlatformAdapter {
      * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
      */
     PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException;
+
+    List<PgFacadeExternalConnectionsNodeInfo> getActivePgFacadeNodesExternalConnectionInfos();
 }
