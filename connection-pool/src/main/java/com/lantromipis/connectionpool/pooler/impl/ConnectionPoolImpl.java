@@ -18,10 +18,7 @@ import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -36,11 +33,11 @@ import javax.enterprise.event.Reception;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 @Slf4j
 @ApplicationScoped
@@ -64,11 +61,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     private Bootstrap primaryBootstrap;
 
-    private CountDownLatch switchoverLatch = new CountDownLatch(0);
-
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
+    private AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
 
     @Override
     public void initialize() {
@@ -78,8 +74,8 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     @Override
-    public PooledConnectionWrapper getPrimaryConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo) {
-        return getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage);
+    public void getPrimaryConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback) {
+        getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
     }
 
     @Scheduled(every = "${pg-facade.proxy.connection-pool.pool-cleanup-interval}")
@@ -99,35 +95,29 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
     }
 
-    private PooledConnectionWrapper getConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage) {
+    private void getConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
         if (!poolActive.get()) {
-            return null;
+            readyCallback.accept(null);
+            return;
         }
 
-        if (switchoverLatch.getCount() != 0) {
-            try {
-                if (!switchoverLatch.await(15, TimeUnit.SECONDS)) {
-                    return null;
-                }
-
-                if (!poolActive.get()) {
-                    return null;
-                }
-            } catch (InterruptedException interruptedException) {
-                log.error("Connection pool can not give connection to primary. Error while waiting for switchover to complete.", interruptedException);
-                Thread.currentThread().interrupt();
-                return null;
-            }
+        if (switchoverInProgress.get()) {
+            // TODO add scheduler and cancel
+            readyCallback.accept(null);
+            return;
         }
 
         PooledConnectionInternalInfo pooledConnectionInternalInfo = storage.getFreeConnection(startupMessageInfo);
 
         if (pooledConnectionInternalInfo != null) {
             log.debug("Returned primary connection to client from pool.");
-            return wrapPooledConnection(
-                    pooledConnectionInternalInfo,
-                    storage
+            readyCallback.accept(
+                    wrapPooledConnection(
+                            pooledConnectionInternalInfo,
+                            storage
+                    )
             );
+            return;
         }
 
         log.debug("No free primary connections in pool. Creating a new one...");
@@ -147,11 +137,13 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
                 try {
                     if (awaitRequest.getCallerLatch().await(proxyProperties.connectionPool().awaitConnectionWhenPoolEmptyTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
-                        return wrapPooledConnection(awaitRequest.getAwaitResult(), storage);
+                        readyCallback.accept(wrapPooledConnection(awaitRequest.getAwaitResult(), storage));
+                        return;
                     } else {
                         if (!awaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
                             // unable to set! Storage returned connection after timeout!
-                            return wrapPooledConnection(awaitRequest.getAwaitResult(), storage);
+                            readyCallback.accept(wrapPooledConnection(awaitRequest.getAwaitResult(), storage));
+                            return;
                         }
                     }
                 } catch (Exception e) {
@@ -175,88 +167,87 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 }
             }
 
-            return null;
+            readyCallback.accept(null);
+            return;
         }
 
         ChannelFuture channelFuture = instanceBootstrap.connect();
-        if (!channelFuture.awaitUninterruptibly(proxyProperties.connectionPool().acquireRealConnectionTimeout().toMillis())) {
-            channelFuture.cancel(true);
-            log.debug("Failed to acquire primary connection.");
-            storage.cancelReservation();
-            return null;
-        }
 
-        Channel newChannel = channelFuture.channel();
+        channelFuture.addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                Channel channel = future.channel();
 
-        try {
-            newChannel.pipeline().remove(EmptyHandler.class);
-        } catch (NoSuchElementException ignored) {
-        }
+                channel.pipeline().remove(EmptyHandler.class);
+                AtomicBoolean finished = new AtomicBoolean(false);
 
-        AtomicReference<PgChannelAuthResult> authResult = new AtomicReference<>();
-        CountDownLatch finishedLatch = new CountDownLatch(1);
-
-        newChannel.pipeline().addLast(
-                connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
-                        authAdditionalInfo,
-                        startupMessageInfo,
-                        result -> {
-                            authResult.set(result);
-                            finishedLatch.countDown();
-                        }
-                )
-        );
-
-        try {
-            if (!finishedLatch.await(proxyProperties.connectionPool().realConnectionAuthTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
-                HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
-                log.debug("Failed to preform auth for new real primary connection. Timeout reached.");
-                storage.cancelReservation();
-                return null;
-            }
-
-            if (authResult.get() != null && authResult.get().isSuccess()) {
-                ByteBuf serverParameterMessagesBuf = Unpooled.buffer(512);
-
-                authResult.get().getServerStartMessagesInfos()
-                        .stream()
-                        .filter(messageInfo -> messageInfo.getStartByte() == PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR)
-                        .forEach(messageInfo ->
-                                serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().length)
-                        );
-
-                byte[] serverParameterMessagesBytes = new byte[serverParameterMessagesBuf.readableBytes()];
-                serverParameterMessagesBuf.readBytes(serverParameterMessagesBytes);
-
-                serverParameterMessagesBuf.release();
-
-                pooledConnectionInternalInfo = storage.addNewChannelAndMarkAsTaken(
-                        startupMessageInfo,
-                        newChannel,
-                        serverParameterMessagesBytes
+                ScheduledFuture<?> cancelFuture = channel.eventLoop().schedule(() -> {
+                            if (finished.compareAndSet(false, true)) {
+                                readyCallback.accept(null);
+                                HandlerUtils.closeOnFlush(channel);
+                                log.warn("Timeout reached for real Postgres connection auth.");
+                                storage.cancelReservation();
+                            } else {
+                                log.debug("Postgres connection acquired. Canceling scheduled...");
+                            }
+                        },
+                        proxyProperties.connectionPool().realConnectionAuthTimeout().toMillis(),
+                        TimeUnit.MILLISECONDS
                 );
-                log.debug("Successfully established new real primary connection. Connection added to pool and returned to client.");
 
-                return wrapPooledConnection(
-                        pooledConnectionInternalInfo,
-                        storage
+                channel.pipeline().addLast(
+                        connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
+                                authAdditionalInfo,
+                                startupMessageInfo,
+                                result -> {
+                                    if (finished.compareAndSet(false, true)) {
+                                        cancelFuture.cancel(false);
+                                    } else {
+                                        return;
+                                    }
+
+                                    if (result.isSuccess()) {
+                                        ByteBuf serverParameterMessagesBuf = Unpooled.buffer(512);
+
+                                        result.getServerStartMessagesInfos()
+                                                .stream()
+                                                .filter(messageInfo -> messageInfo.getStartByte() == PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR)
+                                                .forEach(messageInfo ->
+                                                        serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().length)
+                                                );
+
+                                        byte[] serverParameterMessagesBytes = new byte[serverParameterMessagesBuf.readableBytes()];
+                                        serverParameterMessagesBuf.readBytes(serverParameterMessagesBytes);
+
+                                        serverParameterMessagesBuf.release();
+
+                                        PooledConnectionInternalInfo pooledConnectionInternalInfo1 = storage.addNewChannelAndMarkAsTaken(
+                                                startupMessageInfo,
+                                                channel,
+                                                serverParameterMessagesBytes
+                                        );
+                                        log.debug("Successfully established new real primary connection. Connection added to pool and returned to client.");
+
+                                        readyCallback.accept(
+                                                wrapPooledConnection(
+                                                        pooledConnectionInternalInfo1,
+                                                        storage
+                                                )
+                                        );
+                                    } else {
+                                        readyCallback.accept(null);
+                                        HandlerUtils.closeOnFlush(channel);
+                                        log.debug("Failed to preform auth for new real primary connection.");
+                                        storage.cancelReservation();
+                                    }
+                                }
+                        )
                 );
             } else {
-                HandlerUtils.closeOnFlush(newChannel);
-                log.debug("Failed to preform auth for new real primary connection.");
+                log.debug("Failed to acquire primary connection.");
                 storage.cancelReservation();
-                return null;
+                readyCallback.accept(null);
             }
-
-        } catch (Exception e) {
-            log.error("Failed to preform auth for new real primary connection. Error while waiting for connection to be ready.", e);
-            HandlerUtils.closeOnFlush(newChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
-            storage.cancelReservation();
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            return null;
-        }
+        });
     }
 
     public void listenToMaxConnectionsChangedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) MaxConnectionsChangedEvent maxConnectionsChangedEvent) {
@@ -264,7 +255,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     public void listenToSwitchoverStartedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverStartedEvent switchoverStartedEvent) {
-        switchoverLatch = new CountDownLatch(1);
+        switchoverInProgress.set(true);
         poolActive.set(false);
     }
 
@@ -274,7 +265,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
             primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
         }
         primaryConnectionsStorage.removeAllConnections().forEach(HandlerUtils::closeOnFlush);
-        switchoverLatch.countDown();
+        switchoverInProgress.set(false);
         poolActive.set(switchoverCompletedEvent.isSuccess());
     }
 

@@ -12,6 +12,27 @@ import java.util.Map;
 @Slf4j
 public class ServerPostgresProtocolMessageEncoder {
 
+    private final static byte[] PRECOMPILED_AUTH_OK_RESPONSE_BYTES = {
+            PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR,
+            0,
+            0,
+            0,
+            8,
+            0,
+            0,
+            0,
+            0
+    };
+
+    private final static byte[] PRECOMPILED_READY_FOR_QUERY_IDLE_TSX_MESSAGE_BYTES = {
+            PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR,
+            0,
+            0,
+            0,
+            5,
+            PostgresProtocolGeneralConstants.READY_FOR_QUERY_TRANSACTION_IDLE
+    };
+
     public static ByteBuf createErrorMessage(Map<Byte, String> markerAndItsValueMap) {
         // 4 length bytes + 1 last delimiter
         int length = 1;
@@ -88,26 +109,25 @@ public class ServerPostgresProtocolMessageEncoder {
     public static ByteBuf createAuthenticationOkMessage(ByteBufAllocator allocator) {
         ByteBuf buf = allocator.buffer(9);
 
-        buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
-        // 4 bytes length + 4 bytes marker
-        buf.writeInt(8);
-        buf.writeInt(PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA);
+        buf.writeBytes(PRECOMPILED_AUTH_OK_RESPONSE_BYTES);
 
         return buf;
     }
 
-    public static ByteBuf createAuthenticationSASLFinalMessage(String message, ByteBufAllocator allocator) {
+    public static ByteBuf createAuthenticationSASLFinalMessageWithAuthOk(String message, ByteBufAllocator allocator) {
         byte[] messageBytes = message.getBytes();
 
         //4 bytes length + 4 bytes marker
         int length = 8 + messageBytes.length;
 
-        ByteBuf buf = allocator.buffer(length + 1);
+        // 1 byte for marker, 9 fro AuthOk message
+        ByteBuf buf = allocator.buffer(length + 10);
 
         buf.writeByte(PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR);
         buf.writeInt(length);
         buf.writeInt(PostgresProtocolGeneralConstants.SASL_AUTH_COMPLETED_MARKER);
         buf.writeBytes(messageBytes);
+        buf.writeBytes(PRECOMPILED_AUTH_OK_RESPONSE_BYTES);
 
         return buf;
     }
@@ -131,16 +151,10 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    public static ByteBuf encodeReadyForQueryMessage(ByteBufAllocator allocator) {
-        //constant
-        int length = 5;
-
+    public static ByteBuf encodeReadyForQueryWithIdleTsxMessage(ByteBufAllocator allocator) {
         ByteBuf buf = allocator.buffer(6);
 
-        buf.writeByte(PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR);
-        buf.writeInt(length);
-        //TODO maybe add other
-        buf.writeByte(PostgresProtocolGeneralConstants.READY_FOR_QUERY_TRANSACTION_IDLE);
+        buf.writeBytes(PRECOMPILED_READY_FOR_QUERY_IDLE_TSX_MESSAGE_BYTES);
 
         return buf;
     }

@@ -10,12 +10,12 @@ public class ScramUtils {
 
     private static final byte[] INT_1 = new byte[]{0, 0, 0, 1};
 
-    public static byte[] computeHmac(final byte[] keyBytes, String hmacName, final String string) throws InvalidKeyException, NoSuchAlgorithmException {
+    public static byte[] computeHmac(final byte[] keyBytes, String hmacName, byte[] stringAsciiBytes) throws InvalidKeyException, NoSuchAlgorithmException {
         SecretKeySpec key = new SecretKeySpec(keyBytes, hmacName);
         Mac mac = Mac.getInstance(hmacName);
         mac.init(key);
 
-        mac.update(string.getBytes(StandardCharsets.US_ASCII));
+        mac.update(stringAsciiBytes);
         return mac.doFinal();
     }
 

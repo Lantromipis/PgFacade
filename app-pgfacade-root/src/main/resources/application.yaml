@@ -18,11 +18,11 @@ pg-facade:
       acquire-real-connection-timeout: PT1S
       real-connection-auth-timeout: PT1S
       pool-cleanup-interval: PT15S
-      redundant-connections-lifetime: PT5M
+      redundant-connections-lifetime: PT15M
       connection-max-age: PT60M
     inactive-clients:
       disconnect: true
-      inactive-connection-timeout: PT3M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
+      inactive-connection-timeout: PT30M #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
       check-interval: PT10S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   orchestration:
     adapter: docker
