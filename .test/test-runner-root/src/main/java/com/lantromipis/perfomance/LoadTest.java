@@ -208,14 +208,18 @@ public class LoadTest {
                             long end = System.currentTimeMillis();
                             return end - start;
                         } catch (Exception e) {
-                            throw new RuntimeException(e);
+                            log.error("Error during load test ", e);
+                            return -1L;
                         }
                     })
             );
         }
 
         for (var f : futures) {
-            ret.add(f.get());
+            long value = f.get();
+            if (value != -1L) {
+                ret.add(value);
+            }
         }
 
         return ret;

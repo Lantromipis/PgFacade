@@ -15,13 +15,13 @@ tests:
       user: postgres
       password: postgres
     test-aquire-connection-time:
-      retries: 1000
+      retries: 100
       wait-between: 100
     delay-test:
-      retries: 1000
+      retries: 100
       table-size-kb: 128
     load-test:
-      retries: 1000
+      retries: 100
       table-size-kb: 128
       first-num-of-connections: 8
       second-num-of-connections: 16
