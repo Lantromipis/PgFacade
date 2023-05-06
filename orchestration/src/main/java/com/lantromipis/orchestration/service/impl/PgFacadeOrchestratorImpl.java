@@ -2,24 +2,33 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
+import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.RaftProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.RaftException;
-import com.lantromipis.orchestration.model.PgFacadeInstanceInfo;
+import com.lantromipis.orchestration.model.ExternalLoadBalancerAdapterInfo;
 import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
-import com.lantromipis.orchestration.restclient.HealtcheckTemplateRestClient;
+import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
+import com.lantromipis.orchestration.restclient.ExternalLoadBalancerHealtcheckTemplateRestClient;
+import com.lantromipis.orchestration.restclient.PgFacadeHealtcheckTemplateRestClient;
 import com.lantromipis.orchestration.restclient.model.HealtcheckResponseDto;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
+import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftPeerInfo;
 import io.quarkus.scheduler.Scheduled;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
+import java.io.Closeable;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Map;
@@ -45,11 +54,81 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     @Inject
     RaftProperties raftProperties;
 
-    private ConcurrentHashMap<String, PgFacadeInstanceInfo> instances = new ConcurrentHashMap<>();
+    @Inject
+    RaftFunctionalityCombinator raftFunctionalityCombinator;
+
+    @Inject
+    OrchestrationProperties orchestrationProperties;
+
+    private ConcurrentHashMap<String, PgFacadeInstanceStateInfo> pgFacadeInstances = new ConcurrentHashMap<>();
 
     @Override
     public void startOrchestration() {
         log.info("Starting PgFacade orchestration!");
+    }
+
+    @Scheduled(every = "${pg-facade.orchestration.common.external-load-balancer.healthcheck-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    public void checkExternalLoadBalancerHealth() {
+        if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole()) && orchestrationProperties.common().externalLoadBalancer().deploy()) {
+            ExternalLoadBalancerHealtcheckTemplateRestClient restClient = null;
+            ExternalLoadBalancerRaftInfo raftInfo = null;
+
+            try {
+                raftInfo = raftFunctionalityCombinator.getPgFacadeLoadBalancerInfo();
+
+                if (raftInfo != null) {
+                    if (raftInfo.getCreatedWhen().isAfter(Instant.now().minus(orchestrationProperties.common().externalLoadBalancer().healthcheckAwait()))) {
+                        return;
+                    }
+                    restClient = createHealtcheckRestClient(
+                            ExternalLoadBalancerHealtcheckTemplateRestClient.class,
+                            raftInfo.getAddress(),
+                            raftInfo.getPort()
+                    );
+
+                    if (HealtcheckResponseDto.HealtcheckStatus.UP.equals(restClient.checkLiveliness().getStatus())) {
+                        return;
+                    } else {
+                        log.error("External load balancer unhealthy! Will force redeploy it.");
+                        platformAdapter.get().deleteInstance(raftInfo.getAdapterIdentifier());
+                    }
+                } else {
+                    log.info("No information about deployed load balancer found.");
+                }
+            } catch (Exception e) {
+                if (raftInfo != null && raftInfo.getAdapterIdentifier() != null) {
+                    platformAdapter.get().deleteInstance(raftInfo.getAdapterIdentifier());
+                }
+                log.error("Failed to check load balancer health. Will redeploy it...", e);
+            } finally {
+                if (restClient != null) {
+                    closeClient(restClient);
+                }
+            }
+
+            log.info("Redeploying external load balancer...");
+            String loadBalancerAdapterIdentifier = null;
+            try {
+                ExternalLoadBalancerAdapterInfo loadBalancerAdapterInfo = platformAdapter.get().createAndStartExternalLoadBalancerInstance();
+                loadBalancerAdapterIdentifier = loadBalancerAdapterInfo.getAdapterIdentifier();
+
+                ExternalLoadBalancerRaftInfo newRaftInfo = ExternalLoadBalancerRaftInfo
+                        .builder()
+                        .adapterIdentifier(loadBalancerAdapterInfo.getAdapterIdentifier())
+                        .address(loadBalancerAdapterInfo.getAddress())
+                        .port(loadBalancerAdapterInfo.getHttpPort())
+                        .createdWhen(Instant.now())
+                        .build();
+                raftFunctionalityCombinator.savePgFacadeLoadBalancerInfo(newRaftInfo);
+                log.info("External load balancer deployed!");
+            } catch (Exception e) {
+                log.error("Failed to deploy external load balancer!", e);
+                if (loadBalancerAdapterIdentifier != null) {
+                    platformAdapter.get().deleteInstance(loadBalancerAdapterIdentifier);
+                }
+            }
+
+        }
     }
 
     @Scheduled(every = "${pg-facade.raft.nodes-check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
@@ -65,20 +144,20 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                     );
 
             for (var raftPeer : raftPeerInfos.values()) {
-                if (!instances.containsKey(raftPeer.getId())) {
-                    instances.put(
+                if (!pgFacadeInstances.containsKey(raftPeer.getId())) {
+                    pgFacadeInstances.put(
                             raftPeer.getId(),
-                            PgFacadeInstanceInfo
+                            PgFacadeInstanceStateInfo
                                     .builder()
                                     .raftIdAndAdapterId(raftPeer.getId())
-                                    .client(createPgFacadeHealtcheckRestClient(raftPeer.getIpAddress()))
+                                    .client(createHealtcheckRestClient(PgFacadeHealtcheckTemplateRestClient.class, raftPeer.getIpAddress(), pgFacadeRuntimeProperties.getHttpPort()))
                                     .unsuccessfulHealtcheckCount(new AtomicInteger(0))
                                     .build()
                     );
                 }
             }
 
-            for (var instance : instances.values()) {
+            for (var instance : pgFacadeInstances.values()) {
                 try {
                     RaftPeerInfo peerInfo = raftPeerInfos.get(instance.getRaftIdAndAdapterId());
                     if (raftPeerInfos != null
@@ -110,12 +189,12 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                     awaitNewRaftNodeReadiness(raftNodeInfo.getAddress());
 
                     pgFacadeRaftService.addNewRaftNode(raftNodeInfo);
-                    instances.put(
+                    pgFacadeInstances.put(
                             raftNodeInfo.getPlatformAdapterIdentifier(),
-                            PgFacadeInstanceInfo
+                            PgFacadeInstanceStateInfo
                                     .builder()
                                     .raftIdAndAdapterId(raftNodeInfo.getPlatformAdapterIdentifier())
-                                    .client(createPgFacadeHealtcheckRestClient(raftNodeInfo.getAddress()))
+                                    .client(createHealtcheckRestClient(PgFacadeHealtcheckTemplateRestClient.class, raftNodeInfo.getAddress(), pgFacadeRuntimeProperties.getHttpPort()))
                                     .unsuccessfulHealtcheckCount(new AtomicInteger(0))
                                     .build()
                     );
@@ -131,33 +210,33 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
 
     private void killUnhealthyNode(String id) {
         log.info("PgFacade node with id {} was unhealthy. Removing it...", id);
-        Optional.ofNullable(instances.get(id))
-                .map(PgFacadeInstanceInfo::getClient)
-                .ifPresent(
-                        client -> {
-                            try {
-                                client.close();
-                            } catch (Exception ignored) {
-                            }
-                        }
-                );
+        Optional.ofNullable(pgFacadeInstances.get(id))
+                .map(PgFacadeInstanceStateInfo::getClient)
+                .ifPresent(this::closeClient);
         pgFacadeRaftService.removeNode(id);
-        instances.remove(id);
+        pgFacadeInstances.remove(id);
         platformAdapter.get().deleteInstance(id);
     }
 
-    private HealtcheckTemplateRestClient createPgFacadeHealtcheckRestClient(String address) {
-        URI uri = URI.create("http://" + address + ":" + pgFacadeRuntimeProperties.getHttpPort());
+    private <T> T createHealtcheckRestClient(Class<T> clazz, String address, int port) {
+        URI uri = URI.create("http://" + address + ":" + port);
 
         return RestClientBuilder.newBuilder()
                 .baseUri(uri)
                 .connectTimeout(1000, TimeUnit.MILLISECONDS)
                 .readTimeout(1000, TimeUnit.MILLISECONDS)
-                .build(HealtcheckTemplateRestClient.class);
+                .build(clazz);
+    }
+
+    private void closeClient(Closeable client) {
+        try {
+            client.close();
+        } catch (Exception ignored) {
+        }
     }
 
     private void awaitNewRaftNodeReadiness(String address) throws RaftException {
-        try (HealtcheckTemplateRestClient healtcheckRestClient = createPgFacadeHealtcheckRestClient(address)) {
+        try (PgFacadeHealtcheckTemplateRestClient healtcheckRestClient = createHealtcheckRestClient(PgFacadeHealtcheckTemplateRestClient.class, address, pgFacadeRuntimeProperties.getHttpPort())) {
             for (int i = 0; i < 500; i++) {
                 try {
                     HealtcheckResponseDto response = healtcheckRestClient.checkReadiness();
@@ -186,5 +265,16 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         } catch (Exception e) {
             throw new RaftException("Failed to add new raft peer! ", e);
         }
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class PgFacadeInstanceStateInfo {
+        private String raftIdAndAdapterId;
+        private String address;
+        private AtomicInteger unsuccessfulHealtcheckCount;
+        private PgFacadeHealtcheckTemplateRestClient client;
     }
 }

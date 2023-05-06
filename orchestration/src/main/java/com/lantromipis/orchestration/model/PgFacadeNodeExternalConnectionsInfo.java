@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeExternalConnectionsNodeInfo {
+public class PgFacadeNodeExternalConnectionsInfo {
     private String address;
     private int httpPort;
     private int primaryPort;

@@ -6,6 +6,7 @@ public class RaftConstants {
     public static final String POSTGRES_NODES_INFO_CHUNK = "nodeInfosChunk";
     public static final String POSTGRES_SETTINGS_INFO_CHUNK = "settingsInfosChunk";
     public static final String POSTGRES_ARCHIVE_INFO_CHUNK = "archiveInfosChunk";
+    public static final String PGFACADE_LOAD_BALANCER_ARCHIVE_INFO_CHUNK = "loadBalancerInfoChunk";
 
     // events
     public static final String NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED = "NACASS";
@@ -22,6 +23,8 @@ public class RaftConstants {
     // archive
     public static final String SAVE_POSTGRES_ARCHIVE_INFO = "SPAI";
 
+    // pgfacade load balancer info
+    public static final String SAVE_PGFACADE_LOAD_BALANCER_INFO = "SPFLBI";
 
     // other
     public static final String DUMMY_COMMIT_TEST_COMMAND = "DCTC";

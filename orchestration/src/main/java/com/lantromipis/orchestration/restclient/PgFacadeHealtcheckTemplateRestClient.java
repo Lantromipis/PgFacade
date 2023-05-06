@@ -12,7 +12,7 @@ import java.io.Closeable;
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 @Path("")
-public interface HealtcheckTemplateRestClient extends Closeable {
+public interface PgFacadeHealtcheckTemplateRestClient extends Closeable {
 
     @GET
     @Path("/q/health/live")

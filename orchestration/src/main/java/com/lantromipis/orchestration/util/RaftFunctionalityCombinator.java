@@ -6,6 +6,7 @@ import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.orchestration.exception.RaftException;
+import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
@@ -49,6 +50,18 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 DUMMY_COMMIT_TEST_COMMAND,
                 new byte[0],
+                TIMEOUT
+        );
+    }
+
+    public ExternalLoadBalancerRaftInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException {
+        return raftStorage.getPgFacadeLoadBalancerInfo();
+    }
+
+    public void savePgFacadeLoadBalancerInfo(ExternalLoadBalancerRaftInfo info) throws RaftException {
+        raftService.appendToLogAndAwaitCommit(
+                SAVE_PGFACADE_LOAD_BALANCER_INFO,
+                writeAsBytesSafe(info),
                 TIMEOUT
         );
     }

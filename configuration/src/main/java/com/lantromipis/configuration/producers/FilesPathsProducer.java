@@ -77,4 +77,10 @@ public class FilesPathsProducer {
                 + "/"
                 + PgFacadeConstants.POSTGRES_ARCHIVE_INFO_FILE_NAME;
     }
+
+    public String getExternalLoadBalancerInfoFilePath() {
+        return getPersistedPropertiesDirPath()
+                + "/"
+                + PgFacadeConstants.EXTERNAL_LOAD_BALANCER_INFO_FILE_NAME;
+    }
 }

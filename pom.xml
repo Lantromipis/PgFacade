@@ -39,6 +39,7 @@
         <docker.client.version>3.2.14</docker.client.version>
         <docker.client.transport.version>3.2.3</docker.client.transport.version>
         <aws.sdk.s3.version>1.12.420</aws.sdk.s3.version>
+        <jakson.jsr310.version>2.15.0</jakson.jsr310.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -48,6 +49,12 @@
                 <version>${quarkus.platform.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.fasterxml.jackson.datatype</groupId>
+                <artifactId>jackson-datatype-jsr310</artifactId>
+                <version>${jakson.jsr310.version}</version>
             </dependency>
 
             <dependency>

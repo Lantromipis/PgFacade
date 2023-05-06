@@ -35,6 +35,16 @@ public interface OrchestrationProperties {
 
         StandbyProperties standby();
 
+        ExternalLoadBalancerProperties externalLoadBalancer();
+
+        interface ExternalLoadBalancerProperties {
+            boolean deploy();
+
+            Duration healthcheckInterval();
+
+            Duration healthcheckAwait();
+        }
+
         interface StandbyProperties {
             int count();
 
@@ -70,6 +80,16 @@ public interface OrchestrationProperties {
         PostgresProperties postgres();
 
         String helperObjectName();
+
+        ExternalLoadBalancerProperties externalLoadBalancer();
+
+        interface ExternalLoadBalancerProperties {
+            String dnsAlias();
+
+            String containerName();
+
+            String imageTag();
+        }
 
         interface PgFacadeProperties {
             String localFilesDirectory();
