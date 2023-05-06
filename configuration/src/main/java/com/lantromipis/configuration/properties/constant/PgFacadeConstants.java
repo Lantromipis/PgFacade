@@ -20,6 +20,7 @@ public class PgFacadeConstants {
 
     public static final String POSTGRES_SETTINGS_INFO_FILE_NAME = "postgres-settings-info.json";
     public static final String POSTGRES_ARCHIVE_INFO_FILE_NAME = "postgres-archive-info.json";
+    public static final String PGFACADE_LOAD_BALANCER_INFO_FILE_NAME = "load-balancer-info.json";
 
     public static final int DOCKER_SPECIFIC_PGFACADE_RAFT_PORT = 31000;
     public static final String DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL = "pg-facade-discovery-label";

@@ -33,6 +33,8 @@ pg-facade:
       auto-restore-lost-cluster: true
       remove-failed-to-restore-instance: false
     common:
+      load-balancer:
+        deploy: false
       postgres-startup-check:
         start-period: 2000 #millisecinds
         interval: 100 #millisecinds
@@ -49,6 +51,8 @@ pg-facade:
     docker:
       host: unix:///var/run/pgfacade/docker.sock
       helper-object-name: "pg-facade-temp"
+      load-balancer:
+        image-tag: "pgfacade-balancer:latest"
       pg-facade:
         local-files-directory: "/var/run/pgfacade"
         internal-network-name: pg-facade-internal-network

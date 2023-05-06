@@ -6,6 +6,7 @@ import com.lantromipis.configuration.exception.ConfigurationInitializationExcept
 import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
+import com.lantromipis.orchestration.model.raft.PgFacadeLoadBalancerInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
@@ -35,9 +36,11 @@ public class RaftFileBasedStorage implements RaftStorage {
     private File postgresNodeInfoFile;
     private File postgresSettingInfoFile;
     private File postgresArchiveInfoFile;
+    private File pgfacadeLoadBalancerInfoFile;
     private final ReentrantLock postgresNodeInfoFileModificationLock = new ReentrantLock();
     private final ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
     private final ReentrantLock postgresArchiveInfoFileModificationLock = new ReentrantLock();
+    private final ReentrantLock pgfacadeLoadBalancerInfoLock = new ReentrantLock();
 
     // @formatter:off
     public static final TypeReference<Map<UUID, PostgresPersistedInstanceInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
@@ -51,6 +54,7 @@ public class RaftFileBasedStorage implements RaftStorage {
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
         postgresArchiveInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresArchiveInfosFilePath());
+        pgfacadeLoadBalancerInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPgFacadeLoadBalancerInfoFilePath());
     }
 
     @Override
@@ -59,6 +63,7 @@ public class RaftFileBasedStorage implements RaftStorage {
             postgresNodeInfoFileModificationLock.lock();
             postgresSettingInfoFileModificationLock.lock();
             postgresArchiveInfoFileModificationLock.lock();
+            pgfacadeLoadBalancerInfoLock.lock();
 
             List<SnapshotChunk> ret = new ArrayList<>();
 
@@ -80,6 +85,12 @@ public class RaftFileBasedStorage implements RaftStorage {
                     .name(POSTGRES_ARCHIVE_INFO_CHUNK)
                     .build()
             );
+            ret.add(SnapshotChunk
+                    .builder()
+                    .data(Files.readAllBytes(pgfacadeLoadBalancerInfoFile.toPath()))
+                    .name(PGFACADE_LOAD_BALANCER_ARCHIVE_INFO_CHUNK)
+                    .build()
+            );
 
             return ret;
 
@@ -89,6 +100,7 @@ public class RaftFileBasedStorage implements RaftStorage {
             postgresNodeInfoFileModificationLock.unlock();
             postgresSettingInfoFileModificationLock.unlock();
             postgresArchiveInfoFileModificationLock.unlock();
+            pgfacadeLoadBalancerInfoLock.unlock();
         }
     }
 
@@ -98,14 +110,18 @@ public class RaftFileBasedStorage implements RaftStorage {
             postgresNodeInfoFileModificationLock.lock();
             postgresSettingInfoFileModificationLock.lock();
             postgresArchiveInfoFileModificationLock.lock();
+            pgfacadeLoadBalancerInfoLock.lock();
 
             for (var chunk : chunks) {
-                if (POSTGRES_NODES_INFO_CHUNK.equals(chunk.getName())) {
-                    FileUtils.writeByteArrayToFile(postgresNodeInfoFile, chunk.getData(), false);
-                } else if (POSTGRES_SETTINGS_INFO_CHUNK.equals(chunk.getName())) {
-                    FileUtils.writeByteArrayToFile(postgresSettingInfoFile, chunk.getData(), false);
-                } else if (POSTGRES_ARCHIVE_INFO_CHUNK.equals(chunk.getName())) {
-                    FileUtils.writeByteArrayToFile(postgresArchiveInfoFile, chunk.getData(), false);
+                switch (chunk.getName()) {
+                    case POSTGRES_NODES_INFO_CHUNK ->
+                            FileUtils.writeByteArrayToFile(postgresNodeInfoFile, chunk.getData(), false);
+                    case POSTGRES_SETTINGS_INFO_CHUNK ->
+                            FileUtils.writeByteArrayToFile(postgresSettingInfoFile, chunk.getData(), false);
+                    case POSTGRES_ARCHIVE_INFO_CHUNK ->
+                            FileUtils.writeByteArrayToFile(postgresArchiveInfoFile, chunk.getData(), false);
+                    case PGFACADE_LOAD_BALANCER_ARCHIVE_INFO_CHUNK ->
+                            FileUtils.writeByteArrayToFile(pgfacadeLoadBalancerInfoFile, chunk.getData(), false);
                 }
             }
 
@@ -115,6 +131,7 @@ public class RaftFileBasedStorage implements RaftStorage {
             postgresNodeInfoFileModificationLock.unlock();
             postgresSettingInfoFileModificationLock.unlock();
             postgresArchiveInfoFileModificationLock.unlock();
+            pgfacadeLoadBalancerInfoLock.unlock();
         }
     }
 
@@ -287,6 +304,34 @@ public class RaftFileBasedStorage implements RaftStorage {
         }
     }
 
+    @Override
+    public PgFacadeLoadBalancerInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException {
+        try {
+            pgfacadeLoadBalancerInfoLock.lock();
+            if (pgfacadeLoadBalancerInfoFile.length() > 0) {
+                return objectMapper.readValue(pgfacadeLoadBalancerInfoFile, PgFacadeLoadBalancerInfo.class);
+            } else {
+                return new PgFacadeLoadBalancerInfo();
+            }
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while reading PgFacade load balancer info from file", e);
+        } finally {
+            pgfacadeLoadBalancerInfoLock.unlock();
+        }
+    }
+
+    @Override
+    public void savePgFacadeLoadBalancerInfo(PgFacadeLoadBalancerInfo info) throws PropertyModificationException {
+        try {
+            pgfacadeLoadBalancerInfoLock.lock();
+            objectMapper.writeValue(pgfacadeLoadBalancerInfoFile, info);
+        } catch (Exception e) {
+            throw new PropertyReadException("Error while saving PgFacade load balancer info to file", e);
+        } finally {
+            pgfacadeLoadBalancerInfoLock.unlock();
+        }
+    }
+
     private File createConfigFileIfNeeded(String path) throws ConfigurationInitializationException {
         try {
             File file = new File(path);
@@ -303,7 +348,7 @@ public class RaftFileBasedStorage implements RaftStorage {
         } catch (ConfigurationInitializationException configurationInitializationException) {
             throw configurationInitializationException;
         } catch (Exception e) {
-            throw new ConfigurationInitializationException("Can not initialize persisted properties for FILE adapter", e);
+            throw new ConfigurationInitializationException("Can not initialize persisted properties for Raft file storage", e);
         }
     }
 }
