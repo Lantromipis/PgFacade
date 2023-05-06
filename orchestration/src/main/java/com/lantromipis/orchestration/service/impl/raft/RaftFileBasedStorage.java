@@ -50,6 +50,7 @@ public class RaftFileBasedStorage implements RaftStorage {
     @PostConstruct
     public void init() {
         objectMapper = new ObjectMapper();
+        objectMapper.findAndRegisterModules();
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());

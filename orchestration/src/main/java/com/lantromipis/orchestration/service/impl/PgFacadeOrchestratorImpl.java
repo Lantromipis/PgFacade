@@ -61,7 +61,6 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     OrchestrationProperties orchestrationProperties;
 
     private ConcurrentHashMap<String, PgFacadeInstanceStateInfo> pgFacadeInstances = new ConcurrentHashMap<>();
-    private PgFacadeLoadBalancerStateInfo loadBalancerStateInfo;
 
     @Override
     public void startOrchestration() {
@@ -71,42 +70,40 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     @Scheduled(every = "${pg-facade.orchestration.common.external-load-balancer.healthcheck-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkExternalLoadBalancerHealth() {
         if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole()) && orchestrationProperties.common().externalLoadBalancer().deploy()) {
+            ExternalLoadBalancerHealtcheckTemplateRestClient restClient = null;
+            ExternalLoadBalancerRaftInfo raftInfo = null;
+
             try {
-                ExternalLoadBalancerRaftInfo info = raftFunctionalityCombinator.getPgFacadeLoadBalancerInfo();
+                raftInfo = raftFunctionalityCombinator.getPgFacadeLoadBalancerInfo();
 
-                if (info != null) {
-                    if (loadBalancerStateInfo == null || !loadBalancerStateInfo.getAdapterIdentifier().equals(info.getAdapterIdentifier())) {
-                        if (loadBalancerStateInfo != null) {
-                            platformAdapter.get().deleteInstance(loadBalancerStateInfo.getAdapterIdentifier());
-                            closeClient(loadBalancerStateInfo.getHealtcheckClient());
-                        }
-                        loadBalancerStateInfo = raftLoadBalancerInfoToState(info);
-                    }
-                } else {
-                    if (loadBalancerStateInfo != null) {
-                        platformAdapter.get().deleteInstance(loadBalancerStateInfo.getAdapterIdentifier());
-                        closeClient(loadBalancerStateInfo.getHealtcheckClient());
-                    }
-                    loadBalancerStateInfo = null;
-                    log.info("No information about deployed load balancer found.");
-                }
-
-                if (loadBalancerStateInfo != null) {
-                    if (loadBalancerStateInfo.getCreatedWhen().isAfter(Instant.now().minus(orchestrationProperties.common().externalLoadBalancer().healthcheckAwait()))) {
+                if (raftInfo != null) {
+                    if (raftInfo.getCreatedWhen().isAfter(Instant.now().minus(orchestrationProperties.common().externalLoadBalancer().healthcheckAwait()))) {
                         return;
                     }
-                    HealtcheckResponseDto healtcheckResponseDto = loadBalancerStateInfo.getHealtcheckClient().checkLiveliness();
-                    if (HealtcheckResponseDto.HealtcheckStatus.UP.equals(healtcheckResponseDto.getStatus())) {
+                    restClient = createHealtcheckRestClient(
+                            ExternalLoadBalancerHealtcheckTemplateRestClient.class,
+                            raftInfo.getAddress(),
+                            raftInfo.getPort()
+                    );
+
+                    if (HealtcheckResponseDto.HealtcheckStatus.UP.equals(restClient.checkLiveliness().getStatus())) {
                         return;
                     } else {
                         log.error("External load balancer unhealthy! Will force redeploy it.");
-                        platformAdapter.get().deleteInstance(loadBalancerStateInfo.getAdapterIdentifier());
-                        closeClient(loadBalancerStateInfo.getHealtcheckClient());
-                        loadBalancerStateInfo = null;
+                        platformAdapter.get().deleteInstance(raftInfo.getAdapterIdentifier());
                     }
+                } else {
+                    log.info("No information about deployed load balancer found.");
                 }
             } catch (Exception e) {
+                if (raftInfo != null && raftInfo.getAdapterIdentifier() != null) {
+                    platformAdapter.get().deleteInstance(raftInfo.getAdapterIdentifier());
+                }
                 log.error("Failed to check load balancer health. Will redeploy it...", e);
+            } finally {
+                if (restClient != null) {
+                    closeClient(restClient);
+                }
             }
 
             log.info("Redeploying external load balancer...");
@@ -120,9 +117,9 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                         .adapterIdentifier(loadBalancerAdapterInfo.getAdapterIdentifier())
                         .address(loadBalancerAdapterInfo.getAddress())
                         .port(loadBalancerAdapterInfo.getHttpPort())
+                        .createdWhen(Instant.now())
                         .build();
                 raftFunctionalityCombinator.savePgFacadeLoadBalancerInfo(newRaftInfo);
-                loadBalancerStateInfo = raftLoadBalancerInfoToState(newRaftInfo);
                 log.info("External load balancer deployed!");
             } catch (Exception e) {
                 log.error("Failed to deploy external load balancer!", e);
@@ -270,21 +267,6 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         }
     }
 
-    private PgFacadeLoadBalancerStateInfo raftLoadBalancerInfoToState(ExternalLoadBalancerRaftInfo raftInfo) {
-        return PgFacadeLoadBalancerStateInfo
-                .builder()
-                .healtcheckClient(
-                        createHealtcheckRestClient(
-                                ExternalLoadBalancerHealtcheckTemplateRestClient.class,
-                                raftInfo.getAddress(),
-                                raftInfo.getPort()
-                        )
-                )
-                .adapterIdentifier(raftInfo.getAdapterIdentifier())
-                .createdWhen(Instant.now())
-                .build();
-    }
-
     @Data
     @Builder
     @NoArgsConstructor
@@ -294,15 +276,5 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         private String address;
         private AtomicInteger unsuccessfulHealtcheckCount;
         private PgFacadeHealtcheckTemplateRestClient client;
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    private static class PgFacadeLoadBalancerStateInfo {
-        private ExternalLoadBalancerHealtcheckTemplateRestClient healtcheckClient;
-        private String adapterIdentifier;
-        private Instant createdWhen;
     }
 }
