@@ -9,8 +9,8 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeNodeExternalConnectionInfoDto {
-    private String ipAddress;
+public class PgFacadeSelfExternalConnectionInfoDto {
+    private String address;
     private int httpPort;
     private int primaryPort;
     private int standbyPort;

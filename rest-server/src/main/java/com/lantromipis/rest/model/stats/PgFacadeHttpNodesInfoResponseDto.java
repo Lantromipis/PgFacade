@@ -11,6 +11,6 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeNodesInfoResponseDto {
-    private List<PgFacadeNodeExternalConnectionInfoDto> nodesInfo;
+public class PgFacadeHttpNodesInfoResponseDto {
+    private List<PgFacadeNodeHttpConnectionInfo> httpNodesInfo;
 }

@@ -129,5 +129,7 @@ public interface PlatformAdapter {
      */
     PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException;
 
-    List<PgFacadeExternalConnectionsNodeInfo> getActivePgFacadeNodesExternalConnectionInfos();
+    List<PgFacadeHttpNodeInfo> getActivePgFacadeHttpNodesInfos();
+
+    PgFacadeExternalConnectionsNodeInfo getSelfExternalConnectionInfo();
 }

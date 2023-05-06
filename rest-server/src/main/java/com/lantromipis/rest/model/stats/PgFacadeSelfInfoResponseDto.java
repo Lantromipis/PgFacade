@@ -10,5 +10,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PgFacadeSelfInfoResponseDto {
-    private PgFacadeSelfPoolInfoDto poolInfo;
+    private PgFacadePoolInfoDto poolInfo;
+    private PgFacadeSelfExternalConnectionInfoDto externalConnectionInfo;
 }

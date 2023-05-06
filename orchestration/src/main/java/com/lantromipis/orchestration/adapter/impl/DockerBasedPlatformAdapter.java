@@ -671,7 +671,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public List<PgFacadeExternalConnectionsNodeInfo> getActivePgFacadeNodesExternalConnectionInfos() {
+    public List<PgFacadeHttpNodeInfo> getActivePgFacadeHttpNodesInfos() {
         List<Container> containers = dockerClient.listContainersCmd()
                 .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
                 .exec();
@@ -681,17 +681,55 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         }
 
         return containers.stream()
-                .map(container -> dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName()))
+                .map(this::containerToHttpNodeInfo)
                 .filter(Objects::nonNull)
-                .map(ip -> PgFacadeExternalConnectionsNodeInfo
-                        .builder()
-                        .ipAddress(ip)
-                        .httpPort(pgFacadeRuntimeProperties.getHttpPort())
-                        .primaryPort(proxyProperties.primaryPort())
-                        .standbyPort(proxyProperties.standbyPort())
-                        .build()
-                )
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public PgFacadeExternalConnectionsNodeInfo getSelfExternalConnectionInfo() {
+        String hostname = System.getenv(DockerConstants.DOCKER_ENV_VAR_HOSTNAME);
+
+        if (hostname == null) {
+            throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
+        }
+
+        List<Container> containers = dockerClient.listContainersCmd()
+                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
+                .withIdFilter(List.of(hostname))
+                .exec();
+
+        return containerToExternalConnectionsInfo(containers.get(0));
+    }
+
+    private PgFacadeExternalConnectionsNodeInfo containerToExternalConnectionsInfo(Container container) {
+        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
+
+        if (address == null) {
+            return null;
+        }
+
+        return PgFacadeExternalConnectionsNodeInfo
+                .builder()
+                .address(address)
+                .httpPort(pgFacadeRuntimeProperties.getHttpPort())
+                .primaryPort(proxyProperties.primaryPort())
+                .standbyPort(proxyProperties.standbyPort())
+                .build();
+    }
+
+    private PgFacadeHttpNodeInfo containerToHttpNodeInfo(Container container) {
+        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
+
+        if (address == null) {
+            return null;
+        }
+
+        return PgFacadeHttpNodeInfo
+                .builder()
+                .address(address)
+                .port(pgFacadeRuntimeProperties.getHttpPort())
+                .build();
     }
 
     private PgFacadeRaftNodeInfo inspectContainerResponseToPgFacadeRaftNodeInfo(InspectContainerResponse inspectContainerResponse) {

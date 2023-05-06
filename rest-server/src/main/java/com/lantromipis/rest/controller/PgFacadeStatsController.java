@@ -1,7 +1,7 @@
 package com.lantromipis.rest.controller;
 
 import com.lantromipis.rest.constant.ApiConstants;
-import com.lantromipis.rest.model.stats.PgFacadeNodesInfoResponseDto;
+import com.lantromipis.rest.model.stats.PgFacadeHttpNodesInfoResponseDto;
 import com.lantromipis.rest.model.stats.PgFacadeSelfInfoResponseDto;
 import com.lantromipis.rest.service.impl.PgFacadeStatsServiceImpl;
 
@@ -27,8 +27,8 @@ public class PgFacadeStatsController {
     }
 
     @GET
-    @Path("/raft-nodes")
-    public PgFacadeNodesInfoResponseDto getRaftNodesInfo() {
-        return pgFacadeStatsService.getRaftNodesInfo();
+    @Path("/http-nodes-info")
+    public PgFacadeHttpNodesInfoResponseDto getRaftNodesInfo() {
+        return pgFacadeStatsService.getHttpNodesInfo();
     }
 }

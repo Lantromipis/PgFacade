@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeSelfPoolInfoDto {
+public class PgFacadePoolInfoDto {
     private int primaryPoolConnectionLimit;
     private int currentPrimaryPoolAllConnectionsCount;
     private int currentPrimaryPoolFreeConnectionsCount;

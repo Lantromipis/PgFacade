@@ -1,4 +1,4 @@
-package com.lantromipis.orchestration.model;
+package com.lantromipis.rest.model.stats;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,9 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeExternalConnectionsNodeInfo {
+public class PgFacadeNodeHttpConnectionInfo {
     private String address;
     private int httpPort;
-    private int primaryPort;
-    private int standbyPort;
 }

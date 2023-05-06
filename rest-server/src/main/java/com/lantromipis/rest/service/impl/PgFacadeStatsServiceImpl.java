@@ -4,10 +4,8 @@ import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.model.PgFacadeExternalConnectionsNodeInfo;
-import com.lantromipis.rest.model.stats.PgFacadeNodeExternalConnectionInfoDto;
-import com.lantromipis.rest.model.stats.PgFacadeNodesInfoResponseDto;
-import com.lantromipis.rest.model.stats.PgFacadeSelfInfoResponseDto;
-import com.lantromipis.rest.model.stats.PgFacadeSelfPoolInfoDto;
+import com.lantromipis.orchestration.model.PgFacadeHttpNodeInfo;
+import com.lantromipis.rest.model.stats.*;
 import com.lantromipis.rest.service.api.PgFacadeStatsService;
 import org.apache.commons.collections4.CollectionUtils;
 
@@ -30,11 +28,12 @@ public class PgFacadeStatsServiceImpl implements PgFacadeStatsService {
     @Override
     public PgFacadeSelfInfoResponseDto getSelfNodeStats() {
         ConnectionPoolStats connectionPoolStats = connectionPool.getStats();
+        PgFacadeExternalConnectionsNodeInfo selfExternalConnectionInfo = platformAdapter.get().getSelfExternalConnectionInfo();
 
         return PgFacadeSelfInfoResponseDto
                 .builder()
                 .poolInfo(
-                        PgFacadeSelfPoolInfoDto
+                        PgFacadePoolInfoDto
                                 .builder()
                                 .primaryPoolConnectionLimit(connectionPoolStats.getPrimaryPoolConnectionsLimit())
                                 .standbyPoolConnectionLimit(connectionPoolStats.getStandbyPoolConnectionsLimit())
@@ -44,30 +43,37 @@ public class PgFacadeStatsServiceImpl implements PgFacadeStatsService {
                                 .currentStandbyPoolFreeConnectionsCount(connectionPoolStats.getStandbyPoolFreeConnectionsCount())
                                 .build()
                 )
+                .externalConnectionInfo(
+                        PgFacadeSelfExternalConnectionInfoDto
+                                .builder()
+                                .address(selfExternalConnectionInfo.getAddress())
+                                .httpPort(selfExternalConnectionInfo.getHttpPort())
+                                .standbyPort(selfExternalConnectionInfo.getStandbyPort())
+                                .primaryPort(selfExternalConnectionInfo.getPrimaryPort())
+                                .build()
+                )
                 .build();
     }
 
     @Override
-    public PgFacadeNodesInfoResponseDto getRaftNodesInfo() {
-        List<PgFacadeExternalConnectionsNodeInfo> infos = platformAdapter.get().getActivePgFacadeNodesExternalConnectionInfos();
+    public PgFacadeHttpNodesInfoResponseDto getHttpNodesInfo() {
+        List<PgFacadeHttpNodeInfo> infos = platformAdapter.get().getActivePgFacadeHttpNodesInfos();
 
         if (CollectionUtils.isEmpty(infos)) {
-            return PgFacadeNodesInfoResponseDto
+            return PgFacadeHttpNodesInfoResponseDto
                     .builder()
-                    .nodesInfo(Collections.emptyList())
+                    .httpNodesInfo(Collections.emptyList())
                     .build();
         }
 
-        return PgFacadeNodesInfoResponseDto
+        return PgFacadeHttpNodesInfoResponseDto
                 .builder()
-                .nodesInfo(
+                .httpNodesInfo(
                         infos.stream()
-                                .map(info -> PgFacadeNodeExternalConnectionInfoDto
+                                .map(info -> PgFacadeNodeHttpConnectionInfo
                                         .builder()
-                                        .ipAddress(info.getIpAddress())
-                                        .httpPort(info.getHttpPort())
-                                        .primaryPort(info.getPrimaryPort())
-                                        .standbyPort(info.getStandbyPort())
+                                        .address(info.getAddress())
+                                        .httpPort(info.getPort())
                                         .build()
                                 )
                                 .collect(Collectors.toList())
