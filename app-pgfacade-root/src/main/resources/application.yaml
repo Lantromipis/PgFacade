@@ -9,6 +9,7 @@ pg-facade:
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
   proxy:
     primary-port: 5433
+    standby-port: 5434
     max-connections: 2000
     connection-pool:
       enabled: true

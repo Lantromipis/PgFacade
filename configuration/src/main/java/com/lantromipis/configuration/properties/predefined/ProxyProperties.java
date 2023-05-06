@@ -8,6 +8,8 @@ import java.time.Duration;
 public interface ProxyProperties {
     int primaryPort();
 
+    int standbyPort();
+
     int maxConnections();
 
     ConnectionPoolProperties connectionPool();

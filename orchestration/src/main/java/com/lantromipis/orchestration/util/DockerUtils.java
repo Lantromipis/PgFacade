@@ -28,11 +28,11 @@ public class DockerUtils {
         return containerNetwork.getIpAddress();
     }
 
-    public String getContainerAddress(Container container) {
+    public String getContainerAddress(Container container, String networkName) {
         return Optional.of(container)
                 .map(Container::getNetworkSettings)
                 .map(ContainerNetworkSettings::getNetworks)
-                .map(map -> map.get(orchestrationProperties.docker().postgres().networkName()))
+                .map(map -> map.get(networkName))
                 .map(ContainerNetwork::getIpAddress)
                 .orElse(null);
     }
