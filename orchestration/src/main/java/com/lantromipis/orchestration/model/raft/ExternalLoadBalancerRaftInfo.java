@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeLoadBalancerInfo {
+public class ExternalLoadBalancerRaftInfo {
     private String adapterIdentifier;
+    private String address;
+    private int port;
 }

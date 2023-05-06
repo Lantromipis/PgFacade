@@ -3,8 +3,8 @@ package com.lantromipis.rest.service.impl;
 import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.model.PgFacadeExternalConnectionsNodeInfo;
-import com.lantromipis.orchestration.model.PgFacadeHttpNodeInfo;
+import com.lantromipis.orchestration.model.PgFacadeNodeExternalConnectionsInfo;
+import com.lantromipis.orchestration.model.PgFacadeNodeHttpConnectionsInfo;
 import com.lantromipis.rest.model.stats.*;
 import com.lantromipis.rest.service.api.PgFacadeStatsService;
 import org.apache.commons.collections4.CollectionUtils;
@@ -28,7 +28,7 @@ public class PgFacadeStatsServiceImpl implements PgFacadeStatsService {
     @Override
     public PgFacadeSelfInfoResponseDto getSelfNodeStats() {
         ConnectionPoolStats connectionPoolStats = connectionPool.getStats();
-        PgFacadeExternalConnectionsNodeInfo selfExternalConnectionInfo = platformAdapter.get().getSelfExternalConnectionInfo();
+        PgFacadeNodeExternalConnectionsInfo selfExternalConnectionInfo = platformAdapter.get().getSelfExternalConnectionInfo();
 
         return PgFacadeSelfInfoResponseDto
                 .builder()
@@ -57,7 +57,7 @@ public class PgFacadeStatsServiceImpl implements PgFacadeStatsService {
 
     @Override
     public PgFacadeHttpNodesInfoResponseDto getHttpNodesInfo() {
-        List<PgFacadeHttpNodeInfo> infos = platformAdapter.get().getActivePgFacadeHttpNodesInfos();
+        List<PgFacadeNodeHttpConnectionsInfo> infos = platformAdapter.get().getActivePgFacadeHttpNodesInfos();
 
         if (CollectionUtils.isEmpty(infos)) {
             return PgFacadeHttpNodesInfoResponseDto

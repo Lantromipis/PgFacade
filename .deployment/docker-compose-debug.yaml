@@ -18,7 +18,7 @@ services:
       - /var/run/docker.sock:/var/run/pgfacade/docker.sock
     environment:
       - pg-facade.archiving.s3.endpoint=http://minio:9000
-      - PG_FACADE_ORCHESTRATION_COMMON_LOAD_BALANCER_DEPLOY=true
+      - PG_FACADE_ORCHESTRATION_COMMON_EXTERNAL_LOAD_BALANCER_DEPLOY=true
       - PG_FACADE_ORCHESTRATION_POSTGRES_CLUSTER_RESTORE_ALLOW_CREATING_NEW_EMPTY_PRIMARY_IF_RESTORE_ON_STARTUP_FAILED=true
     labels:
       - pg-facade-discovery-label=true

@@ -2,7 +2,7 @@ package com.lantromipis.orchestration.service.api.raft;
 
 import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
-import com.lantromipis.orchestration.model.raft.PgFacadeLoadBalancerInfo;
+import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.pgfacadeprotocol.model.api.SnapshotChunk;
@@ -37,7 +37,7 @@ public interface RaftStorage {
 
     void deletePostgresSettingsInfos(List<String> settingsNames) throws PropertyModificationException;
 
-    PgFacadeLoadBalancerInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException;
+    ExternalLoadBalancerRaftInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException;
 
-    void savePgFacadeLoadBalancerInfo(PgFacadeLoadBalancerInfo info) throws PropertyModificationException;
+    void savePgFacadeLoadBalancerInfo(ExternalLoadBalancerRaftInfo info) throws PropertyModificationException;
 }

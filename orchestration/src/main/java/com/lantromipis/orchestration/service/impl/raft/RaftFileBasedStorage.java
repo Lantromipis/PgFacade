@@ -6,7 +6,7 @@ import com.lantromipis.configuration.exception.ConfigurationInitializationExcept
 import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
-import com.lantromipis.orchestration.model.raft.PgFacadeLoadBalancerInfo;
+import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
@@ -54,7 +54,7 @@ public class RaftFileBasedStorage implements RaftStorage {
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
         postgresArchiveInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresArchiveInfosFilePath());
-        pgfacadeLoadBalancerInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPgFacadeLoadBalancerInfoFilePath());
+        pgfacadeLoadBalancerInfoFile = createConfigFileIfNeeded(filesPathsProducer.getExternalLoadBalancerInfoFilePath());
     }
 
     @Override
@@ -305,13 +305,13 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
-    public PgFacadeLoadBalancerInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException {
+    public ExternalLoadBalancerRaftInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException {
         try {
             pgfacadeLoadBalancerInfoLock.lock();
             if (pgfacadeLoadBalancerInfoFile.length() > 0) {
-                return objectMapper.readValue(pgfacadeLoadBalancerInfoFile, PgFacadeLoadBalancerInfo.class);
+                return objectMapper.readValue(pgfacadeLoadBalancerInfoFile, ExternalLoadBalancerRaftInfo.class);
             } else {
-                return new PgFacadeLoadBalancerInfo();
+                return null;
             }
         } catch (Exception e) {
             throw new PropertyReadException("Error while reading PgFacade load balancer info from file", e);
@@ -321,7 +321,7 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
-    public void savePgFacadeLoadBalancerInfo(PgFacadeLoadBalancerInfo info) throws PropertyModificationException {
+    public void savePgFacadeLoadBalancerInfo(ExternalLoadBalancerRaftInfo info) throws PropertyModificationException {
         try {
             pgfacadeLoadBalancerInfoLock.lock();
             objectMapper.writeValue(pgfacadeLoadBalancerInfoFile, info);

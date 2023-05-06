@@ -11,8 +11,10 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
+import com.lantromipis.configuration.properties.constant.ExternalLoadBalancerConstants;
 import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
+import com.lantromipis.configuration.properties.constant.QuarkusConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
@@ -671,7 +673,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public List<PgFacadeHttpNodeInfo> getActivePgFacadeHttpNodesInfos() {
+    public List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() {
         List<Container> containers = dockerClient.listContainersCmd()
                 .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
                 .exec();
@@ -687,7 +689,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public PgFacadeExternalConnectionsNodeInfo getSelfExternalConnectionInfo() {
+    public PgFacadeNodeExternalConnectionsInfo getSelfExternalConnectionInfo() {
         String hostname = System.getenv(DockerConstants.DOCKER_ENV_VAR_HOSTNAME);
 
         if (hostname == null) {
@@ -702,14 +704,63 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         return containerToExternalConnectionsInfo(containers.get(0));
     }
 
-    private PgFacadeExternalConnectionsNodeInfo containerToExternalConnectionsInfo(Container container) {
+    @Override
+    public ExternalLoadBalancerAdapterInfo createAndStartExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException {
+        try {
+            PgFacadeNodeExternalConnectionsInfo selfInfo = getSelfExternalConnectionInfo();
+
+            CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(orchestrationProperties.docker().externalLoadBalancer().imageTag())
+                    .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().externalLoadBalancer().containerName(), UUID.randomUUID().toString()))
+                    .withLabels(Map.of(PgFacadeConstants.DOCKER_SPECIFIC_EXTERNAL_LOAD_BALANCER_CONTAINER_LABEL, "true"))
+                    .withEnv(
+                            List.of(
+                                    createEnvValueForRequest(ExternalLoadBalancerConstants.ENV_INITIAL_HTTP_HOST, selfInfo.getAddress()),
+                                    createEnvValueForRequest(ExternalLoadBalancerConstants.ENV_INITIAL_HTTP_PORT, String.valueOf(selfInfo.getHttpPort())),
+                                    createEnvValueForRequest(QuarkusConstants.ENV_QUARKUS_HTTP_PORT, String.valueOf(QuarkusConstants.DEFAULT_HTTP_PORT))
+                            )
+                    );
+
+            CreateContainerResponse createContainerResponse = createContainerCmd.exec();
+
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(createContainerResponse.getId())
+                    .withNetworkId(orchestrationProperties.docker().pgFacade().externalNetworkName())
+                    .withContainerNetwork(
+                            new ContainerNetwork()
+                                    .withAliases(orchestrationProperties.docker().externalLoadBalancer().dnsAlias())
+                    )
+                    .exec();
+
+            dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
+
+            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();
+
+            return ExternalLoadBalancerAdapterInfo
+                    .builder()
+                    .adapterIdentifier(createContainerResponse.getId())
+                    .httpPort(QuarkusConstants.DEFAULT_HTTP_PORT)
+                    .address(
+                            inspectContainerResponse.getNetworkSettings()
+                                    .getNetworks()
+                                    .get(orchestrationProperties.docker().pgFacade().externalNetworkName())
+                                    .getIpAddress()
+                    )
+                    .build();
+        } catch (PlatformAdapterOperationExecutionException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Failed to create container with load balancer!", e);
+        }
+    }
+
+    private PgFacadeNodeExternalConnectionsInfo containerToExternalConnectionsInfo(Container container) {
         String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
 
         if (address == null) {
             return null;
         }
 
-        return PgFacadeExternalConnectionsNodeInfo
+        return PgFacadeNodeExternalConnectionsInfo
                 .builder()
                 .address(address)
                 .httpPort(pgFacadeRuntimeProperties.getHttpPort())
@@ -718,14 +769,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .build();
     }
 
-    private PgFacadeHttpNodeInfo containerToHttpNodeInfo(Container container) {
+    private PgFacadeNodeHttpConnectionsInfo containerToHttpNodeInfo(Container container) {
         String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
 
         if (address == null) {
             return null;
         }
 
-        return PgFacadeHttpNodeInfo
+        return PgFacadeNodeHttpConnectionsInfo
                 .builder()
                 .address(address)
                 .port(pgFacadeRuntimeProperties.getHttpPort())

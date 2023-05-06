@@ -78,9 +78,9 @@ public interface PlatformAdapter {
     PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
 
     /**
-     * Delete Postgres or PgFacade instance
+     * Delete Postgres, PgFacade or external load balancer instance
      *
-     * @param adapterInstanceId adapter identifier of existing Postgres or PgFacade instance
+     * @param adapterInstanceId adapter identifier of existing Postgres, PgFacade or external load balancer instance
      * @return true if successfully deleted instance or if it is already deleted. False if failed to delete.
      */
     boolean deleteInstance(String adapterInstanceId);
@@ -129,7 +129,15 @@ public interface PlatformAdapter {
      */
     PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException;
 
-    List<PgFacadeHttpNodeInfo> getActivePgFacadeHttpNodesInfos();
+    List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() throws PlatformAdapterOperationExecutionException;
 
-    PgFacadeExternalConnectionsNodeInfo getSelfExternalConnectionInfo();
+    PgFacadeNodeExternalConnectionsInfo getSelfExternalConnectionInfo() throws PlatformAdapterOperationExecutionException;
+
+    /**
+     * Create and start new external load balancer instance.
+     *
+     * @return object containing info for created load balancer
+     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
+     */
+    ExternalLoadBalancerAdapterInfo createAndStartExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException;
 }

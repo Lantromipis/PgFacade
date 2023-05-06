@@ -8,7 +8,7 @@ import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
-import com.lantromipis.orchestration.model.raft.PgFacadeLoadBalancerInfo;
+import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
@@ -46,8 +46,8 @@ public class RaftCommitUtils {
     @Inject
     RaftStorage raftStorage;
 
-    public void processPgFacadeLoadBalancerInfoSave(PgFacadeLoadBalancerInfo pgFacadeLoadBalancerInfo) {
-        raftStorage.savePgFacadeLoadBalancerInfo(pgFacadeLoadBalancerInfo);
+    public void processPgFacadeLoadBalancerInfoSave(ExternalLoadBalancerRaftInfo externalLoadBalancerRaftInfo) {
+        raftStorage.savePgFacadeLoadBalancerInfo(externalLoadBalancerRaftInfo);
     }
 
     public void processArchiveInfoSave(PostgresPersistedArchiveInfo archiveInfo) {
