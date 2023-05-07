@@ -101,7 +101,7 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                     log.warn("Unknown raft command {}", command);
                 }
             }
-            if (pgFacadeRuntimeProperties.getRaftRole().equals(PgFacadeRaftRole.LEADER)) {
+            if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
                 log.debug("Committed command {} index {}", command, commitIndex);
             }
         } catch (JsonProcessingException e) {

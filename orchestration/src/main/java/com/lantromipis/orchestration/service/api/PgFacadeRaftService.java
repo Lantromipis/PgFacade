@@ -10,7 +10,7 @@ import java.util.List;
 public interface PgFacadeRaftService {
     void initialize() throws InitializationException;
 
-    void shutdown();
+    void shutdown(boolean simulateRoleChangedToFollower);
 
     void addNewRaftNode(PgFacadeRaftNodeInfo newNodeInfo) throws RaftException;
 

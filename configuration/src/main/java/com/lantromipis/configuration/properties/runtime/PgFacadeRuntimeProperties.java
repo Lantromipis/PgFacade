@@ -13,4 +13,5 @@ public class PgFacadeRuntimeProperties {
     private PgFacadeRaftRole raftRole;
     private boolean raftServerUp = false;
     private int httpPort = 8080;
+    private boolean pgFacadeOrchestrationForceDisabled = false;
 }

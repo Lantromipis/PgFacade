@@ -10,10 +10,7 @@ import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftGroup;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftNode;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftPeerInfo;
-import com.lantromipis.pgfacadeprotocol.model.api.RaftServerProperties;
+import com.lantromipis.pgfacadeprotocol.model.api.*;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftServer;
 import com.lantromipis.pgfacadeprotocol.server.impl.RaftServerImpl;
@@ -107,9 +104,12 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     }
 
     @Override
-    public void shutdown() {
+    public void shutdown(boolean simulateRoleChangedToFollower) {
         try {
             raftServer.shutdown();
+            if (simulateRoleChangedToFollower) {
+                raftEventListener.selfRoleChanged(RaftRole.FOLLOWER);
+            }
         } catch (Exception e) {
             log.error("Error during Raft shutdown", e);
         }

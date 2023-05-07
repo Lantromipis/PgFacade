@@ -102,11 +102,11 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
         return ConnectionPoolStats
                 .builder()
-                .primaryPoolAllConnectionsCount(primaryConnectionsStorage.getAllConnectionsCount())
+                .primaryPoolAllConnectionsCount(primaryConnectionsStorage == null ? -1 : primaryConnectionsStorage.getAllConnectionsCount())
                 .standbyPoolAllConnectionsCount(standbyPoolAllConnectionsCount)
-                .primaryPoolFreeConnectionsCount(primaryConnectionsStorage.getFreeConnectionsCount())
+                .primaryPoolFreeConnectionsCount(primaryConnectionsStorage == null ? -1 : primaryConnectionsStorage.getFreeConnectionsCount())
                 .standbyPoolFreeConnectionsCount(standbyPoolFreeConnectionsLimit)
-                .primaryPoolConnectionsLimit(primaryConnectionsStorage.getMaxConnections())
+                .primaryPoolConnectionsLimit(primaryConnectionsStorage == null ? -1 : primaryConnectionsStorage.getMaxConnections())
                 .standbyPoolConnectionsLimit(standbyPoolConnectionsLimit)
                 .build();
     }

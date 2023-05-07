@@ -1,6 +1,9 @@
 package com.lantromipis.orchestration.service.api;
 
-import com.lantromipis.orchestration.exception.*;
+import com.lantromipis.orchestration.exception.InitializationException;
+import com.lantromipis.orchestration.exception.OrchestratorNotFoundException;
+import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
+import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
 
 import java.util.Map;
 import java.util.UUID;
@@ -22,7 +25,7 @@ public interface PostgresOrchestrator {
     /**
      * Stop orchestrator with an ability to reinitialize in later
      */
-    void stopOrchestrator();
+    void stopOrchestrator(boolean shutdownPostgres);
 
     boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException;
 

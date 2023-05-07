@@ -157,7 +157,7 @@ public class QuarkusStartupAndShutdownHandler {
     public void shutdown(@Observes @Priority(Interceptor.Priority.PLATFORM_AFTER) ShutdownEvent shutdownEvent) {
         log.info("PgFacade is shutting down...");
 
-        pgFacadeRaftService.shutdown();
+        pgFacadeRaftService.shutdown(true);
 
         if (shutdownImmidiatly) {
             pgProxyServiceImpl.shutdown(false, Duration.ZERO);
@@ -165,7 +165,7 @@ public class QuarkusStartupAndShutdownHandler {
             pgProxyServiceImpl.shutdown(shutdownProperties.awaitClients(), shutdownProperties.waitForClientsDuration());
         }
 
-        postgresOrchestrator.stopOrchestrator();
+        postgresOrchestrator.stopOrchestrator(false);
         platformAdapter.get().shutdown();
 
         try {

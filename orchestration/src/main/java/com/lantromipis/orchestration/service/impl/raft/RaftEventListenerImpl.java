@@ -72,7 +72,8 @@ public class RaftEventListenerImpl implements RaftEventListener {
                 pgFacadeOrchestrator.startOrchestration();
             } else if (!PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
                 pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.FOLLOWER);
-                postgresOrchestrator.stopOrchestrator();
+                postgresOrchestrator.stopOrchestrator(false);
+                pgFacadeOrchestrator.stopOrchestration();
                 log.info("This PgFacade node is now follower!");
             }
         } catch (Throwable t) {
