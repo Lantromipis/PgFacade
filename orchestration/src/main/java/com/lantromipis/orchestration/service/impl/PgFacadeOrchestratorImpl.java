@@ -84,7 +84,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     }
 
     @Override
-    public boolean shutdownRaftForce() {
+    public boolean shutdownRaftAndOrchestartionForce() {
         try {
             // prevent orchestrator from spawning other nodes
             pgFacadeRuntimeProperties.setPgFacadeOrchestrationForceDisabled(true);
@@ -108,8 +108,10 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                 }
                         );
             } else {
-                pgFacadeRaftService.shutdown();
+                pgFacadeRaftService.shutdown(true);
             }
+
+            pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.RAFT_DISABLED);
         } catch (Exception e) {
             log.error("Error while shutting down Raft!");
         }

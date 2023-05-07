@@ -105,5 +105,6 @@ public class PgProxyServiceImpl implements PgProxyService {
 
         log.warn("Some clients are still connected after timeout. Force disconnecting all of them.");
         clientConnectionsManagementService.forceDisconnectAll();
+        primaryProxyChannelFuture = null;
     }
 }
