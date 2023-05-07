@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.shutdown;
+package com.lantromipis.orchestration.restclient.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProxySoftShutdownRequestDto {
+public class SoftShutdownRequestDto {
     private long maxClientsAwaitPeriodMs;
+    private boolean shutdownPostgres;
 }

@@ -165,7 +165,7 @@ public class QuarkusStartupAndShutdownHandler {
             pgProxyServiceImpl.shutdown(shutdownProperties.awaitClients(), shutdownProperties.waitForClientsDuration());
         }
 
-        postgresOrchestrator.stopOrchestrator();
+        postgresOrchestrator.stopOrchestrator(false);
         platformAdapter.get().shutdown();
 
         try {

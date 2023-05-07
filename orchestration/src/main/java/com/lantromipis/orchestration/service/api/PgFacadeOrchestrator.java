@@ -11,5 +11,5 @@ public interface PgFacadeOrchestrator {
      *
      * @return true if shutdown was successful, false if some error occurred
      */
-    boolean shutdownRaftAndOrchestartionForce();
+    boolean shutdownCluster(boolean force, boolean shutdownPostgres, long maxProxyAwaitMs);
 }

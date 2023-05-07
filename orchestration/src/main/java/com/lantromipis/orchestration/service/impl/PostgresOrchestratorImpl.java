@@ -216,10 +216,22 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Override
-    public void stopOrchestrator() {
+    public void stopOrchestrator(boolean shutdownPostgres) {
         orchestratorReady.set(false);
         postgresArchiver.stop();
         waitForActiveOperationsToComplete();
+
+        if (shutdownPostgres) {
+            orchestratorUtils.getCombinedInfosForAvailableInstances()
+                    .forEach(instance -> {
+                                try {
+                                    platformAdapter.get().stopPostgresInstance(instance.getAdapter().getAdapterInstanceId());
+                                } catch (Exception e) {
+                                    //ignored
+                                }
+                            }
+                    );
+        }
     }
 
     @Override

@@ -13,17 +13,23 @@ import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
 import com.lantromipis.orchestration.restclient.ExternalLoadBalancerHealtcheckTemplateRestClient;
 import com.lantromipis.orchestration.restclient.PgFacadeHealtcheckTemplateRestClient;
 import com.lantromipis.orchestration.restclient.PgFacadeShutdownTemplateRestClient;
+import com.lantromipis.orchestration.restclient.model.ForceShutdownRequestDto;
 import com.lantromipis.orchestration.restclient.model.HealtcheckResponseDto;
+import com.lantromipis.orchestration.restclient.model.SoftShutdownRequestDto;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
+import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftPeerInfo;
+import com.lantromipis.proxy.service.api.PgProxyService;
+import io.quarkus.runtime.Quarkus;
 import io.quarkus.scheduler.Scheduled;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.microprofile.context.ManagedExecutor;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -31,11 +37,13 @@ import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.io.Closeable;
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -61,6 +69,15 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     @Inject
     OrchestrationProperties orchestrationProperties;
 
+    @Inject
+    ManagedExecutor managedExecutor;
+
+    @Inject
+    PgProxyService proxyService;
+
+    @Inject
+    PostgresOrchestrator postgresOrchestrator;
+
     private ConcurrentHashMap<String, PgFacadeInstanceStateInfo> pgFacadeInstances = new ConcurrentHashMap<>();
 
     private boolean orchestrationActive = false;
@@ -84,13 +101,17 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     }
 
     @Override
-    public boolean shutdownRaftAndOrchestartionForce() {
+    public boolean shutdownCluster(boolean force, boolean shutdownPostgres, long maxProxyAwaitMs) {
+        log.info("Cluster shutdown requested.");
+
+        AtomicBoolean success = new AtomicBoolean(true);
+
         try {
-            // prevent orchestrator from spawning other nodes
+            // Prevent orchestrator from creating other nodes
             pgFacadeRuntimeProperties.setPgFacadeOrchestrationForceDisabled(true);
             stopOrchestration();
 
-            // leader disables all follower's Raft Servers, followers just shutdown its own Raft Server
+            // Leader shutdowns all followers. Followers just shutdown themselves.
             if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
                 pgFacadeInstances.values()
                         .forEach(
@@ -101,8 +122,24 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                             pgFacadeRuntimeProperties.getHttpPort(),
                                             30000
                                     )) {
-                                        shutdownRestClient.shutdownRaft();
+                                        if (force) {
+                                            shutdownRestClient.shutdownForce(
+                                                    ForceShutdownRequestDto
+                                                            .builder()
+                                                            .shutdownPostgres(shutdownPostgres)
+                                                            .build()
+                                            );
+                                        } else {
+                                            shutdownRestClient.shutdownSoft(
+                                                    SoftShutdownRequestDto
+                                                            .builder()
+                                                            .maxClientsAwaitPeriodMs(maxProxyAwaitMs)
+                                                            .shutdownPostgres(shutdownPostgres)
+                                                            .build()
+                                            );
+                                        }
                                     } catch (Exception e) {
+                                        success.set(false);
                                         log.error("Failed to shutdown Raft Server on node with address {}", instance.getAddress());
                                     }
                                 }
@@ -111,12 +148,36 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 pgFacadeRaftService.shutdown(true);
             }
 
-            pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.RAFT_DISABLED);
+            if (force) {
+                proxyService.shutdown(false, null);
+                postgresOrchestrator.stopOrchestrator(true);
+                log.info("All Postgres instances stopped.");
+                managedExecutor.runAsync(() -> {
+                            try {
+                                Thread.sleep(5000);
+                            } catch (InterruptedException e) {
+                                // ignored
+                            } finally {
+                                Quarkus.asyncExit(0);
+                            }
+                        }
+                );
+            } else {
+                managedExecutor.runAsync(() -> {
+                            proxyService.shutdown(true, Duration.ofMillis(maxProxyAwaitMs));
+                            log.info("All clients disconnected. Shutting down PgFacade...");
+                            postgresOrchestrator.stopOrchestrator(true);
+                            log.info("All Postgres instances stopped.");
+                            Quarkus.asyncExit(0);
+                        }
+                );
+            }
         } catch (Exception e) {
+            success.set(false);
             log.error("Error while shutting down Raft!");
         }
 
-        return true;
+        return success.get();
     }
 
     @Scheduled(every = "${pg-facade.orchestration.common.external-load-balancer.healthcheck-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
