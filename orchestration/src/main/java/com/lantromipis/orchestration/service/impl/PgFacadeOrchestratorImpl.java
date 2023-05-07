@@ -1,5 +1,6 @@
 package com.lantromipis.orchestration.service.impl;
 
+import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
@@ -33,6 +34,7 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.event.Observes;
 import javax.enterprise.inject.Instance;
 import javax.inject.Inject;
 import java.io.Closeable;
@@ -81,6 +83,8 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     private ConcurrentHashMap<String, PgFacadeInstanceStateInfo> pgFacadeInstances = new ConcurrentHashMap<>();
 
     private boolean orchestrationActive = false;
+    private boolean raftSynced = false;
+    private String loadBalancerAdapterId;
 
     @Override
     public void startOrchestration() {
@@ -101,10 +105,11 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     }
 
     @Override
-    public boolean shutdownCluster(boolean force, boolean shutdownPostgres, long maxProxyAwaitMs) {
+    public boolean shutdownCluster(boolean force, boolean shutdownPostgres, boolean shutdownLoadBalancer, long maxProxyAwaitSeconds) {
         log.info("Cluster shutdown requested.");
 
         AtomicBoolean success = new AtomicBoolean(true);
+        AtomicBoolean leader = new AtomicBoolean(false);
 
         try {
             // Prevent orchestrator from creating other nodes
@@ -113,6 +118,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
 
             // Leader shutdowns all followers. Followers just shutdown themselves.
             if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+                leader.set(true);
                 pgFacadeInstances.values()
                         .forEach(
                                 instance -> {
@@ -126,15 +132,13 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                             shutdownRestClient.shutdownForce(
                                                     ForceShutdownRequestDto
                                                             .builder()
-                                                            .shutdownPostgres(shutdownPostgres)
                                                             .build()
                                             );
                                         } else {
                                             shutdownRestClient.shutdownSoft(
                                                     SoftShutdownRequestDto
                                                             .builder()
-                                                            .maxClientsAwaitPeriodMs(maxProxyAwaitMs)
-                                                            .shutdownPostgres(shutdownPostgres)
+                                                            .maxClientsAwaitPeriodSeconds(maxProxyAwaitSeconds)
                                                             .build()
                                             );
                                         }
@@ -144,13 +148,16 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                     }
                                 }
                         );
-            } else {
-                pgFacadeRaftService.shutdown(true);
             }
+
+            pgFacadeRaftService.shutdown(true);
 
             if (force) {
                 proxyService.shutdown(false, null);
-                postgresOrchestrator.stopOrchestrator(true);
+                postgresOrchestrator.stopOrchestrator(shutdownPostgres && leader.get());
+                if (shutdownLoadBalancer && leader.get() && loadBalancerAdapterId != null) {
+                    platformAdapter.get().deleteInstance(loadBalancerAdapterId);
+                }
                 log.info("All Postgres instances stopped.");
                 managedExecutor.runAsync(() -> {
                             try {
@@ -164,9 +171,12 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 );
             } else {
                 managedExecutor.runAsync(() -> {
-                            proxyService.shutdown(true, Duration.ofMillis(maxProxyAwaitMs));
+                            proxyService.shutdown(true, Duration.ofSeconds(maxProxyAwaitSeconds));
                             log.info("All clients disconnected. Shutting down PgFacade...");
-                            postgresOrchestrator.stopOrchestrator(true);
+                            postgresOrchestrator.stopOrchestrator(shutdownPostgres && leader.get());
+                            if (shutdownLoadBalancer && leader.get() && loadBalancerAdapterId != null) {
+                                platformAdapter.get().deleteInstance(loadBalancerAdapterId);
+                            }
                             log.info("All Postgres instances stopped.");
                             Quarkus.asyncExit(0);
                         }
@@ -180,9 +190,13 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         return success.get();
     }
 
+    public void syncedWithRaftLog(@Observes RaftLogSyncedOnStartupEvent raftLogSyncedOnStartupEvent) {
+        raftSynced = true;
+    }
+
     @Scheduled(every = "${pg-facade.orchestration.common.external-load-balancer.healthcheck-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkExternalLoadBalancerHealth() {
-        if (orchestrationActive && PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole()) && orchestrationProperties.common().externalLoadBalancer().deploy()) {
+        if (orchestrationActive && PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole()) && raftSynced && orchestrationProperties.common().externalLoadBalancer().deploy()) {
             ExternalLoadBalancerHealtcheckTemplateRestClient restClient = null;
             ExternalLoadBalancerRaftInfo raftInfo = null;
 
@@ -190,6 +204,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 raftInfo = raftFunctionalityCombinator.getPgFacadeLoadBalancerInfo();
 
                 if (raftInfo != null) {
+                    loadBalancerAdapterId = raftInfo.getAdapterIdentifier();
                     if (raftInfo.getCreatedWhen().isAfter(Instant.now().minus(orchestrationProperties.common().externalLoadBalancer().healthcheckAwait()))) {
                         return;
                     }
@@ -233,6 +248,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                         .createdWhen(Instant.now())
                         .build();
                 raftFunctionalityCombinator.savePgFacadeLoadBalancerInfo(newRaftInfo);
+                loadBalancerAdapterId = loadBalancerAdapterInfo.getAdapterIdentifier();
                 log.info("External load balancer deployed!");
             } catch (Exception e) {
                 log.error("Failed to deploy external load balancer!", e);
@@ -263,6 +279,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                             PgFacadeInstanceStateInfo
                                     .builder()
                                     .raftIdAndAdapterId(raftPeer.getId())
+                                    .address(raftPeer.getIpAddress())
                                     .client(createRestClient(PgFacadeHealtcheckTemplateRestClient.class, raftPeer.getIpAddress(), pgFacadeRuntimeProperties.getHttpPort()))
                                     .unsuccessfulHealtcheckCount(new AtomicInteger(0))
                                     .build()
@@ -307,6 +324,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                             PgFacadeInstanceStateInfo
                                     .builder()
                                     .raftIdAndAdapterId(raftNodeInfo.getPlatformAdapterIdentifier())
+                                    .address(raftNodeInfo.getAddress())
                                     .client(createRestClient(PgFacadeHealtcheckTemplateRestClient.class, raftNodeInfo.getAddress(), pgFacadeRuntimeProperties.getHttpPort()))
                                     .unsuccessfulHealtcheckCount(new AtomicInteger(0))
                                     .build()

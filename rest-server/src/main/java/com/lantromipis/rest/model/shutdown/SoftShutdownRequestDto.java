@@ -4,6 +4,7 @@ import lombok.Data;
 
 @Data
 public class SoftShutdownRequestDto {
-    private long maxClientsAwaitPeriodMs;
+    private long maxClientsAwaitPeriodSeconds;
     private boolean shutdownPostgres;
+    private boolean shutdownLoadBalancer;
 }

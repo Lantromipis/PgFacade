@@ -10,6 +10,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SoftShutdownRequestDto {
-    private long maxClientsAwaitPeriodMs;
+    private long maxClientsAwaitPeriodSeconds;
     private boolean shutdownPostgres;
 }

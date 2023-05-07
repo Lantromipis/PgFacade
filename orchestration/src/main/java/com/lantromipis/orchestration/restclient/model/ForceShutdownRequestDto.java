@@ -11,4 +11,5 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ForceShutdownRequestDto {
     private boolean shutdownPostgres;
+    private boolean shutdownLoadBalancer;
 }

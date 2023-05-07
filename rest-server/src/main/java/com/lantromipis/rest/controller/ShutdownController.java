@@ -27,24 +27,30 @@ public class ShutdownController {
     @POST
     @Path("/soft")
     public Response shutdownProxySoftAndPgFacade(SoftShutdownRequestDto requestDto) {
-        if (requestDto.getMaxClientsAwaitPeriodMs() == 0) {
+        log.info("{} {}", requestDto.isShutdownPostgres(), requestDto.isShutdownLoadBalancer());
+        if (requestDto.getMaxClientsAwaitPeriodSeconds() == 0) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(
                             ShutdownMessageResponseDto
                                     .builder()
-                                    .message("Specify 'maxClientsAwaitPeriodMs' in request (greater than zero).")
+                                    .message("Specify 'maxClientsAwaitPeriodSeconds' in request (greater than zero).")
                                     .build()
                     )
                     .build();
         }
 
-        boolean success = pgFacadeOrchestrator.shutdownCluster(false, requestDto.isShutdownPostgres(), requestDto.getMaxClientsAwaitPeriodMs());
+        boolean success = pgFacadeOrchestrator.shutdownCluster(
+                false,
+                requestDto.isShutdownPostgres(),
+                requestDto.isShutdownLoadBalancer(),
+                requestDto.getMaxClientsAwaitPeriodSeconds()
+        );
 
         if (success) {
             return Response.ok(
                             ShutdownMessageResponseDto
                                     .builder()
-                                    .message("Proxy not accepting new connections. PgFacade will shutdown automatically when all clients will disconnect or after " + requestDto.getMaxClientsAwaitPeriodMs() + " ms from now.")
+                                    .message("Proxy not accepting new connections. PgFacade will shutdown automatically when all clients will disconnect or after " + requestDto.getMaxClientsAwaitPeriodSeconds() + " ms from now.")
                                     .build()
                     )
                     .build();
@@ -63,7 +69,12 @@ public class ShutdownController {
     @POST
     @Path("/force")
     public Response shutdownProxyForceAndPgFacade(ForceShutdownRequestDto requestDto) {
-        boolean success = pgFacadeOrchestrator.shutdownCluster(true, requestDto.isShutdownPostgres(), 0);
+        boolean success = pgFacadeOrchestrator.shutdownCluster(
+                true,
+                requestDto.isShutdownPostgres(),
+                requestDto.isShutdownLoadBalancer(),
+                0
+        );
 
         if (success) {
             return Response.ok(
