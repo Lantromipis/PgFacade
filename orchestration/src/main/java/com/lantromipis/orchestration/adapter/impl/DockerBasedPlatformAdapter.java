@@ -576,22 +576,26 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Override
     public List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException {
-        Network pgFacadeInternalNetwork;
         try {
-            pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
+            List<Container> containers = dockerClient.listContainersCmd()
+                    .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
+                    .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
                     .exec();
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
-        }
 
-        try {
-            return pgFacadeInternalNetwork.getContainers()
-                    .keySet()
+            if (CollectionUtils.isEmpty(containers)) {
+                return Collections.emptyList();
+            }
+
+            return containers
                     .stream()
-                    .map(containerNetworkConfig -> dockerClient.inspectContainerCmd(containerNetworkConfig).exec())
-                    .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
+                    .filter(container -> Arrays
+                            .stream(container.getNames())
+                            .noneMatch(name -> name.startsWith(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
+                    )
+                    .map(this::containerToPgFacadeRaftNodeInfo)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
+
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Failed to get Raft nodes info. ", e);
         }
@@ -605,23 +609,18 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
         }
 
-        Network pgFacadeInternalNetwork;
+        InspectContainerResponse inspectContainerResponse;
+
         try {
-            pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
+            inspectContainerResponse = dockerClient
+                    .inspectContainerCmd(hostname)
                     .exec();
         } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
+            throw new PlatformAdapterOperationExecutionException("Failed to insect self container.", e);
         }
 
-        return pgFacadeInternalNetwork.getContainers()
-                .entrySet()
-                .stream()
-                .filter(configEntry -> configEntry.getKey().contains(hostname))
-                .findFirst()
-                .map(configEntry -> dockerClient.inspectContainerCmd(configEntry.getKey()).exec())
-                .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
-                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain Docker container ID start symbols."));
+        return Optional.ofNullable(inspectContainerResponseToPgFacadeRaftNodeInfo(inspectContainerResponse))
+                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain short Docker container ID"));
     }
 
     @Override
@@ -676,6 +675,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     public List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() {
         List<Container> containers = dockerClient.listContainersCmd()
                 .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
+                .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
                 .exec();
 
         if (CollectionUtils.isEmpty(containers)) {
@@ -770,6 +770,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     private PgFacadeNodeHttpConnectionsInfo containerToHttpNodeInfo(Container container) {
+        if (container == null) {
+            return null;
+        }
+
         String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
 
         if (address == null) {
@@ -784,16 +788,44 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     private PgFacadeRaftNodeInfo inspectContainerResponseToPgFacadeRaftNodeInfo(InspectContainerResponse inspectContainerResponse) {
+        if (inspectContainerResponse == null) {
+            return null;
+        }
+
+        String address = inspectContainerResponse.getNetworkSettings()
+                .getNetworks()
+                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
+                .getIpAddress();
+
+        if (address == null) {
+            return null;
+        }
+
         return PgFacadeRaftNodeInfo
                 .builder()
                 .platformAdapterIdentifier(inspectContainerResponse.getId())
-                .address(
-                        inspectContainerResponse.getNetworkSettings()
-                                .getNetworks()
-                                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
-                                .getIpAddress()
-                )
+                .address(address)
                 .createdWhen(Instant.parse(inspectContainerResponse.getCreated()))
+                .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
+                .build();
+    }
+
+    private PgFacadeRaftNodeInfo containerToPgFacadeRaftNodeInfo(Container container) {
+        if (container == null) {
+            return null;
+        }
+
+        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
+
+        if (address == null) {
+            return null;
+        }
+
+        return PgFacadeRaftNodeInfo
+                .builder()
+                .platformAdapterIdentifier(container.getId())
+                .address(address)
+                .createdWhen(Instant.ofEpochMilli(container.getCreated()))
                 .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
                 .build();
     }

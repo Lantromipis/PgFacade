@@ -117,6 +117,13 @@ public interface PlatformAdapter {
      */
     String getPostgresSubnetIp() throws PlatformAdapterOperationExecutionException;
 
+    /**
+     * Return list of active PgFacade instances. List must not contain inactive instances or instances that will be suspended.
+     * Whether the instance is suspended or not is determined by the adapter. For example, for Docker suspended PgFacade containers will have some special prefix in name.
+     *
+     * @return list containing info about raft nodes
+     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
+     */
     List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException;
 
     PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException;
