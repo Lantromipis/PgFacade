@@ -1,0 +1,7 @@
+updater:
+  docker:
+    host: unix:///var/run/pgfacade/docker.sock
+
+quarkus:
+  swagger-ui:
+    always-include: true
