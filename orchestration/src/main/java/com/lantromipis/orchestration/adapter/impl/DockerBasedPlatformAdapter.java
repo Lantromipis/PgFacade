@@ -45,7 +45,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
@@ -267,7 +266,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
                     .instancePort(5432)
                     .isActive(DockerConstants.ContainerState.RUNNING.getValue().equals(inspectResponse.getState().getStatus()))
-                    .health(dockerMapper.toInstanceHealth(inspectResponse))
                     .build();
 
         } catch (NotFoundException notFoundException) {
@@ -935,15 +933,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .withHostConfig(
                         HostConfig.newHostConfig()
                                 .withNetworkMode(dockerProperties.postgres().networkName())
-                )
-                //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
-                .withHealthcheck(
-                        new HealthCheck()
-                                .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().interval()))
-                                .withRetries(dockerProperties.postgres().healthcheck().retries())
-                                .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().startPeriod()))
-                                .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().timeout()))
-                                .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgres().healthcheck().cmdShellCommand()))
                 );
     }
 

@@ -112,20 +112,6 @@ public interface OrchestrationProperties {
             String containerName();
 
             String volumeName();
-
-            HealthCheckProperties healthcheck();
-
-            interface HealthCheckProperties {
-                long interval();
-
-                long timeout();
-
-                int retries();
-
-                long startPeriod();
-
-                String cmdShellCommand();
-            }
         }
     }
 
