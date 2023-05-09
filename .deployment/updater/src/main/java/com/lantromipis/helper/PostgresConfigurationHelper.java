@@ -47,7 +47,6 @@ public class PostgresConfigurationHelper {
         String postgresqlConfLocation = getOriginalPostgresqlConfFilePath(superuserConnectionInSuperDB);
         String endLineOfPostgreslConf = "include_if_exists = ''" + pgFacadeCustomConfigFile + "''";
         String cmd = "echo \"" + endLineOfPostgreslConf + "\" >> " + postgresqlConfLocation;
-        log.info("Cmd {}", cmd);
         superuserConnectionInSuperDB.createStatement().executeUpdate("COPY pg_facade_temp (lines) FROM PROGRAM '" + cmd + "'");
 
         // reload conf

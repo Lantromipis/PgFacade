@@ -58,7 +58,6 @@ pg-facade:
         container-name: pg-facade-load-balancer
         image-tag: "pgfacade-balancer:latest"
       pg-facade:
-        local-files-directory: "/var/run/pgfacade"
         internal-network-name: pg-facade-internal-network
         external-network-name: pg-facade-external-network
         container-name: pg-facade-node
