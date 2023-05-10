@@ -904,6 +904,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 throw new PlatformAdapterOperationExecutionException("Error while creating basebackup. Stderr: " + commandExecutionResult.getStderr());
             }
 
+            if (StringUtils.isNotEmpty(commandExecutionResult.getStderr())) {
+                log.warn("There were errors during basebackup creation. Stderr: {}", commandExecutionResult.getStderr());
+            }
+
             log.info("Finished creating backup for standby.");
 
             forceDeleteContainerSafe(containerId);

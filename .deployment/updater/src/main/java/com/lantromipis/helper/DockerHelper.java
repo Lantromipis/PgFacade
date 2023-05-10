@@ -6,6 +6,7 @@ import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.model.Network;
 import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
@@ -17,6 +18,7 @@ import com.lantromipis.model.DockerNetworkDto;
 import com.lantromipis.model.copy.PostgresPersistedInstanceInfoCopy;
 import com.lantromipis.properties.UpdaterProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -42,7 +44,6 @@ public class DockerHelper {
     private static final String POSTGRES_ENV_VAR_PASSWORD = "POSTGRES_PASSWORD";
     private static final String POSTGRES_ENV_VAR_DB = "POSTGRES_DB";
 
-    private static final String TEMP_NETWORK_NAME = "7bdf8838-5593-408b-bf17-142934513822";
     private static final String PG_FACADE_VOLUME_MOUNT_PATH = "/var/run/pgfacade";
     private static final String PG_FACADE_STORED_FILES_DIR = "/var/run/pgfacade/stored";
     private static final String PG_FACADE_POSTGRES_NODES_INFO_FILE_NAME = "postgres-nodes-info.json";
@@ -67,9 +68,33 @@ public class DockerHelper {
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
     }
 
+    public void createNetworkIfNeeded(DockerNetworkDto dockerNetworkDto) {
+        initIfNeeded();
+
+        List<Network> networks = dockerClient
+                .listNetworksCmd()
+                .withNameFilter(dockerNetworkDto.getNetworkName())
+                .exec();
+
+        if (!dockerNetworkDto.isCreate() && CollectionUtils.isEmpty(networks)) {
+            throw new RuntimeException("Can not find network with name " + dockerNetworkDto.getNetworkName() + "! Please check network name or set create flag to true.");
+        }
+
+        if (dockerNetworkDto.isCreate()) {
+            if (CollectionUtils.isNotEmpty(networks)) {
+                throw new RuntimeException("Network with name " + dockerNetworkDto.getNetworkName() + " already exists! Choose another network name or do not ask to creat it.");
+            }
+
+            dockerClient.createNetworkCmd()
+                    .withName(dockerNetworkDto.getNetworkName())
+                    .exec();
+        }
+    }
+
     public String createAndStartNewPostgres(String imageTag, String superName, String superPass, String superDb, int awaitMs) throws InterruptedException {
         initIfNeeded();
         CreateContainerResponse createContainerResponse = dockerClient.createContainerCmd(imageTag)
+                .withName("pg-facade-managed-postgres-" + UUID.randomUUID().toString())
                 .withHostConfig(
                         HostConfig.newHostConfig()
                 )
@@ -90,24 +115,19 @@ public class DockerHelper {
         return containerId;
     }
 
-    public String connectPostgresAndCurrentContainerTogether(String postgresContainerId) {
+    public String connectPostgresAndCurrentContainerTogether(String postgresContainerId, String pgNetwork) {
         initIfNeeded();
-
-        dockerClient
-                .createNetworkCmd()
-                .withName(TEMP_NETWORK_NAME)
-                .exec();
 
         InspectContainerResponse inspectSelfResponse = inspectSelf();
 
         dockerClient.connectToNetworkCmd()
                 .withContainerId(inspectSelfResponse.getId())
-                .withNetworkId(TEMP_NETWORK_NAME)
+                .withNetworkId(pgNetwork)
                 .exec();
 
         dockerClient.connectToNetworkCmd()
                 .withContainerId(postgresContainerId)
-                .withNetworkId(TEMP_NETWORK_NAME)
+                .withNetworkId(pgNetwork)
                 .exec();
 
         InspectContainerResponse inspectPostgresResponse = dockerClient
@@ -116,39 +136,20 @@ public class DockerHelper {
 
         return inspectPostgresResponse.getNetworkSettings()
                 .getNetworks()
-                .get(TEMP_NETWORK_NAME)
+                .get(pgNetwork)
                 .getIpAddress();
     }
 
-    public void cleanup(String postgresContainerId) {
+    public String getSubnetOfNetwork(String networkName) {
         try {
-            InspectContainerResponse inspectSelfResponse = inspectSelf();
+            Network network = dockerClient.inspectNetworkCmd()
+                    .withNetworkId(networkName)
+                    .exec();
 
-            try {
-                dockerClient.disconnectFromNetworkCmd()
-                        .withNetworkId(TEMP_NETWORK_NAME)
-                        .withContainerId(inspectSelfResponse.getId())
-                        .exec();
-            } catch (Exception e) {
-                log.error(e.getMessage(), e);
-            }
-
-            try {
-                if (postgresContainerId != null) {
-                    dockerClient.disconnectFromNetworkCmd()
-                            .withNetworkId(TEMP_NETWORK_NAME)
-                            .withContainerId(postgresContainerId)
-                            .exec();
-                } else {
-                    log.warn("Postgres container id is null. Network not removed");
-                }
-            } catch (Exception e) {
-                log.error(e.getMessage(), e);
-            }
-
-            dockerClient.removeNetworkCmd(TEMP_NETWORK_NAME).exec();
+            return network.getIpam().getConfig().get(0).getSubnet();
         } catch (Exception e) {
-            log.error("Failed to remove network", e);
+            log.error("Error getting subnet for network with name " + networkName);
+            return null;
         }
     }
 
@@ -248,7 +249,7 @@ public class DockerHelper {
                                                      String volumeName,
                                                      Map<String, String> envVars,
                                                      String dockerSocketOnHostPath,
-                                                     List<DockerNetworkDto> networks,
+                                                     List<String> networksToConnect,
                                                      String postgresContainerId,
                                                      String pgNetwork) {
         initIfNeeded();
@@ -289,25 +290,14 @@ public class DockerHelper {
 
         CreateContainerResponse createContainerResponse = createContainerCmd.exec();
 
-        for (var network : networks) {
-            if (network.isCreate()) {
-                dockerClient.createNetworkCmd()
-                        .withName(network.getNetworkName())
-                        .exec();
-            }
-
+        for (var network : networksToConnect) {
             dockerClient.connectToNetworkCmd()
                     .withContainerId(createContainerResponse.getId())
-                    .withNetworkId(network.getNetworkName())
+                    .withNetworkId(network)
                     .exec();
         }
 
-        dockerClient.connectToNetworkCmd()
-                .withContainerId(postgresContainerId)
-                .withNetworkId(pgNetwork)
-                .exec();
-
-        //dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
+        dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
 
         return createContainerResponse.getId();
     }

@@ -17,6 +17,8 @@ import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 @Path("/docker")
@@ -66,60 +68,84 @@ public class DockerInstallUpdateController {
             throw new InvalidParametersException("If you want to mount docker.sock, you need to provide path to it on host.");
         }
 
-        if (CollectionUtils.isEmpty(requestDto.getNetworksToConnectPgFacade())
-                || requestDto.getNetworkBetweenPostgresAndPgFacade() == null
-                || requestDto.getNetworksToConnectPgFacade().stream().noneMatch(network -> requestDto.getNetworkBetweenPostgresAndPgFacade().equals(network.getNetworkName()))) {
+        if (requestDto.getNetworkBetweenPostgresAndPgFacade() == null || StringUtils.isEmpty(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName())) {
             throw new InvalidParametersException("Specify network between Postgres and PgFacade.");
         }
 
-        String newPostgresContainerId = null;
-
-        try {
-            newPostgresContainerId = dockerHelper.createAndStartNewPostgres(
-                    requestDto.getPostgresImageTag(),
-                    requestDto.getNewSuperuserCredentials().getSuperuserName(),
-                    requestDto.getNewSuperuserCredentials().getSuperuserPassword(),
-                    requestDto.getNewSuperuserCredentials().getSuperuserDatabase(),
-                    requestDto.getAwaitPgFacadeContainerMs()
-            );
-
-            String postgresAddress = dockerHelper.connectPostgresAndCurrentContainerTogether(newPostgresContainerId);
-
-            postgresConfigurationHelper.configure(
-                    postgresAddress,
-                    requestDto.getPostgresImagePort() == 0 ? 5432 : requestDto.getPostgresImagePort(),
-                    requestDto.getNewSuperuserCredentials().getSuperuserDatabase(),
-                    requestDto.getNewSuperuserCredentials().getSuperuserName(),
-                    requestDto.getNewSuperuserCredentials().getSuperuserPassword(),
-                    ConfigurationInfo
-                            .builder()
-                            .pgFacadeUsername(requestDto.getPostgresConfigurationInfo().getPgFacadeUsername())
-                            .pgFacadePassword(requestDto.getPostgresConfigurationInfo().getPgFacadePassword())
-                            .pgFacadeDatabase(requestDto.getPostgresConfigurationInfo().getPgFacadeDatabase())
-                            .createReplicationUser(requestDto.getPostgresConfigurationInfo().isCreateReplicationUser())
-                            .replicationUsername(requestDto.getPostgresConfigurationInfo().getReplicationUsername())
-                            .replicationPassword(requestDto.getPostgresConfigurationInfo().getReplicationPassword())
-                            .build()
-            );
-
-            String pgFacadeVolumeName = dockerHelper.createVolumeWithInitialPgFacadeData(newPostgresContainerId, null);
-            String pgFacadeContainerId = dockerHelper.createAndStartNewPgFacadeContainer(
-                    requestDto.getPgFacadeImageTag(),
-                    pgFacadeVolumeName,
-                    requestDto.getPgFacadeEnvVars(),
-                    requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
-                    requestDto.getNetworksToConnectPgFacade(),
-                    newPostgresContainerId,
-                    requestDto.getNetworkBetweenPostgresAndPgFacade()
-            );
-
-            return Response
-                    .ok()
-                    .entity("Success! Your new PgFacade container id is " + pgFacadeContainerId)
-                    .build();
-        } finally {
-            dockerHelper.cleanup(newPostgresContainerId);
+        if (requestDto.getInternalPgFacadeNetwork() == null || StringUtils.isEmpty(requestDto.getInternalPgFacadeNetwork().getNetworkName())) {
+            throw new InvalidParametersException("Specify internal PgFacade network.");
         }
+
+        if (requestDto.getExternalPgFacadeNetwork() == null || StringUtils.isEmpty(requestDto.getExternalPgFacadeNetwork().getNetworkName())) {
+            throw new InvalidParametersException("Specify external PgFacade network.");
+        }
+
+        List<String> networks = new ArrayList<>();
+
+        dockerHelper.createNetworkIfNeeded(requestDto.getNetworkBetweenPostgresAndPgFacade());
+        dockerHelper.createNetworkIfNeeded(requestDto.getInternalPgFacadeNetwork());
+        dockerHelper.createNetworkIfNeeded(requestDto.getExternalPgFacadeNetwork());
+
+        networks.add(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+        networks.add(requestDto.getInternalPgFacadeNetwork().getNetworkName());
+        networks.add(requestDto.getExternalPgFacadeNetwork().getNetworkName());
+
+        if (requestDto.getLoadBalancerNetwork() != null && StringUtils.isNotEmpty(requestDto.getLoadBalancerNetwork().getNetworkName())) {
+            dockerHelper.createNetworkIfNeeded(requestDto.getLoadBalancerNetwork());
+            networks.add(requestDto.getLoadBalancerNetwork().getNetworkName());
+        }
+
+        if (CollectionUtils.isNotEmpty(requestDto.getOtherNetworksToConnectPgFacadeContainer())) {
+            for (var net : requestDto.getOtherNetworksToConnectPgFacadeContainer()) {
+                dockerHelper.createNetworkIfNeeded(net);
+                networks.add(net.getNetworkName());
+            }
+        }
+
+        String newPostgresContainerId = dockerHelper.createAndStartNewPostgres(
+                requestDto.getPostgresImageTag(),
+                requestDto.getNewSuperuserCredentials().getSuperuserName(),
+                requestDto.getNewSuperuserCredentials().getSuperuserPassword(),
+                requestDto.getNewSuperuserCredentials().getSuperuserDatabase(),
+                requestDto.getAwaitPgFacadeContainerMs()
+        );
+
+        String postgresAddress = dockerHelper.connectPostgresAndCurrentContainerTogether(newPostgresContainerId, requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+        String postgresSubnet = dockerHelper.getSubnetOfNetwork(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+
+        postgresConfigurationHelper.configureDatabaseAndUser(
+                postgresAddress,
+                requestDto.getPostgresImagePort() == 0 ? 5432 : requestDto.getPostgresImagePort(),
+                requestDto.getNewSuperuserCredentials().getSuperuserDatabase(),
+                requestDto.getNewSuperuserCredentials().getSuperuserName(),
+                requestDto.getNewSuperuserCredentials().getSuperuserPassword(),
+                ConfigurationInfo
+                        .builder()
+                        .pgFacadeUsername(requestDto.getPostgresConfigurationInfo().getPgFacadeUsername())
+                        .pgFacadePassword(requestDto.getPostgresConfigurationInfo().getPgFacadePassword())
+                        .pgFacadeDatabase(requestDto.getPostgresConfigurationInfo().getPgFacadeDatabase())
+                        .createReplicationUser(requestDto.getPostgresConfigurationInfo().isCreateReplicationUser())
+                        .replicationUsername(requestDto.getPostgresConfigurationInfo().getReplicationUsername())
+                        .replicationPassword(requestDto.getPostgresConfigurationInfo().getReplicationPassword())
+                        .build(),
+                postgresSubnet
+        );
+
+        String pgFacadeVolumeName = dockerHelper.createVolumeWithInitialPgFacadeData(newPostgresContainerId, null);
+        String pgFacadeContainerId = dockerHelper.createAndStartNewPgFacadeContainer(
+                requestDto.getPgFacadeImageTag(),
+                pgFacadeVolumeName,
+                requestDto.getPgFacadeEnvVars(),
+                requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
+                networks,
+                newPostgresContainerId,
+                requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName()
+        );
+
+        return Response
+                .ok()
+                .entity("Success! Your new PgFacade container id is " + pgFacadeContainerId)
+                .build();
     }
 
     @POST
@@ -158,52 +184,79 @@ public class DockerInstallUpdateController {
             throw new InvalidParametersException("If you want to mount docker.sock, you need to provide path to it on host.");
         }
 
-        if (CollectionUtils.isEmpty(requestDto.getNetworksToConnectPgFacade())
-                || requestDto.getNetworkBetweenPostgresAndPgFacade() == null
-                || requestDto.getNetworksToConnectPgFacade().stream().noneMatch(network -> requestDto.getNetworkBetweenPostgresAndPgFacade().equals(network.getNetworkName()))) {
+        if (requestDto.getNetworkBetweenPostgresAndPgFacade() == null || StringUtils.isEmpty(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName())) {
             throw new InvalidParametersException("Specify network between Postgres and PgFacade.");
         }
 
-        try {
-            String postgresAddress = dockerHelper.connectPostgresAndCurrentContainerTogether(requestDto.getPostgresContainerId());
-
-            if (requestDto.getConfigurationInfo().isConfigurePostgres()) {
-                postgresConfigurationHelper.configure(
-                        postgresAddress,
-                        requestDto.getPostgresContainerPort() == 0 ? 5432 : requestDto.getPostgresContainerPort(),
-                        requestDto.getConfigurationInfo().getSuperuserCredentials().getSuperuserDatabase(),
-                        requestDto.getConfigurationInfo().getSuperuserCredentials().getSuperuserName(),
-                        requestDto.getConfigurationInfo().getSuperuserCredentials().getSuperuserPassword(),
-                        ConfigurationInfo
-                                .builder()
-                                .pgFacadeUsername(requestDto.getConfigurationInfo().getPgFacadeUsername())
-                                .pgFacadePassword(requestDto.getConfigurationInfo().getPgFacadePassword())
-                                .pgFacadeDatabase(requestDto.getConfigurationInfo().getPgFacadeDatabase())
-                                .createReplicationUser(requestDto.getConfigurationInfo().isCreateReplicationUser())
-                                .replicationUsername(requestDto.getConfigurationInfo().getReplicationUsername())
-                                .replicationPassword(requestDto.getConfigurationInfo().getReplicationPassword())
-                                .build()
-                );
-            }
-
-            String pgFacadeVolumeName = dockerHelper.createVolumeWithInitialPgFacadeData(requestDto.getPostgresContainerId(), requestDto.getModifiedPostgresConfParams());
-            String pgFacadeContainerId = dockerHelper.createAndStartNewPgFacadeContainer(
-                    requestDto.getPgFacadeImageTag(),
-                    pgFacadeVolumeName,
-                    requestDto.getPgFacadeEnvVars(),
-                    requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
-                    requestDto.getNetworksToConnectPgFacade(),
-                    requestDto.getPostgresContainerId(),
-                    requestDto.getNetworkBetweenPostgresAndPgFacade()
-            );
-
-            return Response
-                    .ok()
-                    .entity("Success! Your new PgFacade container id is " + pgFacadeContainerId)
-                    .build();
-        } finally {
-            dockerHelper.cleanup(requestDto.getPostgresContainerId());
+        if (requestDto.getInternalPgFacadeNetwork() == null || StringUtils.isEmpty(requestDto.getInternalPgFacadeNetwork().getNetworkName())) {
+            throw new InvalidParametersException("Specify internal PgFacade network.");
         }
+
+        if (requestDto.getExternalPgFacadeNetwork() == null || StringUtils.isEmpty(requestDto.getExternalPgFacadeNetwork().getNetworkName())) {
+            throw new InvalidParametersException("Specify external PgFacade network.");
+        }
+
+        List<String> networks = new ArrayList<>();
+
+        dockerHelper.createNetworkIfNeeded(requestDto.getNetworkBetweenPostgresAndPgFacade());
+        dockerHelper.createNetworkIfNeeded(requestDto.getInternalPgFacadeNetwork());
+        dockerHelper.createNetworkIfNeeded(requestDto.getExternalPgFacadeNetwork());
+
+        networks.add(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+        networks.add(requestDto.getInternalPgFacadeNetwork().getNetworkName());
+        networks.add(requestDto.getExternalPgFacadeNetwork().getNetworkName());
+
+        if (requestDto.getLoadBalancerNetwork() != null && StringUtils.isNotEmpty(requestDto.getLoadBalancerNetwork().getNetworkName())) {
+            dockerHelper.createNetworkIfNeeded(requestDto.getLoadBalancerNetwork());
+            networks.add(requestDto.getLoadBalancerNetwork().getNetworkName());
+        }
+
+        if (CollectionUtils.isNotEmpty(requestDto.getOtherNetworksToConnectPgFacadeContainer())) {
+            for (var net : requestDto.getOtherNetworksToConnectPgFacadeContainer()) {
+                dockerHelper.createNetworkIfNeeded(net);
+                networks.add(net.getNetworkName());
+            }
+        }
+
+        String postgresAddress = dockerHelper.connectPostgresAndCurrentContainerTogether(requestDto.getPostgresContainerId(), requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+        String postgresSubnet = dockerHelper.getSubnetOfNetwork(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+
+        if (requestDto.getConfigurationInfo().isConfigurePostgres()) {
+            postgresConfigurationHelper.configureDatabaseAndUser(
+                    postgresAddress,
+                    requestDto.getPostgresContainerPort() == 0 ? 5432 : requestDto.getPostgresContainerPort(),
+                    requestDto.getConfigurationInfo().getSuperuserCredentials().getSuperuserDatabase(),
+                    requestDto.getConfigurationInfo().getSuperuserCredentials().getSuperuserName(),
+                    requestDto.getConfigurationInfo().getSuperuserCredentials().getSuperuserPassword(),
+                    ConfigurationInfo
+                            .builder()
+                            .pgFacadeUsername(requestDto.getConfigurationInfo().getPgFacadeUsername())
+                            .pgFacadePassword(requestDto.getConfigurationInfo().getPgFacadePassword())
+                            .pgFacadeDatabase(requestDto.getConfigurationInfo().getPgFacadeDatabase())
+                            .createReplicationUser(requestDto.getConfigurationInfo().isCreateReplicationUser())
+                            .replicationUsername(requestDto.getConfigurationInfo().getReplicationUsername())
+                            .replicationPassword(requestDto.getConfigurationInfo().getReplicationPassword())
+                            .build(),
+                    postgresSubnet
+            );
+        }
+
+        String pgFacadeVolumeName = dockerHelper.createVolumeWithInitialPgFacadeData(requestDto.getPostgresContainerId(), requestDto.getModifiedPostgresConfParams());
+        String pgFacadeContainerId = dockerHelper.createAndStartNewPgFacadeContainer(
+                requestDto.getPgFacadeImageTag(),
+                pgFacadeVolumeName,
+                requestDto.getPgFacadeEnvVars(),
+                requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
+                networks,
+                requestDto.getPostgresContainerId(),
+                requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName()
+        );
+
+        return Response
+                .ok()
+                .entity("Success! Your new PgFacade container id is " + pgFacadeContainerId)
+                .build();
+
     }
 
     @POST

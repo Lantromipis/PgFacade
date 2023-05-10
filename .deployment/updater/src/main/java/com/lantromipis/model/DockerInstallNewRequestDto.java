@@ -16,6 +16,9 @@ public class DockerInstallNewRequestDto {
     private Map<String, String> pgFacadeEnvVars;
     private boolean mountDockerSock;
     private String dockerSockPathOnHost;
-    private List<DockerNetworkDto> networksToConnectPgFacade;
-    private String networkBetweenPostgresAndPgFacade;
+    private DockerNetworkDto networkBetweenPostgresAndPgFacade;
+    private DockerNetworkDto internalPgFacadeNetwork;
+    private DockerNetworkDto externalPgFacadeNetwork;
+    private DockerNetworkDto loadBalancerNetwork;
+    private List<DockerNetworkDto> otherNetworksToConnectPgFacadeContainer;
 }

@@ -15,6 +15,9 @@ public class DockerInstallExistingRequestDto {
     private Map<String, String> modifiedPostgresConfParams;
     private boolean mountDockerSock;
     private String dockerSockPathOnHost;
-    private List<DockerNetworkDto> networksToConnectPgFacade;
-    private String networkBetweenPostgresAndPgFacade;
+    private DockerNetworkDto networkBetweenPostgresAndPgFacade;
+    private DockerNetworkDto internalPgFacadeNetwork;
+    private DockerNetworkDto externalPgFacadeNetwork;
+    private DockerNetworkDto loadBalancerNetwork;
+    private List<DockerNetworkDto> otherNetworksToConnectPgFacadeContainer;
 }

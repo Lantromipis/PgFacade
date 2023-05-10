@@ -14,8 +14,9 @@ import java.sql.SQLException;
 public class PostgresConfigurationHelper {
 
     private static final String PG_FACADE_POSTGRESQL_CONF_FILE_NAME = "postgresql.pgfacade.conf";
+    public static final String PG_HBA_CONF_START_LINE = "# TYPE  DATABASE        USER            ADDRESS                 METHOD";
 
-    public void configure(String address, int port, String superDatabase, String superUsername, String superPassword, ConfigurationInfo configurationInfo) throws SQLException {
+    public void configureDatabaseAndUser(String address, int port, String superDatabase, String superUsername, String superPassword, ConfigurationInfo configurationInfo, String postgresSubnet) throws SQLException {
         Connection superuserConnectionInSuperDB = createConnection(
                 address,
                 port,
@@ -48,6 +49,15 @@ public class PostgresConfigurationHelper {
         String endLineOfPostgreslConf = "include_if_exists = ''" + pgFacadeCustomConfigFile + "''";
         String cmd = "echo \"" + endLineOfPostgreslConf + "\" >> " + postgresqlConfLocation;
         superuserConnectionInSuperDB.createStatement().executeUpdate("COPY pg_facade_temp (lines) FROM PROGRAM '" + cmd + "'");
+
+        if (postgresSubnet != null) {
+            superuserConnectionInSuperDB.createStatement().executeUpdate("CREATE TEMP TABLE pg_facade_temp_pg_hba (lines text)");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("INSERT INTO pg_facade_temp_pg_hba VALUES ('# TYPE     DATABASE    USER    ADDRESS     METHOD')");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("INSERT INTO pg_facade_temp_pg_hba VALUES ('local    all         all                 scram-sha-256')");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("INSERT INTO pg_facade_temp_pg_hba VALUES ('host     all         all     " + postgresSubnet + "     scram-sha-256')");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("INSERT INTO pg_facade_temp_pg_hba VALUES ('host     replication         all     " + postgresSubnet + "     scram-sha-256')");
+            superuserConnectionInSuperDB.createStatement().executeUpdate("COPY pg_facade_temp_pg_hba TO '" + getPgHbaConfFilePath(superuserConnectionInSuperDB) + "'");
+        }
 
         // reload conf
         superuserConnectionInSuperDB.createStatement().execute("SELECT pg_reload_conf()");
@@ -116,6 +126,13 @@ public class PostgresConfigurationHelper {
 
     private String getOriginalPostgresqlConfFilePath(Connection connection) throws SQLException {
         ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = 'config_file'");
+        resultSet.next();
+
+        return resultSet.getString(1);
+    }
+
+    private String getPgHbaConfFilePath(Connection connection) throws SQLException {
+        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = 'hba_file'");
         resultSet.next();
 
         return resultSet.getString(1);
