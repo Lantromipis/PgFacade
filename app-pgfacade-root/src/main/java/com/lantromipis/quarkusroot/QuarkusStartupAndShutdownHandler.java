@@ -230,7 +230,7 @@ public class QuarkusStartupAndShutdownHandler {
                 return false;
             }
         } else {
-            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
+            log.warn("Archiving is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
 
         // All adapters initialized. Start raft server.

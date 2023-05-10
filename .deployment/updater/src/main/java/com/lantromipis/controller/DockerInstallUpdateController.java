@@ -137,9 +137,7 @@ public class DockerInstallUpdateController {
                 pgFacadeVolumeName,
                 requestDto.getPgFacadeEnvVars(),
                 requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
-                networks,
-                newPostgresContainerId,
-                requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName()
+                networks
         );
 
         return Response
@@ -247,9 +245,7 @@ public class DockerInstallUpdateController {
                 pgFacadeVolumeName,
                 requestDto.getPgFacadeEnvVars(),
                 requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
-                networks,
-                requestDto.getPostgresContainerId(),
-                requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName()
+                networks
         );
 
         return Response

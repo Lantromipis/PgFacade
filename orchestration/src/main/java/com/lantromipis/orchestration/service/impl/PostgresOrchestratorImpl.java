@@ -101,7 +101,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         if (archivingProperties.enabled()) {
             postgresArchiver.startArchiving();
         } else {
-            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
+            log.warn("Archiving is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
         orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream().forEach(
                 instanceInfo -> orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(instanceInfo)
@@ -215,7 +215,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             postgresArchiver.initialize();
             postgresArchiver.startArchiving();
         } else {
-            log.warn("Arching is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
+            log.warn("Archiving is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
 
         log.info("Orchestrator initialization completed!");

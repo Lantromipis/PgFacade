@@ -120,21 +120,27 @@ public class DockerHelper {
 
         InspectContainerResponse inspectSelfResponse = inspectSelf();
 
-        dockerClient.connectToNetworkCmd()
-                .withContainerId(inspectSelfResponse.getId())
-                .withNetworkId(pgNetwork)
-                .exec();
+        InspectContainerResponse inspectPostgres = dockerClient.inspectContainerCmd(postgresContainerId).exec();
 
-        dockerClient.connectToNetworkCmd()
-                .withContainerId(postgresContainerId)
-                .withNetworkId(pgNetwork)
-                .exec();
+        if (inspectPostgres.getNetworkSettings() == null || MapUtils.isEmpty(inspectPostgres.getNetworkSettings().getNetworks()) || !inspectPostgres.getNetworkSettings().getNetworks().containsKey(pgNetwork)) {
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(postgresContainerId)
+                    .withNetworkId(pgNetwork)
+                    .exec();
+        }
 
-        InspectContainerResponse inspectPostgresResponse = dockerClient
+        if (inspectSelfResponse.getNetworkSettings() == null || MapUtils.isEmpty(inspectSelfResponse.getNetworkSettings().getNetworks()) || !inspectSelfResponse.getNetworkSettings().getNetworks().containsKey(pgNetwork)) {
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(inspectSelfResponse.getId())
+                    .withNetworkId(pgNetwork)
+                    .exec();
+        }
+
+        InspectContainerResponse inspectPostgresNew = dockerClient
                 .inspectContainerCmd(postgresContainerId)
                 .exec();
 
-        return inspectPostgresResponse.getNetworkSettings()
+        return inspectPostgresNew.getNetworkSettings()
                 .getNetworks()
                 .get(pgNetwork)
                 .getIpAddress();
@@ -249,9 +255,7 @@ public class DockerHelper {
                                                      String volumeName,
                                                      Map<String, String> envVars,
                                                      String dockerSocketOnHostPath,
-                                                     List<String> networksToConnect,
-                                                     String postgresContainerId,
-                                                     String pgNetwork) {
+                                                     List<String> networksToConnect) {
         initIfNeeded();
         List<Bind> binds = new ArrayList<>();
 

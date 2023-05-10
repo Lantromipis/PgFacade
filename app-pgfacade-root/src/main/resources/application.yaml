@@ -54,6 +54,7 @@ pg-facade:
       host: unix:///var/run/pgfacade/docker.sock
       helper-object-name: "pg-facade-temp"
       external-load-balancer:
+        network-for-end-clients: pg-facade-balancer-network
         dns-alias: pg-facade-balancer
         container-name: pg-facade-load-balancer
         image-tag: "pgfacade-balancer:latest"

@@ -729,6 +729,15 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     )
                     .exec();
 
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(createContainerResponse.getId())
+                    .withNetworkId(orchestrationProperties.docker().externalLoadBalancer().networkForEndClients())
+                    .withContainerNetwork(
+                            new ContainerNetwork()
+                                    .withAliases(orchestrationProperties.docker().externalLoadBalancer().dnsAlias())
+                    )
+                    .exec();
+
             dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
 
             InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();

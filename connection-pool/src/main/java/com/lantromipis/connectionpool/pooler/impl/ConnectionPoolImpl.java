@@ -284,6 +284,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     public void listenToMaxConnectionsChangedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) MaxConnectionsChangedEvent maxConnectionsChangedEvent) {
+        if (primaryConnectionsStorage == null) {
+            return;
+        }
         primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
     }
 

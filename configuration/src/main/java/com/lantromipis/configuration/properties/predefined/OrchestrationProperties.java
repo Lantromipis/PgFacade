@@ -84,6 +84,8 @@ public interface OrchestrationProperties {
         ExternalLoadBalancerProperties externalLoadBalancer();
 
         interface ExternalLoadBalancerProperties {
+            String networkForEndClients();
+            
             String dnsAlias();
 
             String containerName();
