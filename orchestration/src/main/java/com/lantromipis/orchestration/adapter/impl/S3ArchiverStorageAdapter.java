@@ -12,8 +12,8 @@ import com.amazonaws.services.s3.model.*;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
-import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.DownloadException;
+import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.UploadException;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.model.WalFileDownload;
@@ -97,7 +97,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 }
             }
         } catch (Exception e) {
-            throw new InitializationException("Failed to check buckets in S3! Have you configured s3 properly?");
+            throw new InitializationException("Failed to check buckets in S3! Have you configured s3 properly?", e);
         }
 
         if (!walBucketExist) {

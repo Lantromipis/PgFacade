@@ -1,0 +1,15 @@
+balancer:
+  algorithm: round_robin
+  primary-port: 5433
+  standby-port: 5434
+  hosts-refresh-interval: PT5S
+  startup:
+    initial-http-host: localhost
+    initial-http-port: 8080
+
+quarkus:
+  log:
+    console:
+      level: INFO
+  smallrye-health:
+    root-path: "/tech/balancer-health"

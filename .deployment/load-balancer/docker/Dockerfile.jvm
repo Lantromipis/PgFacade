@@ -1,0 +1,24 @@
+FROM eclipse-temurin:17.0.6_10-jdk-jammy
+
+ENV LANGUAGE='en_US:en'
+
+SHELL ["/bin/bash", "-c"]
+
+RUN useradd --create-home --shell /bin/bash pgfacade
+
+VOLUME /var/run/pgfacade
+
+# We make four distinct layers so if there are application changes the library layers can be re-used
+COPY --chown=pgfacade target/quarkus-app/lib/ /deployments/lib/
+COPY --chown=pgfacade target/quarkus-app/*.jar /deployments/
+COPY --chown=pgfacade target/quarkus-app/app/ /deployments/app/
+COPY --chown=pgfacade target/quarkus-app/quarkus/ /deployments/quarkus/
+
+# Non-root container
+USER pgfacade
+
+ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
+ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
+
+ENTRYPOINT ["/bin/bash", "-c", "java ${JAVA_OPTS} -jar ${JAVA_APP_JAR}"]
+
