@@ -39,26 +39,33 @@ public class ProxyChannelHandlersProducer {
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
-    public StartupClientChannelHandler createNewClientStartupHandler() {
+    public StartupClientChannelHandler createNewClientStartupHandler(boolean primaryMode) {
         StartupClientChannelHandler handler = new StartupClientChannelHandler(
                 userAuthInfoProvider,
-                this
+                this,
+                primaryMode
         );
         clientConnectionsManagementService.registerNewClientChannelHandler(handler);
         return handler;
     }
 
-    public SaslScramSha256AuthClientChannelHandler createNewSaslScramSha256AuthHandler(StartupMessage startupMessage) {
+    public SaslScramSha256AuthClientChannelHandler createNewSaslScramSha256AuthHandler(StartupMessage startupMessage, boolean primaryMode) {
         SaslScramSha256AuthClientChannelHandler handler = new SaslScramSha256AuthClientChannelHandler(
                 startupMessage,
                 userAuthInfoProvider,
-                this
+                this,
+                primaryMode
         );
         clientConnectionsManagementService.registerNewClientChannelHandler(handler);
         return handler;
     }
 
-    public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage, AuthAdditionalInfo authAdditionalInfo, ByteBuf authOkMessagesCombined, Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback) {
+    public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage,
+                                                               AuthAdditionalInfo authAdditionalInfo,
+                                                               ByteBuf authOkMessagesCombined,
+                                                               Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback,
+                                                               boolean primaryConnection
+    ) {
         String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
 
         StartupMessageInfo startupMessageInfo = StartupMessageInfo
@@ -68,8 +75,9 @@ public class ProxyChannelHandlersProducer {
                 .parameters(startupMessage.getParameters())
                 .build();
 
-        connectionPool.getPrimaryConnection(
+        connectionPool.getPostgresConnection(
                 startupMessageInfo,
+                primaryConnection,
                 authAdditionalInfo,
                 pooledConnectionWrapper -> {
                     SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(

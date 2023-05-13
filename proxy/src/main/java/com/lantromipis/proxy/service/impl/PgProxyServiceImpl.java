@@ -41,20 +41,20 @@ public class PgProxyServiceImpl implements PgProxyService {
     @Named("boss")
     EventLoopGroup bossGroup;
 
-    private ChannelFuture primaryProxyChannelFuture;
+    private ChannelFuture primaryProxyChannelFuture, standbyProxyChannelFuture;
 
     public void initialize() {
         ServerBootstrap primaryProxyBootstrap = new ServerBootstrap();
+        ServerBootstrap standbyProxyBootstrap = new ServerBootstrap();
 
         Thread primaryBootstrapThread = new Thread(
                 () -> {
                     try {
-
                         ChannelHandler channelInitializer;
 
                         if (proxyProperties.connectionPool().enabled()) {
                             log.info("Starting primary proxy with connection pool.");
-                            channelInitializer = new PooledProxyChannelInitializer(proxyChannelHandlersProducer, clientConnectionsManagementService);
+                            channelInitializer = new PooledProxyChannelInitializer(proxyChannelHandlersProducer, clientConnectionsManagementService, true);
                         } else {
                             log.info("Starting primary proxy without connection pool.");
                             channelInitializer = new UnpooledProxyChannelInitializer(true, proxyChannelHandlersProducer, clientConnectionsManagementService);
@@ -75,20 +75,58 @@ public class PgProxyServiceImpl implements PgProxyService {
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     } catch (Exception e) {
-                        log.error(e.getMessage(), e);
+                        log.error("Error while waiting for primary proxy to close.", e);
+                    }
+                }
+        );
+        Thread standbyBootstrapThread = new Thread(
+                () -> {
+                    try {
+                        ChannelHandler channelInitializer;
+
+                        if (proxyProperties.connectionPool().enabled()) {
+                            log.info("Starting standby proxy with connection pool.");
+                            channelInitializer = new PooledProxyChannelInitializer(proxyChannelHandlersProducer, clientConnectionsManagementService, false);
+                        } else {
+                            log.info("Starting standby proxy without connection pool.");
+                            channelInitializer = new UnpooledProxyChannelInitializer(true, proxyChannelHandlersProducer, clientConnectionsManagementService);
+                        }
+
+                        standbyProxyChannelFuture = standbyProxyBootstrap.group(bossGroup, workerGroup)
+                                .channel(Epoll.isAvailable() ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
+                                .childHandler(channelInitializer)
+                                .childOption(ChannelOption.AUTO_READ, false)
+                                .bind(proxyProperties.standbyPort())
+                                .sync();
+
+                        log.info("Postgres standby proxy listening on port " + proxyProperties.standbyPort());
+
+                        standbyProxyChannelFuture.channel().closeFuture().sync();
+                        log.info("Postgres standby proxy bootstrap stopped. Proxy not accepting connections.");
+
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        log.error("Error while waiting for standby proxy to close.", e);
                     }
                 }
         );
         primaryBootstrapThread.start();
+        standbyBootstrapThread.start();
     }
 
     @Override
     public void shutdown(boolean awaitClients, Duration awaitClientsDuration) {
-        if (primaryProxyChannelFuture == null) {
+        if (primaryProxyChannelFuture == null && standbyProxyChannelFuture == null) {
             return;
         }
 
-        primaryProxyChannelFuture.channel().close();
+        if (primaryProxyChannelFuture != null) {
+            primaryProxyChannelFuture.channel().close();
+        }
+        if (standbyProxyChannelFuture != null) {
+            standbyProxyChannelFuture.channel().close();
+        }
 
         if (!awaitClients) {
             clientConnectionsManagementService.forceDisconnectAll();
@@ -106,5 +144,6 @@ public class PgProxyServiceImpl implements PgProxyService {
         log.warn("Some clients are still connected after timeout. Force disconnecting all of them.");
         clientConnectionsManagementService.forceDisconnectAll();
         primaryProxyChannelFuture = null;
+        standbyProxyChannelFuture = null;
     }
 }

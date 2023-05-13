@@ -19,13 +19,18 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     private final UserAuthInfoProvider userAuthInfoProvider;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
+    private final boolean primaryMode;
 
     private String username;
 
 
-    public StartupClientChannelHandler(final UserAuthInfoProvider userAuthInfoProvider, final ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
+    public StartupClientChannelHandler(final UserAuthInfoProvider userAuthInfoProvider,
+                                       final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
+                                       final boolean primaryMode
+    ) {
         this.userAuthInfoProvider = userAuthInfoProvider;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
+        this.primaryMode = primaryMode;
     }
 
     @Override
@@ -90,7 +95,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
                 case SCRAM_SHA256 -> {
                     ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSASLMessage(ctx.alloc()));
                     ctx.channel().pipeline().addLast(
-                            proxyChannelHandlersProducer.createNewSaslScramSha256AuthHandler(startupMessage)
+                            proxyChannelHandlersProducer.createNewSaslScramSha256AuthHandler(startupMessage, primaryMode)
                     );
                 }
                 default -> {
