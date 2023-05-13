@@ -1,6 +1,7 @@
 package com.lantromipis.orchestration.restclient;
 
 import com.lantromipis.orchestration.restclient.model.ForceShutdownRequestDto;
+import com.lantromipis.orchestration.restclient.model.ShutdownRaftAndOrchestrationRequestDto;
 import com.lantromipis.orchestration.restclient.model.SoftShutdownRequestDto;
 
 import javax.ws.rs.Consumes;
@@ -14,6 +15,10 @@ import java.io.Closeable;
 @Produces(MediaType.APPLICATION_JSON)
 @Path("")
 public interface PgFacadeShutdownTemplateRestClient extends Closeable {
+
+    @POST
+    @Path("/api/v1/shutdown/raft-and-orchestration")
+    void shutdownRaftAndOrchestration(ShutdownRaftAndOrchestrationRequestDto requestDto);
 
     @POST
     @Path("/api/v1/shutdown/soft")

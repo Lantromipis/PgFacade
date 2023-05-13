@@ -1,4 +1,4 @@
-package com.lantromipis.model;
+package com.lantromipis.model.docker;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

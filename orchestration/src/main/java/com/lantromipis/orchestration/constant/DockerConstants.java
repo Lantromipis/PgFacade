@@ -11,8 +11,6 @@ public class DockerConstants {
     public static final String POSTGRES_ENV_VAR_PASSWORD = "POSTGRES_PASSWORD";
     public static final String POSTGRES_ENV_VAR_DB = "POSTGRES_DB";
 
-    public static final String HEALTHCHECK_CMD_SHELL = "CMD-SHELL";
-
     public static final String HELP_CONTAINER_BASE_BACKUP_PATH = "/tmp/pg/backup";
 
     public static final String HELP_CONTAINER_RESTORE_ROOT_PATH = "/tmp/pg/restore";

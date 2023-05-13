@@ -1,4 +1,4 @@
-package com.lantromipis.model;
+package com.lantromipis.model.docker;
 
 import lombok.Data;
 
@@ -6,14 +6,13 @@ import java.util.List;
 import java.util.Map;
 
 @Data
-public class DockerInstallNewRequestDto {
-    private int awaitPgFacadeContainerMs;
+public class DockerInstallExistingRequestDto {
+    private String postgresContainerId;
+    private int postgresContainerPort;
     private String pgFacadeImageTag;
-    private String postgresImageTag;
-    private int postgresImagePort;
-    private PostgresCredentialsDto newSuperuserCredentials;
-    private NewPostgresConfigurationDto postgresConfigurationInfo;
+    private ExistingPostgresConfigurationDto configurationInfo;
     private Map<String, String> pgFacadeEnvVars;
+    private Map<String, String> modifiedPostgresConfParams;
     private boolean mountDockerSock;
     private String dockerSockPathOnHost;
     private DockerNetworkDto networkBetweenPostgresAndPgFacade;

@@ -14,8 +14,8 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
-import com.lantromipis.model.DockerNetworkDto;
 import com.lantromipis.model.copy.PostgresPersistedInstanceInfoCopy;
+import com.lantromipis.model.docker.DockerNetworkDto;
 import com.lantromipis.properties.UpdaterProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -24,6 +24,7 @@ import org.apache.commons.collections4.MapUtils;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -45,6 +46,7 @@ public class DockerHelper {
     private static final String POSTGRES_ENV_VAR_DB = "POSTGRES_DB";
 
     private static final String PG_FACADE_VOLUME_MOUNT_PATH = "/var/run/pgfacade";
+    private static final String PG_FACADE_VOLUME_MOUNT_PATH_WITHOUT_LAST_DIR = "/var/run";
     private static final String PG_FACADE_STORED_FILES_DIR = "/var/run/pgfacade/stored";
     private static final String PG_FACADE_POSTGRES_NODES_INFO_FILE_NAME = "postgres-nodes-info.json";
     private static final String PG_FACADE_POSTGRES_SETTINGS_INFO_FILE_NAME = "postgres-settings-info.json";
@@ -115,38 +117,40 @@ public class DockerHelper {
         return containerId;
     }
 
-    public String connectPostgresAndCurrentContainerTogether(String postgresContainerId, String pgNetwork) {
+    public String connectOtherAndCurrentContainersTogether(String otherContainerId, String network) {
         initIfNeeded();
 
         InspectContainerResponse inspectSelfResponse = inspectSelf();
 
-        InspectContainerResponse inspectPostgres = dockerClient.inspectContainerCmd(postgresContainerId).exec();
+        InspectContainerResponse inspectOther = dockerClient.inspectContainerCmd(otherContainerId).exec();
 
-        if (inspectPostgres.getNetworkSettings() == null || MapUtils.isEmpty(inspectPostgres.getNetworkSettings().getNetworks()) || !inspectPostgres.getNetworkSettings().getNetworks().containsKey(pgNetwork)) {
+        if (inspectOther.getNetworkSettings() == null || MapUtils.isEmpty(inspectOther.getNetworkSettings().getNetworks()) || !inspectOther.getNetworkSettings().getNetworks().containsKey(network)) {
             dockerClient.connectToNetworkCmd()
-                    .withContainerId(postgresContainerId)
-                    .withNetworkId(pgNetwork)
+                    .withContainerId(otherContainerId)
+                    .withNetworkId(network)
                     .exec();
         }
 
-        if (inspectSelfResponse.getNetworkSettings() == null || MapUtils.isEmpty(inspectSelfResponse.getNetworkSettings().getNetworks()) || !inspectSelfResponse.getNetworkSettings().getNetworks().containsKey(pgNetwork)) {
+        if (inspectSelfResponse.getNetworkSettings() == null || MapUtils.isEmpty(inspectSelfResponse.getNetworkSettings().getNetworks()) || !inspectSelfResponse.getNetworkSettings().getNetworks().containsKey(network)) {
             dockerClient.connectToNetworkCmd()
                     .withContainerId(inspectSelfResponse.getId())
-                    .withNetworkId(pgNetwork)
+                    .withNetworkId(network)
                     .exec();
         }
 
-        InspectContainerResponse inspectPostgresNew = dockerClient
-                .inspectContainerCmd(postgresContainerId)
+        InspectContainerResponse inspectOtherNew = dockerClient
+                .inspectContainerCmd(otherContainerId)
                 .exec();
 
-        return inspectPostgresNew.getNetworkSettings()
+        return inspectOtherNew.getNetworkSettings()
                 .getNetworks()
-                .get(pgNetwork)
+                .get(network)
                 .getIpAddress();
     }
 
     public String getSubnetOfNetwork(String networkName) {
+        initIfNeeded();
+
         try {
             Network network = dockerClient.inspectNetworkCmd()
                     .withNetworkId(networkName)
@@ -239,6 +243,100 @@ public class DockerHelper {
         return createVolumeResponse.getName();
     }
 
+    public String createVolumeBasedOnOldPgFacade(String oldPgFacadeContainerId) {
+        initIfNeeded();
+
+        CreateVolumeResponse createVolumeResponse = dockerClient
+                .createVolumeCmd()
+                .withName("pg-facade-initial-volume-" + UUID.randomUUID().toString())
+                .exec();
+
+        InspectContainerResponse inspectSelfResponse = inspectSelf();
+
+        // create dummy container to get volume
+        CreateContainerResponse tempCreateContainerResponse = dockerClient
+                .createContainerCmd(inspectSelfResponse.getImageId())
+                .withHostConfig(HostConfig.newHostConfig()
+                        .withBinds(
+                                new Bind(
+                                        createVolumeResponse.getName(),
+                                        new Volume(PG_FACADE_VOLUME_MOUNT_PATH)
+                                )
+                        )
+                )
+                .withEntrypoint("sleep", "infinity")
+                .exec();
+
+        dockerClient.startContainerCmd(tempCreateContainerResponse.getId()).exec();
+
+        InputStream oldData = dockerClient.copyArchiveFromContainerCmd(oldPgFacadeContainerId, PG_FACADE_VOLUME_MOUNT_PATH).exec();
+        dockerClient.copyArchiveToContainerCmd(tempCreateContainerResponse.getId())
+                .withTarInputStream(oldData)
+                .withRemotePath(PG_FACADE_VOLUME_MOUNT_PATH_WITHOUT_LAST_DIR)
+                .exec();
+
+        try {
+            oldData.close();
+        } catch (Exception e) {
+            // ignore
+        }
+
+        dockerClient.stopContainerCmd(tempCreateContainerResponse.getId())
+                .exec();
+
+        dockerClient.removeContainerCmd(tempCreateContainerResponse.getId())
+                .withForce(true)
+                .exec();
+
+        return createVolumeResponse.getName();
+    }
+
+    public String getContainerIpInNetwork(String containerId, String network) {
+        InspectContainerResponse inspectContainerResponse = dockerClient
+                .inspectContainerCmd(containerId)
+                .exec();
+
+        return inspectContainerResponse.getNetworkSettings()
+                .getNetworks()
+                .get(network)
+                .getIpAddress();
+    }
+
+    public void executeCmdInContainer(String containerId, String shellCommand) {
+        ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
+        ByteArrayOutputStream stdErr = new ByteArrayOutputStream();
+
+        try {
+            ExecCreateCmd backupExecCreateCmd = dockerClient.execCreateCmd(containerId)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .withCmd("/bin/sh", "-c", shellCommand);
+
+            ExecCreateCmdResponse backupExecCreateResponse = backupExecCreateCmd.exec();
+
+            dockerClient.execStartCmd(backupExecCreateResponse.getId())
+                    .withDetach(false)
+                    .exec(new ExecStartResultCallback(stdOut, stdErr))
+                    .awaitCompletion();
+
+            InspectExecResponse inspectBackupExecResponse = dockerClient.inspectExecCmd(backupExecCreateResponse.getId()).exec();
+
+            if (inspectBackupExecResponse.getExitCodeLong() != 0) {
+                throw new RuntimeException("Failed to save PgFacade settings." + stdErr.toString());
+            }
+
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            try {
+                stdErr.close();
+                stdOut.close();
+            } catch (Exception ignored) {
+                //ignored
+            }
+        }
+    }
+
     private InspectContainerResponse inspectSelf() {
         String hostname = System.getenv(DOCKER_ENV_VAR_HOSTNAME);
 
@@ -308,40 +406,5 @@ public class DockerHelper {
 
     private String createEnvValueForRequest(String varName, String value) {
         return varName + "=" + value;
-    }
-
-    private void executeCmdInContainer(String containerId, String shellCommand) {
-        ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
-        ByteArrayOutputStream stdErr = new ByteArrayOutputStream();
-
-        try {
-            ExecCreateCmd backupExecCreateCmd = dockerClient.execCreateCmd(containerId)
-                    .withAttachStdout(true)
-                    .withAttachStderr(true)
-                    .withCmd("/bin/sh", "-c", shellCommand);
-
-            ExecCreateCmdResponse backupExecCreateResponse = backupExecCreateCmd.exec();
-
-            dockerClient.execStartCmd(backupExecCreateResponse.getId())
-                    .withDetach(false)
-                    .exec(new ExecStartResultCallback(stdOut, stdErr))
-                    .awaitCompletion();
-
-            InspectExecResponse inspectBackupExecResponse = dockerClient.inspectExecCmd(backupExecCreateResponse.getId()).exec();
-
-            if (inspectBackupExecResponse.getExitCodeLong() != 0) {
-                throw new RuntimeException("Failed to save PgFacade settings." + stdErr.toString());
-            }
-
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } finally {
-            try {
-                stdErr.close();
-                stdOut.close();
-            } catch (Exception ignored) {
-                //ignored
-            }
-        }
     }
 }

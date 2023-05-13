@@ -1,6 +1,6 @@
 package com.lantromipis.helper;
 
-import com.lantromipis.model.ConfigurationInfo;
+import com.lantromipis.model.docker.ConfigurationInfo;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.enterprise.context.ApplicationScoped;

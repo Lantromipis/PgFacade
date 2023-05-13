@@ -27,7 +27,6 @@ import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
-import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
@@ -56,9 +55,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Inject
     OrchestrationProperties orchestrationProperties;
-
-    @Inject
-    DockerMapper dockerMapper;
 
     @Inject
     PostgresProperties postgresProperties;
@@ -575,10 +571,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     @Override
     public List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException {
         try {
-            List<Container> containers = dockerClient.listContainersCmd()
-                    .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
-                    .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
-                    .exec();
+            List<Container> containers = listPgFacadeUnsuspendedContainers();
 
             if (CollectionUtils.isEmpty(containers)) {
                 return Collections.emptyList();
@@ -586,10 +579,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             return containers
                     .stream()
-                    .filter(container -> Arrays
-                            .stream(container.getNames())
-                            .noneMatch(name -> name.startsWith(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
-                    )
                     .map(this::containerToPgFacadeRaftNodeInfo)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
@@ -671,16 +660,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Override
     public List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() {
-        List<Container> containers = dockerClient.listContainersCmd()
-                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
-                .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
-                .exec();
+        List<Container> containers = listPgFacadeUnsuspendedContainers();
 
         if (CollectionUtils.isEmpty(containers)) {
             return Collections.emptyList();
         }
 
-        return containers.stream()
+        return containers
+                .stream()
                 .map(this::containerToHttpNodeInfo)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
@@ -758,6 +745,35 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Failed to create container with load balancer!", e);
         }
+    }
+
+    @Override
+    public void suspendPgFacadeInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
+        try {
+            dockerClient.renameContainerCmd(adapterIdentifier)
+                    .withName(dockerUtils.createUniqueObjectName(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
+                    .exec();
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Failed to suspend container!", e);
+        }
+    }
+
+    private List<Container> listPgFacadeUnsuspendedContainers() {
+        List<Container> containers = dockerClient.listContainersCmd()
+                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
+                .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
+                .exec();
+
+        if (CollectionUtils.isEmpty(containers)) {
+            return Collections.emptyList();
+        }
+
+        return containers.stream()
+                .filter(container -> Arrays
+                        .stream(container.getNames())
+                        .noneMatch(name -> name.contains(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
+                )
+                .collect(Collectors.toList());
     }
 
     private PgFacadeNodeExternalConnectionsInfo containerToExternalConnectionsInfo(Container container) {

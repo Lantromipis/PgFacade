@@ -18,5 +18,7 @@ public interface PgFacadeRaftService {
 
     List<RaftPeerInfo> getRaftPeersFromServer() throws RaftException;
 
+    String getSelfRaftNodeId();
+
     void appendToLogAndAwaitCommit(String command, byte[] data, long timeout) throws RaftException;
 }

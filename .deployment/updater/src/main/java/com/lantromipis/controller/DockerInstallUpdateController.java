@@ -1,13 +1,17 @@
 package com.lantromipis.controller;
 
 import com.lantromipis.exception.InvalidParametersException;
+import com.lantromipis.helper.BalancerHelper;
 import com.lantromipis.helper.DockerHelper;
+import com.lantromipis.helper.PgFacadeHelper;
 import com.lantromipis.helper.PostgresConfigurationHelper;
-import com.lantromipis.model.ConfigurationInfo;
-import com.lantromipis.model.DockerInstallExistingRequestDto;
-import com.lantromipis.model.DockerInstallNewRequestDto;
+import com.lantromipis.model.docker.ConfigurationInfo;
+import com.lantromipis.model.docker.DockerInstallExistingRequestDto;
+import com.lantromipis.model.docker.DockerInstallNewRequestDto;
+import com.lantromipis.model.docker.DockerRollingUpdateRequestDto;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.inject.Inject;
@@ -31,6 +35,12 @@ public class DockerInstallUpdateController {
 
     @Inject
     PostgresConfigurationHelper postgresConfigurationHelper;
+
+    @Inject
+    PgFacadeHelper pgFacadeHelper;
+
+    @Inject
+    BalancerHelper balancerHelper;
 
     @POST
     @Path("/install-new-postgres")
@@ -110,7 +120,7 @@ public class DockerInstallUpdateController {
                 requestDto.getAwaitPgFacadeContainerMs()
         );
 
-        String postgresAddress = dockerHelper.connectPostgresAndCurrentContainerTogether(newPostgresContainerId, requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+        String postgresAddress = dockerHelper.connectOtherAndCurrentContainersTogether(newPostgresContainerId, requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
         String postgresSubnet = dockerHelper.getSubnetOfNetwork(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
 
         postgresConfigurationHelper.configureDatabaseAndUser(
@@ -216,7 +226,7 @@ public class DockerInstallUpdateController {
             }
         }
 
-        String postgresAddress = dockerHelper.connectPostgresAndCurrentContainerTogether(requestDto.getPostgresContainerId(), requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
+        String postgresAddress = dockerHelper.connectOtherAndCurrentContainersTogether(requestDto.getPostgresContainerId(), requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
         String postgresSubnet = dockerHelper.getSubnetOfNetwork(requestDto.getNetworkBetweenPostgresAndPgFacade().getNetworkName());
 
         if (requestDto.getConfigurationInfo().isConfigurePostgres()) {
@@ -257,7 +267,82 @@ public class DockerInstallUpdateController {
 
     @POST
     @Path("/rolling-update")
-    public void rollingUpdate() {
+    public Response rollingUpdate(DockerRollingUpdateRequestDto requestDto) throws Exception {
+        if (StringUtils.isEmpty(requestDto.getLeaderContainerId())) {
+            throw new InvalidParametersException("Specify PgFacade leader container id.");
+        }
 
+        if (StringUtils.isEmpty(requestDto.getLoadBalancerContainerId())) {
+            throw new InvalidParametersException("Specify load balancer container id.");
+        }
+
+        if (StringUtils.isEmpty(requestDto.getNewPgFacadeImageTag())) {
+            throw new InvalidParametersException("Specify new PgFacade image tag.");
+        }
+
+        if (requestDto.getLoadBalancerRefreshIntervalSeconds() == 0) {
+            throw new InvalidParametersException("Specify load balancer config refresh interval.");
+        }
+
+        if (requestDto.getOldNodesAwaitClientsSeconds() == 0) {
+            throw new InvalidParametersException("Specify await clients interval.");
+        }
+
+        if (requestDto.getPgFacadeHttpPort() == 0) {
+            throw new InvalidParametersException("Specify PgFacade HTTP port.");
+        }
+
+        if (StringUtils.isEmpty(requestDto.getPgFacadeInternalNetworkName())) {
+            throw new InvalidParametersException("Specify PgFacade internal network name.");
+        }
+
+        if (StringUtils.isEmpty(requestDto.getPgFacadeExternalNetworkName())) {
+            throw new InvalidParametersException("Specify PgFacade external network name.");
+        }
+
+        if (MapUtils.isEmpty(requestDto.getNewPgFacadeEnvVars())) {
+            throw new InvalidParametersException("Specify new env vars or provide {}.");
+        }
+
+        if (requestDto.isMountDockerSock() && StringUtils.isEmpty(requestDto.getDockerSockPathOnHost())) {
+            throw new InvalidParametersException("If you want to mount docker.sock, you need to provide path to it on host.");
+        }
+
+        if (CollectionUtils.isEmpty(requestDto.getNetworkNamesToConnect())) {
+            throw new InvalidParametersException("Specify networks to connect PgFacade container to.");
+        }
+
+        String pgFacadeContainerIp = dockerHelper.connectOtherAndCurrentContainersTogether(requestDto.getLeaderContainerId(), requestDto.getPgFacadeInternalNetworkName());
+
+        pgFacadeHelper.shutdownRaftAndOrchestration(pgFacadeContainerIp, requestDto.getPgFacadeHttpPort());
+
+        String newVolumeName = dockerHelper.createVolumeBasedOnOldPgFacade(requestDto.getLeaderContainerId());
+        String newPgFacadeContainerId = dockerHelper.createAndStartNewPgFacadeContainer(
+                requestDto.getNewPgFacadeImageTag(),
+                newVolumeName,
+                requestDto.getNewPgFacadeEnvVars(),
+                requestDto.isMountDockerSock() ? requestDto.getDockerSockPathOnHost() : null,
+                requestDto.getNetworkNamesToConnect()
+        );
+
+        // TODO use polling healthcheck
+        Thread.sleep(30000);
+
+        String pgFacadeLeaderIp = dockerHelper.getContainerIpInNetwork(newPgFacadeContainerId, requestDto.getPgFacadeExternalNetworkName());
+        String loadBalancerHostsFileContent = balancerHelper.hostFileContentForSingleHost(pgFacadeLeaderIp, requestDto.getPgFacadeHttpPort());
+        dockerHelper.executeCmdInContainer(
+                requestDto.getLoadBalancerContainerId(),
+                "echo '" + loadBalancerHostsFileContent + "' > " + balancerHelper.getHostFilePath()
+        );
+
+        // waiting for config to apply
+        Thread.sleep((requestDto.getLoadBalancerRefreshIntervalSeconds() + 1) * 1000L);
+
+        pgFacadeHelper.shutdownSoft(pgFacadeContainerIp, requestDto.getPgFacadeHttpPort(), requestDto.getOldNodesAwaitClientsSeconds());
+
+        return Response
+                .ok()
+                .entity("Success! Your new PgFacade container id is " + newPgFacadeContainerId)
+                .build();
     }
 }

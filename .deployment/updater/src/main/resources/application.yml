@@ -5,3 +5,5 @@ updater:
 quarkus:
   swagger-ui:
     always-include: true
+  http:
+    read-timeout: 180S

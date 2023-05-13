@@ -1,6 +1,6 @@
 package com.lantromipis.exception;
 
-import com.lantromipis.model.ErrorResponseDto;
+import com.lantromipis.model.docker.ErrorResponseDto;
 import io.quarkus.runtime.Startup;
 import lombok.extern.slf4j.Slf4j;
 

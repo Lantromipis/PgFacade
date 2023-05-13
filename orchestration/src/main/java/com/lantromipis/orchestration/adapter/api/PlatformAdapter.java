@@ -147,4 +147,6 @@ public interface PlatformAdapter {
      * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
      */
     ExternalLoadBalancerAdapterInfo createAndStartExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException;
+
+    void suspendPgFacadeInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
 }

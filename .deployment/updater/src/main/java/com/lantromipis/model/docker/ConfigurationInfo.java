@@ -1,12 +1,15 @@
-package com.lantromipis.model;
+package com.lantromipis.model.docker;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
-public class ExistingPostgresConfigurationDto {
-    private boolean configurePostgres;
-    private PostgresCredentialsDto superuserCredentials;
-
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ConfigurationInfo {
     private String pgFacadeUsername;
     private String pgFacadePassword;
     private String pgFacadeDatabase;
