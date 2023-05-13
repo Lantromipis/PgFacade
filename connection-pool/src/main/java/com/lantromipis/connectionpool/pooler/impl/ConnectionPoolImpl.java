@@ -1,8 +1,6 @@
 package com.lantromipis.connectionpool.pooler.impl;
 
-import com.lantromipis.configuration.event.MaxConnectionsChangedEvent;
-import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
-import com.lantromipis.configuration.event.SwitchoverStartedEvent;
+import com.lantromipis.configuration.event.*;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
@@ -24,8 +22,13 @@ import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.quarkus.scheduler.Scheduled;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -33,7 +36,11 @@ import javax.enterprise.event.Observes;
 import javax.enterprise.event.Reception;
 import javax.inject.Inject;
 import javax.inject.Named;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -63,7 +70,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     private Bootstrap primaryBootstrap;
 
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
-    private List<PostgresInstancePooledConnectionsStorage> standbyConnectionsStorages;
+    private Map<UUID, StandbyPostgresPoolWrapper> standbyConnectionsStorages = new ConcurrentHashMap<>();
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
     private AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
@@ -76,8 +83,17 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     @Override
-    public void getPrimaryConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback) {
-        getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
+    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback) {
+        if (primary) {
+            getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
+        } else {
+            StandbyPostgresPoolWrapper wrapper = getLeastLoadedStandbyStorage();
+            if (wrapper != null) {
+                getConnection(startupMessageInfo, authAdditionalInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
+            } else {
+                readyCallback.accept(null);
+            }
+        }
     }
 
     @Override
@@ -86,17 +102,20 @@ public class ConnectionPoolImpl implements ConnectionPool {
         int standbyPoolConnectionsLimit = -1;
         int standbyPoolFreeConnectionsLimit = -1;
 
-        if (CollectionUtils.isNotEmpty(standbyConnectionsStorages)) {
-            standbyPoolAllConnectionsCount = standbyConnectionsStorages.stream()
-                    .mapToInt(PostgresInstancePooledConnectionsStorage::getAllConnectionsCount)
+        if (MapUtils.isNotEmpty(standbyConnectionsStorages)) {
+            standbyPoolAllConnectionsCount = standbyConnectionsStorages.values()
+                    .stream()
+                    .mapToInt(w -> w.getStorage().getAllConnectionsCount())
                     .sum();
 
-            standbyPoolConnectionsLimit = standbyConnectionsStorages.stream()
-                    .mapToInt(PostgresInstancePooledConnectionsStorage::getMaxConnections)
+            standbyPoolConnectionsLimit = standbyConnectionsStorages.values()
+                    .stream()
+                    .mapToInt(w -> w.getStorage().getMaxConnections())
                     .sum();
 
-            standbyPoolFreeConnectionsLimit = standbyConnectionsStorages.stream()
-                    .mapToInt(PostgresInstancePooledConnectionsStorage::getFreeConnectionsCount)
+            standbyPoolFreeConnectionsLimit = standbyConnectionsStorages.values()
+                    .stream()
+                    .mapToInt(w -> w.getStorage().getFreeConnectionsCount())
                     .sum();
         }
 
@@ -258,7 +277,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                                 channel,
                                                 serverParameterMessagesBytes
                                         );
-                                        log.debug("Successfully established new real primary connection. Connection added to pool and returned to client.");
+                                        log.debug("Successfully established new real postgres connection. Connection added to pool and returned to client.");
 
                                         readyCallback.accept(
                                                 wrapPooledConnection(
@@ -269,14 +288,14 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                     } else {
                                         readyCallback.accept(null);
                                         HandlerUtils.closeOnFlush(channel);
-                                        log.debug("Failed to preform auth for new real primary connection.");
+                                        log.debug("Failed to preform auth for new real postgres connection.");
                                         storage.cancelReservation();
                                     }
                                 }
                         )
                 );
             } else {
-                log.debug("Failed to acquire primary connection.");
+                log.debug("Failed to acquire real postgres connection.");
                 storage.cancelReservation();
                 readyCallback.accept(null);
             }
@@ -303,6 +322,27 @@ public class ConnectionPoolImpl implements ConnectionPool {
         primaryConnectionsStorage.removeAllConnections().forEach(HandlerUtils::closeOnFlush);
         switchoverInProgress.set(false);
         poolActive.set(switchoverCompletedEvent.isSuccess());
+    }
+
+    public void listenToStandbyAddedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) StandbyAddedEvent standbyAddedEvent) {
+        RuntimePostgresInstanceInfo info = clusterRuntimeConfiguration.getAllPostgresInstancesInfos().get(standbyAddedEvent.getInstanceId());
+        if (info == null) {
+            return;
+        }
+
+        standbyConnectionsStorages.put(
+                standbyAddedEvent.getInstanceId(),
+                StandbyPostgresPoolWrapper
+                        .builder()
+                        .standbyBootstrap(createInstanceBootstrap(info))
+                        .storage(new PostgresInstancePooledConnectionsStorage(clusterRuntimeConfiguration.getMaxPostgresConnections()))
+                        .build()
+        );
+    }
+
+    public void listenToStandbyRemovedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) StandbyRemovedEvent standbyRemovedEvent) {
+        StandbyPostgresPoolWrapper wrapper = standbyConnectionsStorages.remove(standbyRemovedEvent.getInstanceId());
+        wrapper.getStorage().removeAllConnections().forEach(HandlerUtils::closeOnFlush);
     }
 
     private PooledConnectionWrapper wrapPooledConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo, PostgresInstancePooledConnectionsStorage storage) {
@@ -394,5 +434,25 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 );
 
         return bootstrap;
+    }
+
+    private StandbyPostgresPoolWrapper getLeastLoadedStandbyStorage() {
+        return standbyConnectionsStorages.values()
+                .stream()
+                .min(
+                        Comparator.<StandbyPostgresPoolWrapper>comparingInt(s -> s.storage.getFreeConnectionsCount())
+                                .reversed()
+                                .thenComparing(s -> s.storage.getFreeConnectionsCount())
+                )
+                .orElse(null);
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class StandbyPostgresPoolWrapper {
+        private Bootstrap standbyBootstrap;
+        private PostgresInstancePooledConnectionsStorage storage;
     }
 }

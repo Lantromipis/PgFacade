@@ -57,8 +57,12 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
     private String username;
     private SaslAuthStatus saslAuthStatus;
     private final StartupMessage startupMessage;
+    private final boolean primaryMode;
 
-    public SaslScramSha256AuthClientChannelHandler(StartupMessage startupMessage, UserAuthInfoProvider userAuthInfoProvider, ProxyChannelHandlersProducer proxyChannelHandlersProducer) {
+    public SaslScramSha256AuthClientChannelHandler(final StartupMessage startupMessage,
+                                                   final UserAuthInfoProvider userAuthInfoProvider,
+                                                   final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
+                                                   final boolean primaryMode) {
         this.startupMessage = startupMessage;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.userAuthInfoProvider = userAuthInfoProvider;
@@ -76,6 +80,7 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
         this.serverKey = passwdMatcher.group(4);
 
         this.serverNonce = UUID.randomUUID().toString();
+        this.primaryMode = primaryMode;
     }
 
     @Override
@@ -201,7 +206,8 @@ public class SaslScramSha256AuthClientChannelHandler extends AbstractClientChann
                     ctx.channel().pipeline().addLast(handler);
                     ctx.channel().pipeline().remove(this);
                     setActive(false);
-                }
+                },
+                primaryMode
         );
     }
 

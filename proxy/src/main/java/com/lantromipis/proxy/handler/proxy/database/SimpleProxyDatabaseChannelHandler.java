@@ -13,6 +13,11 @@ public class SimpleProxyDatabaseChannelHandler extends ChannelInboundHandlerAdap
     private Channel clientConnection;
     private Runnable connectionClosedCallback;
 
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        connectionClosedCallback.run();
+    }
+
     public SimpleProxyDatabaseChannelHandler(Channel clientConnection, Runnable connectionClosedCallback) {
         this.clientConnection = clientConnection;
         this.connectionClosedCallback = connectionClosedCallback;

@@ -15,11 +15,14 @@ public class PooledProxyChannelInitializer extends ChannelInitializer<Channel> {
 
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
+    private final boolean primaryMode;
 
     public PooledProxyChannelInitializer(final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
-                                         final ClientConnectionsManagementService clientConnectionsManagementService) {
+                                         final ClientConnectionsManagementService clientConnectionsManagementService,
+                                         final boolean primaryMode) {
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
+        this.primaryMode = primaryMode;
     }
 
     @Override
@@ -31,7 +34,7 @@ public class PooledProxyChannelInitializer extends ChannelInitializer<Channel> {
         }
 
         channel.pipeline().addLast(
-                proxyChannelHandlersProducer.createNewClientStartupHandler()
+                proxyChannelHandlersProducer.createNewClientStartupHandler(primaryMode)
         );
 
         channel.closeFuture().addListener((ChannelFutureListener) future -> {
