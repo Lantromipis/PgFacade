@@ -19,4 +19,6 @@ public interface RaftServer {
     void removeNode(String nodeId) throws NotLeaderException, NotActiveException;
 
     List<RaftPeerInfo> getRaftPeers();
+
+    String getSelfRaftNodeId();
 }

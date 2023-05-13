@@ -11,13 +11,12 @@ public class DockerConstants {
     public static final String POSTGRES_ENV_VAR_PASSWORD = "POSTGRES_PASSWORD";
     public static final String POSTGRES_ENV_VAR_DB = "POSTGRES_DB";
 
-    public static final String HEALTHCHECK_CMD_SHELL = "CMD-SHELL";
-
     public static final String HELP_CONTAINER_BASE_BACKUP_PATH = "/tmp/pg/backup";
 
     public static final String HELP_CONTAINER_RESTORE_ROOT_PATH = "/tmp/pg/restore";
     public static final String HELP_CONTAINER_RESTORE_PGDATA_PATH = HELP_CONTAINER_RESTORE_ROOT_PATH + "/backup";
     public static final String HELP_CONTAINER_RESTORE_WAL_PATH = HELP_CONTAINER_RESTORE_ROOT_PATH + "/wal";
+    public static final String SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX = "pg-facade-suspended";
 
     @RequiredArgsConstructor
     public enum ContainerState {

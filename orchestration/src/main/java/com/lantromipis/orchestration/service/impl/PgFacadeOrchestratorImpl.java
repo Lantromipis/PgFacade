@@ -16,6 +16,7 @@ import com.lantromipis.orchestration.restclient.PgFacadeHealtcheckTemplateRestCl
 import com.lantromipis.orchestration.restclient.PgFacadeShutdownTemplateRestClient;
 import com.lantromipis.orchestration.restclient.model.ForceShutdownRequestDto;
 import com.lantromipis.orchestration.restclient.model.HealtcheckResponseDto;
+import com.lantromipis.orchestration.restclient.model.ShutdownRaftAndOrchestrationRequestDto;
 import com.lantromipis.orchestration.restclient.model.SoftShutdownRequestDto;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
@@ -84,6 +85,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
 
     private boolean orchestrationActive = false;
     private boolean raftSynced = false;
+    private boolean wasLeaderBeforeForceDisabled = false;
     private String loadBalancerAdapterId;
 
     @Override
@@ -105,8 +107,8 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     }
 
     @Override
-    public boolean shutdownCluster(boolean force, boolean shutdownPostgres, boolean shutdownLoadBalancer, long maxProxyAwaitSeconds) {
-        log.info("Cluster shutdown requested.");
+    public boolean shutdownClusterFull(boolean force, boolean shutdownPostgres, boolean shutdownLoadBalancer, long maxProxyAwaitSeconds) {
+        log.info("Cluster full shutdown requested.");
 
         AtomicBoolean success = new AtomicBoolean(true);
         AtomicBoolean leader = new AtomicBoolean(false);
@@ -117,8 +119,9 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
             stopOrchestration();
 
             // Leader shutdowns all followers. Followers just shutdown themselves.
-            if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+            if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole()) || wasLeaderBeforeForceDisabled) {
                 leader.set(true);
+                platformAdapter.get().suspendPgFacadeInstance(pgFacadeRaftService.getSelfRaftNodeId());
                 pgFacadeInstances.values()
                         .forEach(
                                 instance -> {
@@ -142,9 +145,10 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                                             .build()
                                             );
                                         }
+                                        platformAdapter.get().suspendPgFacadeInstance(instance.raftIdAndAdapterId);
                                     } catch (Exception e) {
                                         success.set(false);
-                                        log.error("Failed to shutdown Raft Server on node with address {}", instance.getAddress());
+                                        log.error("Failed to shutdown PgFacade on node with address {}", instance.getAddress());
                                     }
                                 }
                         );
@@ -158,7 +162,6 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 if (shutdownLoadBalancer && leader.get() && loadBalancerAdapterId != null) {
                     platformAdapter.get().deleteInstance(loadBalancerAdapterId);
                 }
-                log.info("All Postgres instances stopped.");
                 managedExecutor.runAsync(() -> {
                             try {
                                 Thread.sleep(5000);
@@ -171,23 +174,78 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 );
             } else {
                 managedExecutor.runAsync(() -> {
+                            log.info("Awaiting proxy clients...");
                             proxyService.shutdown(true, Duration.ofSeconds(maxProxyAwaitSeconds));
-                            log.info("All clients disconnected. Shutting down PgFacade...");
+                            log.info("All proxy clients disconnected. Shutting down PgFacade...");
                             postgresOrchestrator.stopOrchestrator(shutdownPostgres && leader.get());
                             if (shutdownLoadBalancer && leader.get() && loadBalancerAdapterId != null) {
                                 platformAdapter.get().deleteInstance(loadBalancerAdapterId);
                             }
-                            log.info("All Postgres instances stopped.");
                             Quarkus.asyncExit(0);
                         }
                 );
             }
         } catch (Exception e) {
             success.set(false);
-            log.error("Error while shutting down Raft!");
+            log.error("Error while shutting down PgFacade!");
         }
 
         return success.get();
+    }
+
+    @Override
+    public boolean shutdownClusterRaftAndOrchestration(boolean suspend) {
+        AtomicBoolean success = new AtomicBoolean(true);
+        boolean leader = false;
+
+        try {
+            // Prevent orchestrator from creating other nodes
+            pgFacadeRuntimeProperties.setPgFacadeOrchestrationForceDisabled(true);
+            stopOrchestration();
+
+            // Leader shutdowns all followers. Followers just shutdown themselves.
+            if (PgFacadeRaftRole.LEADER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
+                leader = true;
+                if (suspend) {
+                    platformAdapter.get().suspendPgFacadeInstance(pgFacadeRaftService.getSelfRaftNodeId());
+                }
+                pgFacadeInstances.values()
+                        .forEach(
+                                instance -> {
+                                    try (PgFacadeShutdownTemplateRestClient shutdownRestClient = createRestClient(
+                                            PgFacadeShutdownTemplateRestClient.class,
+                                            instance.getAddress(),
+                                            pgFacadeRuntimeProperties.getHttpPort(),
+                                            30000
+                                    )) {
+                                        shutdownRestClient.shutdownRaftAndOrchestration(
+                                                ShutdownRaftAndOrchestrationRequestDto
+                                                        .builder()
+                                                        .suspend(suspend)
+                                                        .build()
+                                        );
+                                        if (suspend) {
+                                            platformAdapter.get().suspendPgFacadeInstance(instance.raftIdAndAdapterId);
+                                        }
+                                    } catch (Exception e) {
+                                        success.set(false);
+                                        log.error("Failed to shutdown Raft Server on node with address {}", instance.getAddress());
+                                    }
+                                }
+                        );
+            }
+
+            pgFacadeRaftService.shutdown(true);
+
+            if (leader) {
+                wasLeaderBeforeForceDisabled = true;
+            }
+
+            return success.get();
+        } catch (Exception e) {
+            log.error("Error during raft and orchestration shutdown!", e);
+            return false;
+        }
     }
 
     public void syncedWithRaftLog(@Observes RaftLogSyncedOnStartupEvent raftLogSyncedOnStartupEvent) {

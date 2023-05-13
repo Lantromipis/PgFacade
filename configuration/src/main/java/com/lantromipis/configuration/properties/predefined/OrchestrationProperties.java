@@ -84,6 +84,8 @@ public interface OrchestrationProperties {
         ExternalLoadBalancerProperties externalLoadBalancer();
 
         interface ExternalLoadBalancerProperties {
+            String networkForEndClients();
+            
             String dnsAlias();
 
             String containerName();
@@ -92,7 +94,6 @@ public interface OrchestrationProperties {
         }
 
         interface PgFacadeProperties {
-            String localFilesDirectory();
 
             String internalNetworkName();
 
@@ -113,20 +114,6 @@ public interface OrchestrationProperties {
             String containerName();
 
             String volumeName();
-
-            HealthCheckProperties healthcheck();
-
-            interface HealthCheckProperties {
-                long interval();
-
-                long timeout();
-
-                int retries();
-
-                long startPeriod();
-
-                String cmdShellCommand();
-            }
         }
     }
 

@@ -37,11 +37,11 @@ public class FilesPathsProducer {
     }
 
     private String getLocalFilesDirPath() {
-        return orchestrationProperties.docker().pgFacade().localFilesDirectory();
+        return PgFacadeConstants.PG_FACADE_FILES_DIR;
     }
 
     private String getPersistedPropertiesDirPath() {
-        return orchestrationProperties.docker().pgFacade().localFilesDirectory() + "/" + PgFacadeConstants.PG_FACADE_PERSISTED_PROPERTIES_DIR;
+        return PgFacadeConstants.PG_FACADE_FILES_DIR + "/" + PgFacadeConstants.PG_FACADE_PERSISTED_PROPERTIES_DIR;
     }
 
     public String getRaftDirPath() {

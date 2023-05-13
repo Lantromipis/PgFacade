@@ -16,8 +16,8 @@ public class PgFacadeConstants {
 
     public static final String POSTGRES_WAL_UPLOAD_DIRECTORY_NAME = "wal-upload";
 
+    public static final String PG_FACADE_FILES_DIR = "/var/run/pgfacade";
     public static final String POSTGRES_NODE_INFO_FILE_NAME = "postgres-nodes-info.json";
-
     public static final String POSTGRES_SETTINGS_INFO_FILE_NAME = "postgres-settings-info.json";
     public static final String POSTGRES_ARCHIVE_INFO_FILE_NAME = "postgres-archive-info.json";
     public static final String EXTERNAL_LOAD_BALANCER_INFO_FILE_NAME = "load-balancer-info.json";

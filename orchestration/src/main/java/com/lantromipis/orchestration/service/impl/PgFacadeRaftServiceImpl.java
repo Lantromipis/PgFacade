@@ -105,13 +105,19 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
 
     @Override
     public void shutdown(boolean simulateRoleChangedToFollower) {
+        if (raftServer == null) {
+            log.info("Raft server stopped.");
+            return;
+        }
         try {
+            log.info("Stopping Raft server...");
             raftServer.shutdown();
             if (simulateRoleChangedToFollower) {
                 raftEventListener.selfRoleChanged(RaftRole.FOLLOWER);
             }
+            log.info("Raft server stopped.");
         } catch (Exception e) {
-            log.error("Error during Raft shutdown", e);
+            log.error("Error during Raft server shutdown", e);
         }
     }
 
@@ -151,6 +157,11 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     @Override
     public List<RaftPeerInfo> getRaftPeersFromServer() throws RaftException {
         return raftServer.getRaftPeers();
+    }
+
+    @Override
+    public String getSelfRaftNodeId() {
+        return raftServer.getSelfRaftNodeId();
     }
 
     @Override

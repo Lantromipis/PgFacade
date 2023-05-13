@@ -2,6 +2,7 @@ version: "3.7"
 name: pgfacade
 services:
   pgfacade:
+    image: pgfacade-pgfacade
     build:
       dockerfile: ../.deployment/Dockerfile.jvm-postgres-15
       context: ../app-pgfacade-root

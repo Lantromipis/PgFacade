@@ -28,9 +28,9 @@ pg-facade:
   orchestration:
     adapter: docker
     postgres-cluster-restore:
-      auto-restore-if-no-instances-on-startup: true
+      auto-restore-if-no-instances-on-startup: false
       allow-creating-new-empty-primary-if-restore-on-startup-failed: false
-      auto-restore-lost-cluster: true
+      auto-restore-lost-cluster: false
       remove-failed-to-restore-instance: false
     common:
       external-load-balancer:
@@ -54,11 +54,11 @@ pg-facade:
       host: unix:///var/run/pgfacade/docker.sock
       helper-object-name: "pg-facade-temp"
       external-load-balancer:
-        dns-alias: pg-facade-postgres
+        network-for-end-clients: pg-facade-balancer-network
+        dns-alias: pg-facade-balancer
         container-name: pg-facade-load-balancer
         image-tag: "pgfacade-balancer:latest"
       pg-facade:
-        local-files-directory: "/var/run/pgfacade"
         internal-network-name: pg-facade-internal-network
         external-network-name: pg-facade-external-network
         container-name: pg-facade-node
@@ -69,12 +69,6 @@ pg-facade:
         network-name: pg-facade-postgres-network
         container-name: pg-facade-managed-postgres
         volume-name: pg-facade-postgres-volume
-        healthcheck:
-          start-period: 3000 #millisecinds
-          interval: 5000 #millisecinds
-          timeout: 100 #millisecinds
-          retries: 10
-          cmd-shell-command: pg_isready -U ${pg-facade.postgres.users.pg-facade.username}
   archiving:
     enabled: true
     adapter: s3

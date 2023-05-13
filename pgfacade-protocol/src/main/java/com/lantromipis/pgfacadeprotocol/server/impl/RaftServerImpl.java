@@ -203,7 +203,15 @@ public class RaftServerImpl implements RaftServer {
     }
 
     @Override
+    public String getSelfRaftNodeId() {
+        return context.getSelfNodeId();
+    }
+
+    @Override
     public void shutdown() {
+        if (!context.isActive()) {
+            return;
+        }
         context.setActive(false);
         context.getVoteTimer().stop();
         context.getHeartbeatTimer().stop();

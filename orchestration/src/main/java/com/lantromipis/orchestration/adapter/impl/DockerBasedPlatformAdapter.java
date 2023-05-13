@@ -27,7 +27,6 @@ import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
-import com.lantromipis.orchestration.mapper.DockerMapper;
 import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
@@ -45,7 +44,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
@@ -57,9 +55,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Inject
     OrchestrationProperties orchestrationProperties;
-
-    @Inject
-    DockerMapper dockerMapper;
 
     @Inject
     PostgresProperties postgresProperties;
@@ -267,7 +262,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
                     .instancePort(5432)
                     .isActive(DockerConstants.ContainerState.RUNNING.getValue().equals(inspectResponse.getState().getStatus()))
-                    .health(dockerMapper.toInstanceHealth(inspectResponse))
                     .build();
 
         } catch (NotFoundException notFoundException) {
@@ -576,22 +570,19 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Override
     public List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException {
-        Network pgFacadeInternalNetwork;
         try {
-            pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
-                    .exec();
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
-        }
+            List<Container> containers = listPgFacadeUnsuspendedContainers();
 
-        try {
-            return pgFacadeInternalNetwork.getContainers()
-                    .keySet()
+            if (CollectionUtils.isEmpty(containers)) {
+                return Collections.emptyList();
+            }
+
+            return containers
                     .stream()
-                    .map(containerNetworkConfig -> dockerClient.inspectContainerCmd(containerNetworkConfig).exec())
-                    .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
+                    .map(this::containerToPgFacadeRaftNodeInfo)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
+
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Failed to get Raft nodes info. ", e);
         }
@@ -605,23 +596,18 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
         }
 
-        Network pgFacadeInternalNetwork;
+        InspectContainerResponse inspectContainerResponse;
+
         try {
-            pgFacadeInternalNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
+            inspectContainerResponse = dockerClient
+                    .inspectContainerCmd(hostname)
                     .exec();
         } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find PgFacade internal network. ", e);
+            throw new PlatformAdapterOperationExecutionException("Failed to insect self container.", e);
         }
 
-        return pgFacadeInternalNetwork.getContainers()
-                .entrySet()
-                .stream()
-                .filter(configEntry -> configEntry.getKey().contains(hostname))
-                .findFirst()
-                .map(configEntry -> dockerClient.inspectContainerCmd(configEntry.getKey()).exec())
-                .map(this::inspectContainerResponseToPgFacadeRaftNodeInfo)
-                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain Docker container ID start symbols."));
+        return Optional.ofNullable(inspectContainerResponseToPgFacadeRaftNodeInfo(inspectContainerResponse))
+                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain short Docker container ID"));
     }
 
     @Override
@@ -674,15 +660,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
     @Override
     public List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() {
-        List<Container> containers = dockerClient.listContainersCmd()
-                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
-                .exec();
+        List<Container> containers = listPgFacadeUnsuspendedContainers();
 
         if (CollectionUtils.isEmpty(containers)) {
             return Collections.emptyList();
         }
 
-        return containers.stream()
+        return containers
+                .stream()
                 .map(this::containerToHttpNodeInfo)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
@@ -731,6 +716,15 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     )
                     .exec();
 
+            dockerClient.connectToNetworkCmd()
+                    .withContainerId(createContainerResponse.getId())
+                    .withNetworkId(orchestrationProperties.docker().externalLoadBalancer().networkForEndClients())
+                    .withContainerNetwork(
+                            new ContainerNetwork()
+                                    .withAliases(orchestrationProperties.docker().externalLoadBalancer().dnsAlias())
+                    )
+                    .exec();
+
             dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
 
             InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();
@@ -753,6 +747,35 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         }
     }
 
+    @Override
+    public void suspendPgFacadeInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
+        try {
+            dockerClient.renameContainerCmd(adapterIdentifier)
+                    .withName(dockerUtils.createUniqueObjectName(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
+                    .exec();
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Failed to suspend container!", e);
+        }
+    }
+
+    private List<Container> listPgFacadeUnsuspendedContainers() {
+        List<Container> containers = dockerClient.listContainersCmd()
+                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
+                .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
+                .exec();
+
+        if (CollectionUtils.isEmpty(containers)) {
+            return Collections.emptyList();
+        }
+
+        return containers.stream()
+                .filter(container -> Arrays
+                        .stream(container.getNames())
+                        .noneMatch(name -> name.contains(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
+                )
+                .collect(Collectors.toList());
+    }
+
     private PgFacadeNodeExternalConnectionsInfo containerToExternalConnectionsInfo(Container container) {
         String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
 
@@ -770,6 +793,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     private PgFacadeNodeHttpConnectionsInfo containerToHttpNodeInfo(Container container) {
+        if (container == null) {
+            return null;
+        }
+
         String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
 
         if (address == null) {
@@ -784,16 +811,44 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     private PgFacadeRaftNodeInfo inspectContainerResponseToPgFacadeRaftNodeInfo(InspectContainerResponse inspectContainerResponse) {
+        if (inspectContainerResponse == null) {
+            return null;
+        }
+
+        String address = inspectContainerResponse.getNetworkSettings()
+                .getNetworks()
+                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
+                .getIpAddress();
+
+        if (address == null) {
+            return null;
+        }
+
         return PgFacadeRaftNodeInfo
                 .builder()
                 .platformAdapterIdentifier(inspectContainerResponse.getId())
-                .address(
-                        inspectContainerResponse.getNetworkSettings()
-                                .getNetworks()
-                                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
-                                .getIpAddress()
-                )
+                .address(address)
                 .createdWhen(Instant.parse(inspectContainerResponse.getCreated()))
+                .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
+                .build();
+    }
+
+    private PgFacadeRaftNodeInfo containerToPgFacadeRaftNodeInfo(Container container) {
+        if (container == null) {
+            return null;
+        }
+
+        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
+
+        if (address == null) {
+            return null;
+        }
+
+        return PgFacadeRaftNodeInfo
+                .builder()
+                .platformAdapterIdentifier(container.getId())
+                .address(address)
+                .createdWhen(Instant.ofEpochMilli(container.getCreated()))
                 .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
                 .build();
     }
@@ -874,6 +929,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 throw new PlatformAdapterOperationExecutionException("Error while creating basebackup. Stderr: " + commandExecutionResult.getStderr());
             }
 
+            if (StringUtils.isNotEmpty(commandExecutionResult.getStderr())) {
+                log.warn("There were errors during basebackup creation. Stderr: {}", commandExecutionResult.getStderr());
+            }
+
             log.info("Finished creating backup for standby.");
 
             forceDeleteContainerSafe(containerId);
@@ -903,15 +962,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .withHostConfig(
                         HostConfig.newHostConfig()
                                 .withNetworkMode(dockerProperties.postgres().networkName())
-                )
-                //TODO bad healthcheck for standby. check using pg_stat_wal_receiver
-                .withHealthcheck(
-                        new HealthCheck()
-                                .withInterval(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().interval()))
-                                .withRetries(dockerProperties.postgres().healthcheck().retries())
-                                .withStartPeriod(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().startPeriod()))
-                                .withTimeout(TimeUnit.MILLISECONDS.toNanos(dockerProperties.postgres().healthcheck().timeout()))
-                                .withTest(List.of(DockerConstants.HEALTHCHECK_CMD_SHELL, dockerProperties.postgres().healthcheck().cmdShellCommand()))
                 );
     }
 
