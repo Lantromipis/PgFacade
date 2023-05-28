@@ -92,23 +92,36 @@ After you have figured out setting name, convert it to environment variable usin
 
 ## General installation steps
 
-### When you want to test PgFacade
-1. Enable set environment variable `PG_FACADE_ORCHESTRATION_POSTGRES_CLUSTER_RESTORE_ALLOW_CREATING_NEW_EMPTY_PRIMARY_IF_RESTORE_ON_STARTUP_FAILED` to `true`. When true, PgFacade will automatically create new empty Postgres database.
+## How to fill `postgres-nodes-info.json` file
+
+`postgres-nodes-info.json` file contains JSON describing current known PostgreSQL instances. You must fill this file for first time, so PgFacade will know what PostgreSQL it needs to manage. Example of file:
+```
+{
+  "41a2f8bb-3d8b-49ed-a2be-cef3f69df0d7": 
+  {
+    "adapterIdentifier": "11031269250eaf2f6c1e17bbf467b5f35ba99a6fc95fff4f4b3c25d60f885db0",
+    "instanceId": "41a2f8bb-3d8b-49ed-a2be-cef3f69df0d7",
+    "primary": true
+  }
+}
+```
+
+Replace key `41a2f8bb-3d8b-49ed-a2be-cef3f69df0d7` value and field `instanceId` value with random UUID v4. Replace field `adapterIdentifier` value with Docker container ID.
 
 ### When archiving required
 
 #### S3 compatible storage
 1. Create bucket for backups and WAL files. You can also use one bucket for both. 
 2. Specify bucket names using environment variables.
-3. Specify S3 storage connection parameters
+3. Specify S3 storage connection parameters (access key and secret key)
 
 ## Installation for Docker
 1. Select Dockerfile or image to use. For that, check Postgres version and select Dockerfile for that Postgres version. For example, for Postgres 15, use file `Dockerfile.jvm-postgres-15`
 2. Create network for postgres and PgFacade. Default network name: `pg-facade-postgres-network`. If you want to create network with another name, then additionally set environment variable `PG_FACADE_ORCHESTRATION_DOCKER_POSTGRES_NETWORK_NAME`
 3. Create network for PgFacade internal use. Default network name: `pg-facade-internal-network`. If you want to create network with another name, then additionally set environment variable `PG_FACADE_ORCHESTRATION_DOCKER_PGFACADE_INTERNAL_NETWORK_NAME`
 4. Create network for PgFacade external usa (this network should be used by containers, which need Postgres). Default network name: `pg-facade-external-network`. If you want to create network with another name, then additionally set environment variable `PG_FACADE_ORCHESTRATION_DOCKER_PGFACADE_EXTERNAL_NETWORK_NAME`
-5. Create PgFacade container.
-6. Mount Docker socket if you are going to access Docker API using it. Default example `/var/run/docker.sock:/var/run/pgfacade/docker.sock` 
+5. Create docker volume with file `postgres-nodes-info.json` and fill it with data. Instructions on how to fill this file are above.
+6. Create PgFacade container. Mount volume you created on step 5. Mount Docker socket if you want PgFacade to access Docker API using it. Example `/var/run/docker.sock:/var/run/pgfacade/docker.sock`
 7. Connect PgFacade container to network from point 2 (postgres network)
 8. Connect PgFacade container to network from point 3 (internal network)
 9. Connect PgFacade container to network from point 4 (external network)
