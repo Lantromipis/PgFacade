@@ -10,7 +10,7 @@
     * [Proxy](#proxy)
     * [REST API](#rest-api)
   * [General installation steps](#general-installation-steps)
-    * [When you want to test PgFacade](#when-you-want-to-test-pgfacade)
+  * [How to fill `postgres-nodes-info.json` file](#how-to-fill-postgres-nodes-infojson-file)
     * [When archiving required](#when-archiving-required)
       * [S3 compatible storage](#s3-compatible-storage)
   * [Installation for Docker](#installation-for-docker)
