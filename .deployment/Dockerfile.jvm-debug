@@ -35,5 +35,5 @@ ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
 ENV QUARKUS_LAUNCH_DEVMODE=true
 
-ENTRYPOINT ["/bin/bash", "-c", "java ${JAVA_OPTS} -jar ${JAVA_APP_JAR}"]
+ENTRYPOINT ["/bin/bash", "-c", "java ${JAVA_OPTS} ${JAVA_OPTS_APPEND} -jar ${JAVA_APP_JAR}"]
 

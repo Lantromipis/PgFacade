@@ -41,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -85,8 +84,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
     @Override
     public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback) {
         if (primary) {
+            log.debug("Primary connection requested.");
             getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
         } else {
+            log.debug("Standby connection requested.");
             StandbyPostgresPoolWrapper wrapper = getLeastLoadedStandbyStorage();
             if (wrapper != null) {
                 getConnection(startupMessageInfo, authAdditionalInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
@@ -342,7 +343,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     public void listenToStandbyRemovedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) StandbyRemovedEvent standbyRemovedEvent) {
         StandbyPostgresPoolWrapper wrapper = standbyConnectionsStorages.remove(standbyRemovedEvent.getInstanceId());
-        wrapper.getStorage().removeAllConnections().forEach(HandlerUtils::closeOnFlush);
+        if (wrapper != null) {
+            wrapper.getStorage().removeAllConnections().forEach(HandlerUtils::closeOnFlush);
+        }
     }
 
     private PooledConnectionWrapper wrapPooledConnection(PooledConnectionInternalInfo pooledConnectionInternalInfo, PostgresInstancePooledConnectionsStorage storage) {
@@ -369,44 +372,51 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
 
                         if (params.isRollback() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
-                            CountDownLatch cleanAwaitLatch = new CountDownLatch(1);
-                            AtomicBoolean cleanSuccess = new AtomicBoolean(false);
+                            AtomicBoolean finished = new AtomicBoolean(false);
+
+                            ScheduledFuture<?> cancelFuture = pooledConnectionInternalInfo.getRealPostgresConnection().eventLoop().schedule(() -> {
+                                        if (finished.compareAndSet(false, true)) {
+                                            log.warn("Timeout reached for real Postgres connection auth.");
+                                            HandlerUtils.closeOnFlush(
+                                                    pooledConnectionInternalInfo.getRealPostgresConnection(),
+                                                    ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                                            );
+                                        } else {
+                                            log.debug("Postgres connection acquired. Canceling scheduled...");
+                                        }
+                                    },
+                                    proxyProperties.connectionPool().cleanRealUsedConnectionTimeout().toMillis(),
+                                    TimeUnit.MILLISECONDS
+                            );
 
                             pooledConnectionInternalInfo.getRealPostgresConnection().pipeline().addLast(
                                     connectionPoolChannelHandlerProducer.createChannelCleaningHandler(
                                             result -> {
-                                                cleanAwaitLatch.countDown();
-                                                cleanSuccess.set(result.isSuccess());
+                                                if (finished.compareAndSet(false, true)) {
+                                                    cancelFuture.cancel(false);
+                                                } else {
+                                                    return;
+                                                }
+
+                                                if (result.isSuccess()) {
+                                                    HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
+                                                    returnTakenConnectionToPoolAndCloseIfFailed(storage, pooledConnectionInternalInfo);
+                                                } else {
+                                                    HandlerUtils.closeOnFlush(
+                                                            pooledConnectionInternalInfo.getRealPostgresConnection(),
+                                                            ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                                                    );
+                                                }
                                             }
                                     )
                             );
 
                             pooledConnectionInternalInfo.getRealPostgresConnection().read();
-
-                            boolean awaitSuccess = cleanAwaitLatch.await(proxyProperties.connectionPool().cleanRealUsedConnectionTimeout().toMillis(), TimeUnit.MILLISECONDS);
-
-                            if (awaitSuccess && cleanSuccess.get()) {
-                                HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
-                            } else {
-                                HandlerUtils.closeOnFlush(
-                                        pooledConnectionInternalInfo.getRealPostgresConnection(),
-                                        ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
-                                );
-                                return;
-                            }
-                        }
-
-                        Channel channel = storage.returnTakenConnectionAndCheckAge(
-                                pooledConnectionInternalInfo,
-                                proxyProperties.connectionPool().connectionMaxAge().toMillis()
-                        );
-
-                        if (channel != null) {
-                            log.debug("Connection reached its max-age. Removing it from pool and closing.");
-                            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
                         } else {
-                            log.debug("Returned connection to pool.");
+                            returnTakenConnectionToPoolAndCloseIfFailed(storage, pooledConnectionInternalInfo);
                         }
+
+
                     } catch (Exception e) {
                         log.error("Error while returning connection to pool", e);
                         HandlerUtils.closeOnFlush(
@@ -420,6 +430,20 @@ public class ConnectionPoolImpl implements ConnectionPool {
                     }
                 }
         );
+    }
+
+    private void returnTakenConnectionToPoolAndCloseIfFailed(PostgresInstancePooledConnectionsStorage storage, PooledConnectionInternalInfo pooledConnectionInternalInfo) {
+        Channel channel = storage.returnTakenConnectionAndCheckAge(
+                pooledConnectionInternalInfo,
+                proxyProperties.connectionPool().connectionMaxAge().toMillis()
+        );
+
+        if (channel != null) {
+            log.debug("Connection reached its max-age. Removing it from pool and closing.");
+            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+        } else {
+            log.debug("Returned connection to pool.");
+        }
     }
 
     private Bootstrap createInstanceBootstrap(RuntimePostgresInstanceInfo instanceInfo) {
