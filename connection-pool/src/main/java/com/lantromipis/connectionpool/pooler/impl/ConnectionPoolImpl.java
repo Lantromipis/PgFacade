@@ -8,7 +8,7 @@ import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.handler.common.EmptyHandler;
 import com.lantromipis.connectionpool.model.*;
-import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
@@ -82,15 +82,15 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     @Override
-    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, AuthAdditionalInfo authAdditionalInfo, Consumer<PooledConnectionWrapper> readyCallback) {
+    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, PoolAuthInfo poolAuthInfo, Consumer<PooledConnectionWrapper> readyCallback) {
         if (primary) {
             log.debug("Primary connection requested.");
-            getConnection(startupMessageInfo, authAdditionalInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
+            getConnection(startupMessageInfo, poolAuthInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
         } else {
             log.debug("Standby connection requested.");
             StandbyPostgresPoolWrapper wrapper = getLeastLoadedStandbyStorage();
             if (wrapper != null) {
-                getConnection(startupMessageInfo, authAdditionalInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
+                getConnection(startupMessageInfo, poolAuthInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
             } else {
                 readyCallback.accept(null);
             }
@@ -148,7 +148,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
     }
 
-    private void getConnection(StartupMessageInfo startupMessageInfo, AuthAdditionalInfo authAdditionalInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
+    private void getConnection(StartupMessageInfo startupMessageInfo, PoolAuthInfo poolAuthInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
         if (!poolActive.get()) {
             readyCallback.accept(null);
             return;
@@ -249,7 +249,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
                 channel.pipeline().addLast(
                         connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
-                                authAdditionalInfo,
+                                poolAuthInfo,
                                 startupMessageInfo,
                                 result -> {
                                     if (finished.compareAndSet(false, true)) {

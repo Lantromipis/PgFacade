@@ -20,19 +20,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
     private final String username;
-    private final ByteBuf authOkCombined;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
     private final PooledConnectionWrapper primaryConnectionWrapper;
     private final AtomicBoolean resourcesFreed;
 
     public SessionPooledSwitchoverClosingDataProxyChannelHandler(final String username,
-                                                                 final ByteBuf authOkCombined,
                                                                  final PooledConnectionWrapper primaryConnectionWrapper,
                                                                  final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
                                                                  final ClientConnectionsManagementService clientConnectionsManagementService) {
         this.username = username;
-        this.authOkCombined = authOkCombined;
         this.primaryConnectionWrapper = primaryConnectionWrapper;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
@@ -52,13 +49,11 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         ByteBuf response = ctx.alloc().buffer(primaryConnectionWrapper.getServerParameterMessagesBytes().length + PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_LENGTH);
         ByteBuf readyForQuery = ServerPostgresProtocolMessageEncoder.encodeReadyForQueryWithIdleTsxMessage(ctx.alloc());
 
-        response.writeBytes(authOkCombined);
         response.writeBytes(primaryConnectionWrapper.getServerParameterMessagesBytes());
         response.writeBytes(readyForQuery);
 
         ctx.writeAndFlush(response);
 
-        authOkCombined.release();
         readyForQuery.release();
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(

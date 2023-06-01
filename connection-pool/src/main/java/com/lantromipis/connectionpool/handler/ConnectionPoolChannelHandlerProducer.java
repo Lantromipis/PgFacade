@@ -2,17 +2,16 @@ package com.lantromipis.connectionpool.handler;
 
 import com.lantromipis.connectionpool.handler.auth.PgChannelSaslScramSha256AuthHandler;
 import com.lantromipis.connectionpool.handler.common.PgChannelAfterAuthHandler;
-import com.lantromipis.connectionpool.handler.common.PgChannelStartupHandler;
 import com.lantromipis.connectionpool.handler.common.PgChannelCleaningHandler;
+import com.lantromipis.connectionpool.handler.common.PgChannelStartupHandler;
 import com.lantromipis.connectionpool.model.PgChannelAuthResult;
 import com.lantromipis.connectionpool.model.PgChannelCleanResult;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
-import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
+import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
 
 import javax.enterprise.context.ApplicationScoped;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 @ApplicationScoped
 public class ConnectionPoolChannelHandlerProducer {
@@ -21,16 +20,16 @@ public class ConnectionPoolChannelHandlerProducer {
         return new PgChannelCleaningHandler(readyCallback);
     }
 
-    public PgChannelStartupHandler createNewChannelStartupHandler(AuthAdditionalInfo authAdditionalInfo, StartupMessageInfo startupMessageInfo, Consumer<PgChannelAuthResult> callbackFunction) {
+    public PgChannelStartupHandler createNewChannelStartupHandler(PoolAuthInfo poolAuthInfo, StartupMessageInfo startupMessageInfo, Consumer<PgChannelAuthResult> callbackFunction) {
         return new PgChannelStartupHandler(
                 this,
-                authAdditionalInfo,
+                poolAuthInfo,
                 startupMessageInfo,
                 callbackFunction
         );
     }
 
-    public PgChannelSaslScramSha256AuthHandler createNewSaslScramSha256AuthHandler(ScramAuthInfo scramAuthInfo, StartupMessageInfo startupMessageInfo, Consumer<PgChannelAuthResult> callbackFunction) {
+    public PgChannelSaslScramSha256AuthHandler createNewSaslScramSha256AuthHandler(ScramPoolAuthInfo scramAuthInfo, StartupMessageInfo startupMessageInfo, Consumer<PgChannelAuthResult> callbackFunction) {
         return new PgChannelSaslScramSha256AuthHandler(
                 this,
                 scramAuthInfo,
