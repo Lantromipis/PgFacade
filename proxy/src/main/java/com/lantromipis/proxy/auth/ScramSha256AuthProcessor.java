@@ -40,6 +40,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
     private byte[] serverKeyDecodedBytes;
     private final String serverNonce;
     private String serverFirstMessage;
+    private String authMessageWithoutFinalMessage;
 
     //client props
     private String gs2Header;
@@ -108,6 +109,8 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         gs2Header = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_GS2_HEADER_MATCHER_GROUP);
         clientFirstMessageBare = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_MATCHER_GROUP);
 
+        authMessageWithoutFinalMessage = clientFirstMessageBare + "," + serverFirstMessage + ",";
+
         storedKeyDecodedBytes = Base64.getDecoder().decode(storedKey);
         serverKeyDecodedBytes = Base64.getDecoder().decode(serverKey);
 
@@ -145,7 +148,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         String clientProof = saslFinalMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_PROOF_MATCHER_GROUP);
         String finalMessageWithoutProof = saslFinalMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_WITHOUT_PROOF_MATCHER_GROUP);
 
-        String authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + finalMessageWithoutProof;
+        String authMessage = authMessageWithoutFinalMessage + finalMessageWithoutProof;
         byte[] authMessageBytes = authMessage.getBytes(StandardCharsets.US_ASCII);
 
         byte[] clientSignature = ScramUtils.computeHmac(storedKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);

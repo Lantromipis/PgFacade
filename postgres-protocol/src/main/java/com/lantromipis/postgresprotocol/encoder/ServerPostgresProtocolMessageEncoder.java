@@ -158,4 +158,8 @@ public class ServerPostgresProtocolMessageEncoder {
 
         return buf;
     }
+
+    public static byte[] encodeReadyForQueryWithIdleTsxMessage() {
+        return PRECOMPILED_READY_FOR_QUERY_IDLE_TSX_MESSAGE_BYTES;
+    }
 }

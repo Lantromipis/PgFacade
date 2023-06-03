@@ -47,14 +47,11 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         }
 
         ByteBuf response = ctx.alloc().buffer(primaryConnectionWrapper.getServerParameterMessagesBytes().length + PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_LENGTH);
-        ByteBuf readyForQuery = ServerPostgresProtocolMessageEncoder.encodeReadyForQueryWithIdleTsxMessage(ctx.alloc());
 
         response.writeBytes(primaryConnectionWrapper.getServerParameterMessagesBytes());
-        response.writeBytes(readyForQuery);
+        response.writeBytes(ServerPostgresProtocolMessageEncoder.encodeReadyForQueryWithIdleTsxMessage());
 
         ctx.writeAndFlush(response);
-
-        readyForQuery.release();
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
                 proxyChannelHandlersProducer.createNewSimpleDatabasePrimaryConnectionHandler(
