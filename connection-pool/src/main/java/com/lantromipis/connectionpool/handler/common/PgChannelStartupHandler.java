@@ -3,8 +3,8 @@ package com.lantromipis.connectionpool.handler.common;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
 import com.lantromipis.connectionpool.model.PgChannelAuthResult;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
-import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
+import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
@@ -16,21 +16,20 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 @Slf4j
 public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler {
 
     private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
-    private AuthAdditionalInfo authAdditionalInfo;
+    private PoolAuthInfo poolAuthInfo;
     private StartupMessageInfo startupMessageInfo;
     private Consumer<PgChannelAuthResult> callbackFunction;
 
     public PgChannelStartupHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
-                                   final AuthAdditionalInfo authAdditionalInfo,
+                                   final PoolAuthInfo poolAuthInfo,
                                    final StartupMessageInfo startupMessageInfo,
                                    final Consumer<PgChannelAuthResult> callbackFunction) {
-        this.authAdditionalInfo = authAdditionalInfo;
+        this.poolAuthInfo = poolAuthInfo;
         this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
         this.startupMessageInfo = startupMessageInfo;
         this.callbackFunction = callbackFunction;
@@ -58,15 +57,15 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
 
         AuthenticationRequestMessage authenticationRequestMessage = ServerPostgresProtocolMessageDecoder.decodeAuthRequestMessage(message);
 
-        if (!Objects.equals(authenticationRequestMessage.getMethod(), authAdditionalInfo.getExpectedAuthMethod())) {
-            log.error("Can not create pooled connection. Expected auth method: " + authAdditionalInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
+        if (!Objects.equals(authenticationRequestMessage.getMethod(), poolAuthInfo.getExpectedAuthMethod())) {
+            log.error("Can not create pooled connection. Expected auth method: " + poolAuthInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
             closeConnection(ctx);
             return;
         }
 
         ctx.channel().pipeline().addLast(
                 connectionPoolChannelHandlerProducer.createNewSaslScramSha256AuthHandler(
-                        (ScramAuthInfo) authAdditionalInfo,
+                        (ScramPoolAuthInfo) poolAuthInfo,
                         startupMessageInfo,
                         callbackFunction
                 )

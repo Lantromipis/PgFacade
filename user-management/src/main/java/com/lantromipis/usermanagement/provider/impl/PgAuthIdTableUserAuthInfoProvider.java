@@ -10,7 +10,10 @@ import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.Date;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -48,6 +51,7 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
                                 .username(username)
                                 .passwd(password)
                                 .valUntil(valUntil == null ? null : valUntil.toLocalDate())
+                                .authenticationMethod(getAuthMethod(password))
                                 .build()
                 );
             }
@@ -70,13 +74,7 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
             return null;
         }
 
-        if (StringUtils.startsWith("md5", userAuthInfo.getPasswd())) {
-            return PostgresProtocolAuthenticationMethod.MD5;
-        } else if (StringUtils.startsWith(userAuthInfo.getPasswd(), "SCRAM-SHA-256")) {
-            return PostgresProtocolAuthenticationMethod.SCRAM_SHA256;
-        } else {
-            return PostgresProtocolAuthenticationMethod.PLAIN_TEXT;
-        }
+        return userAuthInfo.getAuthenticationMethod();
     }
 
     @Override
@@ -87,5 +85,20 @@ public class PgAuthIdTableUserAuthInfoProvider implements UserAuthInfoProvider {
         }
 
         return userAuthInfo.getPasswd();
+    }
+
+    @Override
+    public UserAuthInfo getUserAuthInfo(String username) {
+        return pgShadowTableRowsMap.get(username);
+    }
+
+    private PostgresProtocolAuthenticationMethod getAuthMethod(String passwd) {
+        if (StringUtils.startsWith(passwd, "SCRAM-SHA-256")) {
+            return PostgresProtocolAuthenticationMethod.SCRAM_SHA256;
+        } else if (StringUtils.startsWith(passwd, "md5")) {
+            return PostgresProtocolAuthenticationMethod.MD5;
+        } else {
+            return PostgresProtocolAuthenticationMethod.PLAIN_TEXT;
+        }
     }
 }

@@ -6,7 +6,7 @@ public class PostgresProtocolGeneralConstants {
     public static final int INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT = 8;
     public static final int AUTH_OK_MESSAGE_DATA = 0;
     public static final int AUTH_OK_MESSAGE_LENGTH = 8;
-    public static final int READY_FOR_QUERY_MESSAGE_LENGTH = 5;
+    public static final int READY_FOR_QUERY_MESSAGE_LENGTH = 6;
     public static final int SASL_AUTH_INT_MARKER = 10;
     public static final int SASL_AUTH_CHALLENGE_MARKER = 11;
     public static final int SASL_AUTH_COMPLETED_MARKER = 12;

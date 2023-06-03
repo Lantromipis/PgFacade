@@ -1,5 +1,6 @@
 package com.lantromipis.usermanagement.model;
 
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,4 +16,5 @@ public class UserAuthInfo {
     private String username;
     private String passwd;
     private LocalDate valUntil;
+    private PostgresProtocolAuthenticationMethod authenticationMethod;
 }

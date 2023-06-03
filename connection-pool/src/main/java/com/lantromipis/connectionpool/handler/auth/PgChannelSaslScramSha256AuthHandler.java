@@ -4,7 +4,7 @@ import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProduc
 import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
 import com.lantromipis.connectionpool.model.PgChannelAuthResult;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.ScramAuthInfo;
+import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
@@ -40,14 +40,14 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
     private String clientFirstMessageBare;
 
     private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
-    private ScramAuthInfo scramAuthInfo;
+    private ScramPoolAuthInfo scramAuthInfo;
     private StartupMessageInfo startupMessageInfo;
     private Consumer<PgChannelAuthResult> callbackFunction;
 
     private SaslAuthStatus authStatus = SaslAuthStatus.NOT_STARTED;
 
     public PgChannelSaslScramSha256AuthHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
-                                               final ScramAuthInfo scramAuthInfo,
+                                               final ScramPoolAuthInfo scramAuthInfo,
                                                final StartupMessageInfo startupMessageInfo,
                                                final Consumer<PgChannelAuthResult> callbackFunction) {
         this.clientNonce = UUID.randomUUID().toString();

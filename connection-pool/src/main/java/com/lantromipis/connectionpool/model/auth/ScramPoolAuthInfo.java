@@ -1,6 +1,5 @@
 package com.lantromipis.connectionpool.model.auth;
 
-import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,7 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ScramAuthInfo implements AuthAdditionalInfo {
+public class ScramPoolAuthInfo implements PoolAuthInfo {
     private byte[] clientKey;
     private String storedKeyBase64;
 

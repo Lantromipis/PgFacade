@@ -4,18 +4,16 @@ import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.AuthAdditionalInfo;
+import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
-import com.lantromipis.proxy.handler.auth.SaslScramSha256AuthClientChannelHandler;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
 import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
 import com.lantromipis.proxy.handler.proxy.database.SimpleProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
-import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -49,20 +47,8 @@ public class ProxyChannelHandlersProducer {
         return handler;
     }
 
-    public SaslScramSha256AuthClientChannelHandler createNewSaslScramSha256AuthHandler(StartupMessage startupMessage, boolean primaryMode) {
-        SaslScramSha256AuthClientChannelHandler handler = new SaslScramSha256AuthClientChannelHandler(
-                startupMessage,
-                userAuthInfoProvider,
-                this,
-                primaryMode
-        );
-        clientConnectionsManagementService.registerNewClientChannelHandler(handler);
-        return handler;
-    }
-
     public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage,
-                                                               AuthAdditionalInfo authAdditionalInfo,
-                                                               ByteBuf authOkMessagesCombined,
+                                                               PoolAuthInfo poolAuthInfo,
                                                                Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback,
                                                                boolean primaryConnection
     ) {
@@ -78,11 +64,10 @@ public class ProxyChannelHandlersProducer {
         connectionPool.getPostgresConnection(
                 startupMessageInfo,
                 primaryConnection,
-                authAdditionalInfo,
+                poolAuthInfo,
                 pooledConnectionWrapper -> {
                     SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
                             username,
-                            authOkMessagesCombined,
                             pooledConnectionWrapper,
                             this,
                             clientConnectionsManagementService
