@@ -21,6 +21,7 @@ public class OrchestratorConfigurationValidator implements ConfigurationValidato
     @Override
     public boolean validate() {
         boolean flag = true;
+
         if (orchestrationProperties.common().standby().count() < 1 && !OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
             log.error("Invalid configuration. Standby count must be greater than 1 if any adapter is used. If you are planning to use PgFacade as proxy + connection pool, set orchestration adapter to 'no'.");
             flag = false;
@@ -41,6 +42,14 @@ public class OrchestratorConfigurationValidator implements ConfigurationValidato
         boolean flag = true;
 
         if (!validateDockerResourcesProperties(orchestrationProperties.docker().externalLoadBalancer().resources(), "external load balancer")) {
+            flag = false;
+        }
+
+        if (!validateDockerResourcesProperties(orchestrationProperties.docker().pgFacade().resources(), "PgFacade")) {
+            flag = false;
+        }
+
+        if (!validateDockerResourcesProperties(orchestrationProperties.docker().postgres().resources(), "Postgres")) {
             flag = false;
         }
 

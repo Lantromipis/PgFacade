@@ -165,6 +165,12 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                         volumeName,
                                         new Volume(orchestrationProperties.docker().postgres().imagePgData())
                                 )
+                        )
+                        .withMemory(
+                                dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().postgres().resources().memoryLimit())
+                        )
+                        .withNanoCPUs(
+                                dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().postgres().resources().cpuLimit())
                         );
             } else {
                 createContainerCmd
@@ -644,14 +650,12 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     .withEnv(inspectSelfResponse.getConfig().getEnv());
         }
 
-        // propagate cpu limit
-        newHostConfig.withNanoCPUs(inspectSelfResponse.getHostConfig().getNanoCPUs());
-
-        // propagate memory reservation
-        newHostConfig.withMemoryReservation(inspectSelfResponse.getHostConfig().getMemoryReservation());
-
-        // propagate memory limit
-        newHostConfig.withMemory(inspectSelfResponse.getHostConfig().getMemory());
+        newHostConfig.withNanoCPUs(
+                dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().pgFacade().resources().cpuLimit())
+        );
+        newHostConfig.withMemory(
+                dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().pgFacade().resources().memoryLimit())
+        );
 
         createContainerCmd.withHostConfig(newHostConfig);
         CreateContainerResponse createContainerResponse = createContainerCmd.exec();
@@ -705,9 +709,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         try {
             PgFacadeNodeExternalConnectionsInfo selfInfo = getSelfExternalConnectionInfo();
 
-            Long nanoCpus = dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().externalLoadBalancer().resources().cpuLimit());
-            Long memory = dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().externalLoadBalancer().resources().memoryLimit());
-
             CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(orchestrationProperties.docker().externalLoadBalancer().imageTag())
                     .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().externalLoadBalancer().containerName(), UUID.randomUUID().toString()))
                     .withLabels(Map.of(PgFacadeConstants.DOCKER_SPECIFIC_EXTERNAL_LOAD_BALANCER_CONTAINER_LABEL, "true"))
@@ -719,8 +720,8 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                             )
                     ).withHostConfig(
                             HostConfig.newHostConfig()
-                                    .withNanoCPUs(nanoCpus)
-                                    .withMemory(memory)
+                                    .withNanoCPUs(dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().externalLoadBalancer().resources().cpuLimit()))
+                                    .withMemory(dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().externalLoadBalancer().resources().memoryLimit()))
                     );
 
             CreateContainerResponse createContainerResponse = createContainerCmd.exec();

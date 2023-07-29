@@ -66,12 +66,18 @@ pg-facade:
         external-network-name: pg-facade-external-network
         container-name: pg-facade-node
         expected-docker-sock-file-name: docker.sock
+        resources:
+          cpu-limit: 0.5
+          memory-limit: 350m
       postgres:
         image-tag: "postgres:latest"
         image-pg-data: "/var/lib/postgresql/data"
         network-name: pg-facade-postgres-network
         container-name: pg-facade-managed-postgres
         volume-name: pg-facade-postgres-volume
+        resources:
+          cpu-limit: 2.0
+          memory-limit: 1024m
   archiving:
     enabled: true
     adapter: s3

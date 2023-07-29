@@ -105,6 +105,8 @@ public interface OrchestrationProperties {
             String containerName();
 
             String expectedDockerSockFileName();
+
+            DockerContainerResources resources();
         }
 
         interface PostgresProperties {
@@ -117,6 +119,8 @@ public interface OrchestrationProperties {
             String containerName();
 
             String volumeName();
+
+            DockerContainerResources resources();
         }
 
         interface DockerContainerResources {
