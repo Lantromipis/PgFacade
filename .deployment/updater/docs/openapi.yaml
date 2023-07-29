@@ -1,0 +1,201 @@
+---
+openapi: 3.0.3
+info:
+  title: updater API
+  version: 1.0-SNAPSHOT
+paths:
+  /docker/install-existing-postgres:
+    post:
+      tags:
+      - Docker Install Update Controller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerInstallExistingRequestDto'
+      responses:
+        "200":
+          description: OK
+  /docker/install-new-postgres:
+    post:
+      tags:
+      - Docker Install Update Controller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerInstallNewRequestDto'
+      responses:
+        "200":
+          description: OK
+  /docker/rolling-update:
+    post:
+      tags:
+      - Docker Install Update Controller
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerRollingUpdateRequestDto'
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    DockerInstallExistingRequestDto:
+      type: object
+      properties:
+        postgresContainerId:
+          type: string
+        postgresContainerPort:
+          format: int32
+          type: integer
+        pgFacadeImageTag:
+          type: string
+        configurationInfo:
+          $ref: '#/components/schemas/ExistingPostgresConfigurationDto'
+        pgFacadeEnvVars:
+          type: object
+          additionalProperties:
+            type: string
+        modifiedPostgresConfParams:
+          type: object
+          additionalProperties:
+            type: string
+        mountDockerSock:
+          type: boolean
+        dockerSockPathOnHost:
+          type: string
+        networkBetweenPostgresAndPgFacade:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        internalPgFacadeNetwork:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        externalPgFacadeNetwork:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        loadBalancerNetwork:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        otherNetworksToConnectPgFacadeContainer:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerNetworkDto'
+    DockerInstallNewRequestDto:
+      type: object
+      properties:
+        awaitPgFacadeContainerMs:
+          format: int32
+          type: integer
+        pgFacadeImageTag:
+          type: string
+        postgresImageTag:
+          type: string
+        postgresImagePort:
+          format: int32
+          type: integer
+        newSuperuserCredentials:
+          $ref: '#/components/schemas/PostgresCredentialsDto'
+        postgresConfigurationInfo:
+          $ref: '#/components/schemas/NewPostgresConfigurationDto'
+        pgFacadeEnvVars:
+          type: object
+          additionalProperties:
+            type: string
+        mountDockerSock:
+          type: boolean
+        dockerSockPathOnHost:
+          type: string
+        networkBetweenPostgresAndPgFacade:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        internalPgFacadeNetwork:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        externalPgFacadeNetwork:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        loadBalancerNetwork:
+          $ref: '#/components/schemas/DockerNetworkDto'
+        otherNetworksToConnectPgFacadeContainer:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerNetworkDto'
+    DockerNetworkDto:
+      type: object
+      properties:
+        networkName:
+          type: string
+        create:
+          type: boolean
+    DockerRollingUpdateRequestDto:
+      type: object
+      properties:
+        leaderContainerId:
+          type: string
+        loadBalancerContainerId:
+          type: string
+        loadBalancerRefreshIntervalSeconds:
+          format: int32
+          type: integer
+        pgFacadeInternalNetworkName:
+          type: string
+        pgFacadeExternalNetworkName:
+          type: string
+        pgFacadeHttpPort:
+          format: int32
+          type: integer
+        newPgFacadeImageTag:
+          type: string
+        oldNodesAwaitClientsSeconds:
+          format: int64
+          type: integer
+        newPgFacadeEnvVars:
+          type: object
+          additionalProperties:
+            type: string
+        mountDockerSock:
+          type: boolean
+        dockerSockPathOnHost:
+          type: string
+        networkNamesToConnect:
+          type: array
+          items:
+            type: string
+    ExistingPostgresConfigurationDto:
+      type: object
+      properties:
+        configurePostgres:
+          type: boolean
+        superuserCredentials:
+          $ref: '#/components/schemas/PostgresCredentialsDto'
+        pgFacadeUsername:
+          type: string
+        pgFacadePassword:
+          type: string
+        pgFacadeDatabase:
+          type: string
+        createReplicationUser:
+          type: boolean
+        replicationUsername:
+          type: string
+        replicationPassword:
+          type: string
+    NewPostgresConfigurationDto:
+      type: object
+      properties:
+        pgFacadeUsername:
+          type: string
+        pgFacadePassword:
+          type: string
+        pgFacadeDatabase:
+          type: string
+        createReplicationUser:
+          type: boolean
+        replicationUsername:
+          type: string
+        replicationPassword:
+          type: string
+    PostgresCredentialsDto:
+      type: object
+      properties:
+        superuserName:
+          type: string
+        superuserPassword:
+          type: string
+        superuserDatabase:
+          type: string

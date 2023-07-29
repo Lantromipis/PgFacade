@@ -23,16 +23,18 @@ services:
       - 'pg-facade.archiving.s3.endpoint=http://minio:9000'
       - 'PG_FACADE_ORCHESTRATION_COMMON_EXTERNAL_LOAD_BALANCER_DEPLOY=true'
       - 'PG_FACADE_ORCHESTRATION_POSTGRES_CLUSTER_RESTORE_ALLOW_CREATING_NEW_EMPTY_PRIMARY_IF_RESTORE_ON_STARTUP_FAILED=true'
+      - 'PG_FACADE_ORCHESTRATION_DOCKER_PG_FACADE_RESOURCES_CPU_LIMIT=1.0'
+      - 'PG_FACADE_ORCHESTRATION_DOCKER_PG_FACADE_RESOURCES_MEMORY_LIMIT=500m'
       - 'JAVA_OPTS_APPEND=-Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.port=9010 -Dcom.sun.management.jmxremote.rmi.port=9010 -Djava.rmi.server.hostname=localhost -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.local.only=false'
     labels:
       - pg-facade-discovery-label=true
     deploy:
       resources:
         limits:
-          memory: 300m
+          memory: 500m
           cpus: '0.5'
         reservations:
-          memory: 200m
+          memory: 500m
           cpus: '0.05'
 
   minio:
