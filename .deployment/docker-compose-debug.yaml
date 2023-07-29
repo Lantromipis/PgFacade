@@ -29,8 +29,10 @@ services:
     deploy:
       resources:
         limits:
+          memory: 300m
           cpus: '0.5'
         reservations:
+          memory: 200m
           cpus: '0.05'
 
   minio:

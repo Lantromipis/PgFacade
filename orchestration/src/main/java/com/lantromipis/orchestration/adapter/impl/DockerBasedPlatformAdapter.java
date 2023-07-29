@@ -621,28 +621,39 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().pgFacade().containerName(), instanceId.toString()))
                 .withLabels(Map.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL, "true"));
 
+        HostConfig newHostConfig = HostConfig.newHostConfig();
+
         if (inspectSelfResponse.getHostConfig().getBinds() != null) {
             for (var bind : inspectSelfResponse.getHostConfig().getBinds()) {
                 if (bind.getVolume().getPath().contains(orchestrationProperties.docker().pgFacade().expectedDockerSockFileName())) {
-                    createContainerCmd.withHostConfig(
-                            HostConfig.newHostConfig()
-                                    .withBinds(
-                                            new Bind(
-                                                    bind.getPath(),
-                                                    new Volume(bind.getVolume().getPath())
-                                            )
+                    newHostConfig
+                            .withBinds(
+                                    new Bind(
+                                            bind.getPath(),
+                                            new Volume(bind.getVolume().getPath())
                                     )
-                    );
+                            );
                     break;
                 }
             }
         }
 
+        // propagate env vars == propagate settings
         if (inspectSelfResponse.getConfig().getEnv() != null) {
             createContainerCmd
                     .withEnv(inspectSelfResponse.getConfig().getEnv());
         }
 
+        // propagate cpu limit
+        newHostConfig.withNanoCPUs(inspectSelfResponse.getHostConfig().getNanoCPUs());
+
+        // propagate memory reservation
+        newHostConfig.withMemoryReservation(inspectSelfResponse.getHostConfig().getMemoryReservation());
+
+        // propagate memory limit
+        newHostConfig.withMemory(inspectSelfResponse.getHostConfig().getMemory());
+
+        createContainerCmd.withHostConfig(newHostConfig);
         CreateContainerResponse createContainerResponse = createContainerCmd.exec();
 
         for (var selfNetwork : inspectSelfResponse.getNetworkSettings().getNetworks().keySet()) {
@@ -694,6 +705,9 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         try {
             PgFacadeNodeExternalConnectionsInfo selfInfo = getSelfExternalConnectionInfo();
 
+            Long nanoCpus = dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().externalLoadBalancer().resources().cpuLimit());
+            Long memory = dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().externalLoadBalancer().resources().memoryLimit());
+
             CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(orchestrationProperties.docker().externalLoadBalancer().imageTag())
                     .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().externalLoadBalancer().containerName(), UUID.randomUUID().toString()))
                     .withLabels(Map.of(PgFacadeConstants.DOCKER_SPECIFIC_EXTERNAL_LOAD_BALANCER_CONTAINER_LABEL, "true"))
@@ -703,6 +717,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                     createEnvValueForRequest(ExternalLoadBalancerConstants.ENV_INITIAL_HTTP_PORT, String.valueOf(selfInfo.getHttpPort())),
                                     createEnvValueForRequest(QuarkusConstants.ENV_QUARKUS_HTTP_PORT, String.valueOf(QuarkusConstants.DEFAULT_HTTP_PORT))
                             )
+                    ).withHostConfig(
+                            HostConfig.newHostConfig()
+                                    .withNanoCPUs(nanoCpus)
+                                    .withMemory(memory)
                     );
 
             CreateContainerResponse createContainerResponse = createContainerCmd.exec();

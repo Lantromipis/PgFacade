@@ -2,6 +2,7 @@ package com.lantromipis.configuration.properties.predefined;
 
 import io.smallrye.config.ConfigMapping;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 
 @ConfigMapping(prefix = "pg-facade.orchestration")
@@ -85,12 +86,14 @@ public interface OrchestrationProperties {
 
         interface ExternalLoadBalancerProperties {
             String networkForEndClients();
-            
+
             String dnsAlias();
 
             String containerName();
 
             String imageTag();
+
+            DockerContainerResources resources();
         }
 
         interface PgFacadeProperties {
@@ -114,6 +117,12 @@ public interface OrchestrationProperties {
             String containerName();
 
             String volumeName();
+        }
+
+        interface DockerContainerResources {
+            BigDecimal cpuLimit();
+
+            String memoryLimit();
         }
     }
 
