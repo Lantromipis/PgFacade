@@ -1,0 +1,45 @@
+curl -L 'http://localhost:9090/docker/install-new-postgres' \
+-H 'Content-Type: application/json' \
+-d '{
+    "awaitPgFacadeContainerMs": 15000,
+    "pgFacadeImageTag": "pgfacade-pgfacade:latest",
+    "postgresImageTag": "postgres:latest",
+    "postgresImagePort": 5432,
+    "newSuperuserCredentials": {
+        "superuserName": "postgres",
+        "superuserPassword": "postgres",
+        "superuserDatabase": "postgres"
+    },
+    "postgresConfigurationInfo": {
+        "pgFacadeUsername": "pgfacade",
+        "pgFacadePassword": "pgfacade",
+        "pgFacadeDatabase": "pgfacade",
+        "createReplicationUser": true,
+        "replicationUsername": "replicant",
+        "replicationPassword": "replicant"
+    },
+    "pgFacadeEnvVars": {
+        "PG_FACADE_ORCHESTRATION_COMMON_EXTERNAL_LOAD_BALANCER_DEPLOY": "true",
+        "PG_FACADE_ARCHIVING_ENABLED" : "false"
+    },
+    "mountDockerSock": true,
+    "dockerSockPathOnHost": "/var/run/docker.sock",
+    "networkBetweenPostgresAndPgFacade": {
+        "networkName": "pg-facade-postgres-network",
+        "create": false
+    },
+    "internalPgFacadeNetwork": {
+        "networkName": "pg-facade-internal-network",
+        "create": false
+    },
+    "externalPgFacadeNetwork": {
+        "networkName": "pg-facade-external-network",
+        "create": false
+    },
+    "loadBalancerNetwork": {
+        "networkName": "pg-facade-balancer-network",
+        "create": false
+    },
+    "otherNetworksToConnectPgFacadeContainer": [
+    ]
+}'

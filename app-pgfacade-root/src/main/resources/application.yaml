@@ -10,7 +10,7 @@ pg-facade:
   proxy:
     primary-port: 5433
     standby-port: 5434
-    max-connections: 2000
+    max-connections: 200000
     connection-pool:
       enabled: true
       await-connection-when-pool-empty: true
@@ -58,17 +58,26 @@ pg-facade:
         dns-alias: pg-facade-balancer
         container-name: pg-facade-load-balancer
         image-tag: "pgfacade-balancer:latest"
+        resources:
+          cpu-limit: 1.0
+          memory-limit: 512m
       pg-facade:
         internal-network-name: pg-facade-internal-network
         external-network-name: pg-facade-external-network
         container-name: pg-facade-node
         expected-docker-sock-file-name: docker.sock
+        resources:
+          cpu-limit: 0.5
+          memory-limit: 350m
       postgres:
         image-tag: "postgres:latest"
         image-pg-data: "/var/lib/postgresql/data"
         network-name: pg-facade-postgres-network
         container-name: pg-facade-managed-postgres
         volume-name: pg-facade-postgres-volume
+        resources:
+          cpu-limit: 2.0
+          memory-limit: 1024m
   archiving:
     enabled: true
     adapter: s3

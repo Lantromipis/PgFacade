@@ -20,12 +20,16 @@ import com.lantromipis.properties.UpdaterProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -41,9 +45,13 @@ public class DockerHelper {
     private DockerClient dockerClient;
 
     private static final String DOCKER_ENV_VAR_HOSTNAME = "HOSTNAME";
+
     private static final String POSTGRES_ENV_VAR_USERNAME = "POSTGRES_USER";
     private static final String POSTGRES_ENV_VAR_PASSWORD = "POSTGRES_PASSWORD";
     private static final String POSTGRES_ENV_VAR_DB = "POSTGRES_DB";
+
+    private static final String PG_FACADE_ENV_VAR_DOCKER_PG_FACADE_CPU_LIMIT = "PG_FACADE_ORCHESTRATION_DOCKER_PG_FACADE_RESOURCES_CPU_LIMIT";
+    private static final String PG_FACADE_ENV_VAR_DOCKER_PG_FACADE_MEMORY_LIMIT = "PG_FACADE_ORCHESTRATION_DOCKER_PG_FACADE_RESOURCES_MEMORY_LIMIT";
 
     private static final String PG_FACADE_VOLUME_MOUNT_PATH = "/var/run/pgfacade";
     private static final String PG_FACADE_VOLUME_MOUNT_PATH_WITHOUT_LAST_DIR = "/var/run";
@@ -52,6 +60,10 @@ public class DockerHelper {
     private static final String PG_FACADE_POSTGRES_SETTINGS_INFO_FILE_NAME = "postgres-settings-info.json";
     private static final String PG_FACADE_DOCKER_SOCK_PATH = "/var/run/pgfacade/docker.sock";
     private static final String PG_FACADE_DISCOVERY_LABEL = "pg-facade-discovery-label";
+
+    private static final Long DEFAULT_PG_FACADE_MEMORY_LIMIT = 314572800L;
+    private static final Long DEFAULT_PG_FACADE_CPU_LIMIT = 500000000L;
+
 
     private void initIfNeeded() {
         if (dockerClient != null) {
@@ -378,6 +390,8 @@ public class DockerHelper {
                 .withHostConfig(
                         HostConfig.newHostConfig()
                                 .withBinds(binds)
+                                .withNanoCPUs(extractCpuLimit(envVars))
+                                .withMemory(extractMemoryLimit(envVars))
                 )
                 .withLabels(Map.of(PG_FACADE_DISCOVERY_LABEL, "true"));
 
@@ -406,5 +420,52 @@ public class DockerHelper {
 
     private String createEnvValueForRequest(String varName, String value) {
         return varName + "=" + value;
+    }
+
+    private Long extractCpuLimit(Map<String, String> envVars) {
+        if (MapUtils.isNotEmpty(envVars)) {
+            String cpuLimitFromEnvVar = envVars.get(PG_FACADE_ENV_VAR_DOCKER_PG_FACADE_CPU_LIMIT);
+
+            if (StringUtils.isEmpty(cpuLimitFromEnvVar)) {
+                return DEFAULT_PG_FACADE_CPU_LIMIT;
+            }
+
+            try {
+                BigDecimal limit = new BigDecimal(cpuLimitFromEnvVar);
+                return limit.multiply(BigDecimal.valueOf(1000000000)).longValue();
+            } catch (Exception e) {
+                return DEFAULT_PG_FACADE_CPU_LIMIT;
+            }
+        }
+
+        return DEFAULT_PG_FACADE_CPU_LIMIT;
+    }
+
+    private Long extractMemoryLimit(Map<String, String> envVars) {
+        if (MapUtils.isNotEmpty(envVars)) {
+            String memoryLimitFromEnvVar = envVars.get(PG_FACADE_ENV_VAR_DOCKER_PG_FACADE_MEMORY_LIMIT);
+
+            if (StringUtils.isEmpty(memoryLimitFromEnvVar)) {
+                return DEFAULT_PG_FACADE_MEMORY_LIMIT;
+            }
+
+            Pattern pattern = Pattern.compile("^(\\d+)([bkmg])$");
+            Matcher matcher = pattern.matcher(memoryLimitFromEnvVar);
+            if (!matcher.matches()) {
+                return DEFAULT_PG_FACADE_MEMORY_LIMIT;
+            }
+
+            long memory = Long.parseLong(matcher.group(1));
+
+            switch (matcher.group(2)) {
+                case "k" -> memory = memory * 1024;
+                case "m" -> memory = memory * 1024 * 1024;
+                case "g" -> memory = memory * 1024 * 1024 * 1024;
+            }
+
+            return memory;
+        }
+
+        return DEFAULT_PG_FACADE_MEMORY_LIMIT;
     }
 }
