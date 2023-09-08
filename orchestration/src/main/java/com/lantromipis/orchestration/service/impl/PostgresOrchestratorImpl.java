@@ -92,7 +92,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
-            postgresArchiver.initialize();
+
+            if (archivingProperties.enabled()) {
+                postgresArchiver.initialize();
+            }
             return;
         }
 
@@ -160,20 +163,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         if (primaryPersistedInstanceInfo == null || !primaryStarted) {
-            if (archivingProperties.enabled() && orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
-                primaryInstanceInfo = restoreClusterFromBackup(true);
-            } else {
-                log.error("No known Postgres primary found but restore from backup is not allowed!");
-            }
-
-            if (primaryInstanceInfo == null && orchestrationProperties.postgresClusterRestore().allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed()) {
-                log.info("Will create and start new and empty Primary because configuration allows it.");
-                primaryInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
-                postgresConfigurator.configureNewlyCreatedPrimary(primaryInstanceInfo);
-
-            } else {
-                throw new InitializationException("Orchestrator failed to start because there is no active Postgres primary and all attempts to create new one failed. Restore primary manually and restart PgFacade in 'RECOVERY' mode!");
-            }
+            //TODO enter recovery
         }
 
         orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(primaryInstanceInfo);
@@ -384,6 +374,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
+    //TODO remove
     private PostgresCombinedInstanceInfo restoreClusterFromBackup(boolean initializeArchiver) {
         if (initializeArchiver) {
             postgresArchiver.initialize();
@@ -713,6 +704,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
+    //TODO reuse on recovery
     private PostgresCombinedInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean primary) throws InstanceCreationException, AwaitHealthyInstanceException {
         UUID futureInstanceId = UUID.randomUUID();
         String adapterIdentifier = platformAdapter.get().createNewPostgresInstance(

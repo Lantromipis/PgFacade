@@ -19,10 +19,6 @@ public interface OrchestrationProperties {
     CommonProperties common();
 
     interface PostgresClusterRestoreProperties {
-        boolean autoRestoreIfNoInstancesOnStartup();
-
-        boolean allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed();
-
         boolean autoRestoreLostCluster();
 
         boolean removeFailedToRestoreInstance();

@@ -6,7 +6,6 @@ import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 
 import java.sql.Connection;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Help service for Orchestrator, so it should only be used by orchestrator
@@ -17,12 +16,6 @@ public interface PostgresConfigurator {
      * Method used to initialize configurator service. This method must load some important runtime properties based on current primary configuration (like max_connections)
      */
     void initialize();
-
-    /**
-     * Method used to configure new primary using superuser credentials from application.yaml
-     * This method must work BEFORE initialize() is called.
-     */
-    void configureNewlyCreatedPrimary(PostgresCombinedInstanceInfo combinedInstanceInfo);
 
     /**
      * Method is used to validate settings and check if new settings require restart.

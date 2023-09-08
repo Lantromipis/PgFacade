@@ -28,8 +28,6 @@ pg-facade:
   orchestration:
     adapter: docker
     postgres-cluster-restore:
-      auto-restore-if-no-instances-on-startup: false
-      allow-creating-new-empty-primary-if-restore-on-startup-failed: false
       auto-restore-lost-cluster: false
       remove-failed-to-restore-instance: false
     common:
@@ -148,10 +146,6 @@ quarkus:
     name: PgFacade
 
 "%dev":
-  pg-facade:
-    orchestration:
-      postgres-cluster-restore:
-        allow-creating-new-empty-primary-if-restore-on-startup-failed: true
   quarkus:
     log:
       category:

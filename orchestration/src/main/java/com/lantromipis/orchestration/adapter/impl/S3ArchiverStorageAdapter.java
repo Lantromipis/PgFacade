@@ -49,8 +49,14 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
     private AmazonS3 s3Client;
 
+    private boolean initialized = false;
+
     @Override
     public void initializeAndValidate() throws InitializationException {
+        if (initialized) {
+            return;
+        }
+
         log.info("Initializing S3 archiving adapter.");
 
         ArchivingProperties.S3ArchiverProperties s3ArchiverProperties = archivingProperties.s3();
@@ -109,6 +115,8 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
         }
 
         log.info("S3 archiving adapter initialization completed!");
+
+        initialized = true;
     }
 
     @Override
