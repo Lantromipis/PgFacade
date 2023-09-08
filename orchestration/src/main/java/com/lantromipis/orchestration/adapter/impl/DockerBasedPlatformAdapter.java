@@ -453,7 +453,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     null
             );
             if (!findPgWalCommandResult.isSuccess() || StringUtils.isEmpty(findPgWalCommandResult.getStdout())) {
-                throw new PostgresRestoreException("Recovery failed! Failed to find pg_wal in container for restore. Is backup valid?");
+                throw new PostgresRestoreException("Recovery failed! Failed to find pg_wal dir in base backup for restore. Is backup valid?");
             }
 
             String backupRootDir = findPgWalCommandResult.getStdout().replaceAll("\n", "").replaceAll("/pg_wal$", "");

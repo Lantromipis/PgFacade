@@ -68,7 +68,7 @@ pg-facade:
           cpu-limit: 0.5
           memory-limit: 350m
       postgres:
-        image-tag: "postgres:latest"
+        image-tag: "postgres:15.4-bookworm"
         image-pg-data: "/var/lib/postgresql/data"
         network-name: pg-facade-postgres-network
         container-name: pg-facade-managed-postgres

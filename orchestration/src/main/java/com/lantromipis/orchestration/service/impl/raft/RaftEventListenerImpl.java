@@ -1,8 +1,9 @@
 package com.lantromipis.orchestration.service.impl.raft;
 
-import com.lantromipis.configuration.event.PgFacadeImmediateShutdownEvent;
+import com.google.common.io.Resources;
 import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
+import com.lantromipis.configuration.model.PgFacadeWorkMode;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
@@ -14,6 +15,8 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Event;
 import javax.inject.Inject;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 @Slf4j
 @ApplicationScoped
@@ -34,9 +37,6 @@ public class RaftEventListenerImpl implements RaftEventListener {
     @Inject
     Event<RaftLogSyncedOnStartupEvent> raftLogSyncedOnStartupEvent;
 
-    @Inject
-    Event<PgFacadeImmediateShutdownEvent> pgFacadeImmediateShutdownEvent;
-
     private boolean synced = false;
 
 
@@ -47,6 +47,11 @@ public class RaftEventListenerImpl implements RaftEventListener {
 
     @Override
     public void syncedWithLeaderOrSelfIsLeaderOnStartup() {
+        // if in recovery, no need to fire any events
+        if (PgFacadeWorkMode.RECOVERY.equals(pgFacadeRuntimeProperties.getWorkMode())) {
+            return;
+        }
+
         log.info("This PgFacade node is synced with PgFacade raft leader!");
 
         // Fire event. Proxy, connection pool and others should listen to it and initialize themselves
@@ -78,7 +83,20 @@ public class RaftEventListenerImpl implements RaftEventListener {
             }
         } catch (Throwable t) {
             log.error("Error performing raft role change! Impossible to recover!", t);
-            pgFacadeImmediateShutdownEvent.fire(new PgFacadeImmediateShutdownEvent());
+            enterRecoveryMode();
+        }
+    }
+
+    private void enterRecoveryMode() {
+        pgFacadeRuntimeProperties.setWorkMode(PgFacadeWorkMode.RECOVERY);
+        try {
+            URL url = Resources.getResource("logger/banners/EnteredRecoveryModeBanner.txt");
+            String text = Resources.toString(url, StandardCharsets.UTF_8);
+
+            log.info(text);
+
+        } catch (Exception e) {
+            log.info("ENTERED RECOVERY MODE!", e);
         }
     }
 }
