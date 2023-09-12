@@ -1,7 +1,7 @@
 package com.lantromipis.rest.exceptionmapper;
 
 import com.lantromipis.rest.exception.GeneralRequestProcessingException;
-import com.lantromipis.rest.model.error.ErrorDto;
+import com.lantromipis.rest.model.api.error.ErrorDto;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.ws.rs.core.Response;

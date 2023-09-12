@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.postgres;
+package com.lantromipis.rest.model.api.shutdown;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,7 +9,6 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PostgresSettingValueDto {
-    private String name;
-    private String value;
+public class ShutdownMessageResponseDto {
+    private String message;
 }

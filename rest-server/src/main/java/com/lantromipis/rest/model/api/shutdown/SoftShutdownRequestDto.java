@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.shutdown;
+package com.lantromipis.rest.model.api.shutdown;
 
 import lombok.Data;
 

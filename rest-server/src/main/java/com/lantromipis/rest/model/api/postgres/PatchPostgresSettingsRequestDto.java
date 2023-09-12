@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.postgres;
+package com.lantromipis.rest.model.api.postgres;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

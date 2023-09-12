@@ -5,7 +5,7 @@ import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.model.PgFacadeNodeExternalConnectionsInfo;
 import com.lantromipis.orchestration.model.PgFacadeNodeHttpConnectionsInfo;
-import com.lantromipis.rest.model.stats.*;
+import com.lantromipis.rest.model.api.stats.*;
 import com.lantromipis.rest.service.api.PgFacadeStatsService;
 import org.apache.commons.collections4.CollectionUtils;
 

@@ -1,14 +1,16 @@
 package com.lantromipis.rest.controller;
 
 import com.lantromipis.rest.constant.ApiConstants;
-import com.lantromipis.rest.model.postgres.PatchPostgresSettingsRequestDto;
-import com.lantromipis.rest.model.postgres.PostgresSettingsResponseDto;
+import com.lantromipis.rest.filter.namebinding.CheckNotInRecoveryState;
+import com.lantromipis.rest.model.api.postgres.PatchPostgresSettingsRequestDto;
+import com.lantromipis.rest.model.api.postgres.PostgresSettingsResponseDto;
 import com.lantromipis.rest.service.api.PostgresManagementService;
 
 import javax.inject.Inject;
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
 
+@CheckNotInRecoveryState
 @Path(ApiConstants.API_V1_PREFIX + "/postgresManagement")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)

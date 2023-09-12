@@ -1,6 +1,5 @@
 package com.lantromipis.quarkusroot;
 
-import com.lantromipis.configuration.event.PgFacadeImmediateShutdownEvent;
 import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
@@ -142,10 +141,6 @@ public class QuarkusStartupAndShutdownHandler {
         userAuthInfoProvider.initialize();
         connectionPool.initialize();
         pgProxyServiceImpl.initialize();
-    }
-
-    public void shutdownImmediately(@Observes @Priority(Interceptor.Priority.PLATFORM_BEFORE) PgFacadeImmediateShutdownEvent shutdownEvent) {
-        shutdownImmediately();
     }
 
     public void shutdownImmediately() {

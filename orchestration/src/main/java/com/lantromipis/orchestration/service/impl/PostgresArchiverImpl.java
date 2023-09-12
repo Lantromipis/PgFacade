@@ -12,10 +12,8 @@ import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.ArchiverConstants;
 import com.lantromipis.orchestration.exception.BackupCreationException;
-import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.model.ArchiverWalStreamingState;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
-import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.model.FailedToUploadWalInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
@@ -89,7 +87,6 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     private AtomicBoolean backupModificationInProgress = new AtomicBoolean(false);
     private AtomicBoolean streamingCheckInProgress = new AtomicBoolean(false);
     private AtomicBoolean uploadFailedWalInProgress = new AtomicBoolean(false);
-    private AtomicBoolean clusterRestoreInProgress = new AtomicBoolean(false);
 
     private ArchiverWalStreamingState archiverWalStreamingState = new ArchiverWalStreamingState();
     private CountDownLatch switchoverLatch = null;
@@ -108,6 +105,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     public void stop() {
         archiverActiveAndIsLeader = false;
         stopWalArchiving();
+        log.info("Postgres archiver stopped.");
     }
 
     @Override
@@ -177,65 +175,6 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     @Override
     public List<Instant> getBackupInstants() {
         return archiverAdapter.get().getBackupInstants();
-    }
-
-    @Override
-    public String restorePostgresToLatestVersionFromArchive() throws PostgresRestoreException {
-        BaseBackupDownload baseBackupDownload = null;
-        try {
-            if (!clusterRestoreInProgress.compareAndSet(false, true)) {
-                throw new PostgresRestoreException("Cluster restore already in progress.");
-            }
-
-            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
-
-            if (!archiverActiveAndIsLeader) {
-                throw new PostgresRestoreException("Archiver not initialized or is disabled by configuration. Can not restore Postgres from backup.");
-            }
-
-            if (!archiverInitialized) {
-                initialize();
-            }
-
-            stopWalArchiving();
-
-            List<Instant> instants = archiverAdapter.get().getBackupInstants();
-            if (CollectionUtils.isEmpty(instants)) {
-                throw new PostgresRestoreException("No backups found. Can not restore Postgres from backup.");
-            }
-
-            Instant lastBackupInstant = instants.stream().sorted().findFirst().get();
-
-            baseBackupDownload = archiverAdapter.get().downloadBaseBackup(lastBackupInstant);
-            List<String> walFiles = archiverAdapter.get().getAllWalFileNamesSortedStartingFrom(baseBackupDownload.getFirstWalFile());
-            if (!walFiles.contains(baseBackupDownload.getFirstWalFile())) {
-                throw new PostgresRestoreException("Can not recover! Can not find first WAL for backup in storage. Required WAL file name: " + baseBackupDownload.getFirstWalFile());
-            }
-
-            raftFunctionalityCombinator.testIfAbleToCommitToRaft();
-
-            String instanceId = platformAdapter.get().restorePrimaryFromBackup(
-                    baseBackupDownload.getInputStreamWithBackupTar(),
-                    walFiles,
-                    walFileName -> archiverAdapter.get().downloadWalFile(walFileName).getInputStream()
-            );
-
-            FileUtils.cleanDirectory(new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath()));
-
-            return instanceId;
-        } catch (PostgresRestoreException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new PostgresRestoreException("Unexpected error during restoring Postgres from backup", e);
-        } finally {
-            clusterRestoreInProgress.set(false);
-            if (baseBackupDownload != null && baseBackupDownload.getInputStreamWithBackupTar() != null) {
-                try {
-                    baseBackupDownload.getInputStreamWithBackupTar().close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
     }
 
     @Override

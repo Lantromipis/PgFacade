@@ -2,11 +2,9 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
-import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.constant.PostgresConstants;
-import com.lantromipis.orchestration.exception.NewPrimaryConfigurationException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
@@ -14,8 +12,6 @@ import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
 import com.lantromipis.orchestration.model.PgSettingsTableRow;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
-import com.lantromipis.orchestration.util.ConfiguratorUtils;
-import com.lantromipis.orchestration.util.PostgresUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
@@ -23,7 +19,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.*;
 import java.util.regex.Matcher;
 
@@ -32,22 +30,13 @@ import java.util.regex.Matcher;
 public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
     @Inject
-    PostgresProperties postgresProperties;
-
-    @Inject
     PlatformAdapter platformAdapter;
-
-    @Inject
-    PostgresUtils postgresUtils;
 
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
 
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
-
-    @Inject
-    ConfiguratorUtils configuratorUtils;
 
     @Override
     public void initialize() {
@@ -69,83 +58,6 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             connection.close();
         } catch (Exception e) {
             log.error("Error during configurator initialization.", e);
-        }
-    }
-
-    @Override
-    public void configureNewlyCreatedPrimary(PostgresCombinedInstanceInfo combinedInstanceInfo) {
-        log.info("Executing required start-up SQL statements on new primary.");
-        try {
-            Connection superuserConnectionInSuperDB = postgresUtils.getConnectionToCurrentPrimary(
-                    postgresProperties.users().superuser().database(),
-                    postgresProperties.users().superuser().username(),
-                    postgresProperties.users().superuser().password()
-            );
-
-            PostgresProperties.UserProperties.UserCredentialsProperties pgFacadeUserProperties = postgresProperties.users().pgFacade();
-
-            // create PgFacade user
-            superuserConnectionInSuperDB.createStatement().executeUpdate("CREATE USER " + pgFacadeUserProperties.username() + " WITH ENCRYPTED PASSWORD '" + pgFacadeUserProperties.password() + "'");
-
-            // create replication user
-            superuserConnectionInSuperDB.createStatement().executeUpdate("CREATE ROLE " + postgresProperties.users().replication().username() + " WITH REPLICATION LOGIN ENCRYPTED PASSWORD '" + postgresProperties.users().replication().password() + "'");
-
-            // grant some predefined roles to PgFacade user
-            grantRoleToUser(superuserConnectionInSuperDB, "pg_read_all_settings", pgFacadeUserProperties.username());
-
-            // personal database for PgFacade user
-            createDatabase(superuserConnectionInSuperDB, pgFacadeUserProperties.database(), pgFacadeUserProperties.username());
-
-            // create custom PgFacade configuration file
-            replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB), new ArrayList<>());
-
-            // include custom PgFacade configuration file to postgresql.conf
-            String confLineWithInclude = "include_if_exists = '" + getPgFacadePostgresqlConfFilePath(superuserConnectionInSuperDB) + "'";
-            String postgresqlConfFilePath = getOriginalPostgresqlConfFilePath(superuserConnectionInSuperDB);
-
-            platformAdapter.executeShellCommandForInstance(
-                    combinedInstanceInfo.getAdapter().getAdapterInstanceId(),
-                    "echo \"" + confLineWithInclude + "\" >> " + postgresqlConfFilePath,
-                    Collections.emptyList()
-            );
-
-            // now superuser connection in its database is not needed.
-            superuserConnectionInSuperDB.close();
-
-            // changing database for superuser because we need to grant execute on some functions in PgFacade user database.
-            // Otherwise, PgFacade user won't be able to call such functions from its database.
-            Connection superuserConnectionInPgFacadeDB = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().pgFacade().database(), postgresProperties.users().superuser().username(), postgresProperties.users().superuser().password());
-
-            // grant execute on some functions.
-            grantExecuteOnFunction(superuserConnectionInPgFacadeDB, "pg_promote", pgFacadeUserProperties.username());
-            grantExecuteOnFunction(superuserConnectionInPgFacadeDB, "pg_show_all_file_settings()", pgFacadeUserProperties.username());
-            grantExecuteOnFunction(superuserConnectionInPgFacadeDB, "pg_reload_conf()", pgFacadeUserProperties.username());
-
-            // grant select on pg_file_settings to PgFacade so it will be possible to validate settings
-            superuserConnectionInPgFacadeDB.createStatement().executeUpdate("GRANT SELECT ON pg_file_settings TO " + pgFacadeUserProperties.username());
-
-            // PgFacade user needs access to pg_authid, so PgFacade will be able to check credentials automatically
-            superuserConnectionInPgFacadeDB.createStatement().executeUpdate("GRANT SELECT ON TABLE pg_authid TO " + pgFacadeUserProperties.username());
-
-            // now superuser connection in PgFacade database is not needed.
-            superuserConnectionInPgFacadeDB.close();
-
-            // connection to PgFacade user database.
-            Connection pgfacadeUserConnection = postgresUtils.getConnectionToCurrentPrimary(postgresProperties.users().pgFacade().database(), postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password());
-
-            // update pg_hba.conf
-            replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), getPgHbaConfFilePath(pgfacadeUserConnection), configuratorUtils.getDefaultPgHbaConfFileLines());
-
-            // apply new conf
-            reloadConf(pgfacadeUserConnection);
-
-            // finished configuration
-            pgfacadeUserConnection.close();
-
-            log.info("Finished executing required start-up SQL statements on new primary.");
-
-        } catch (Exception e) {
-            throw new NewPrimaryConfigurationException("Failed to execute required start-up SQL for newly created primary.", e);
         }
     }
 
@@ -363,25 +275,6 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
         resultSet.next();
 
         return resultSet.getString(1) + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
-    }
-
-    private String getOriginalPostgresqlConfFilePath(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.CONFIG_FILE_SETTING_NAME + "'");
-        resultSet.next();
-
-        return resultSet.getString(1);
-    }
-
-    private void createDatabase(Connection connection, String databaseName, String ownerUsername) throws SQLException {
-        connection.createStatement().executeUpdate("CREATE DATABASE " + databaseName + " WITH OWNER " + ownerUsername);
-    }
-
-    private void grantRoleToUser(Connection connection, String role, String username) throws SQLException {
-        connection.createStatement().executeUpdate("GRANT " + role + " TO " + username);
-    }
-
-    private void grantExecuteOnFunction(Connection connection, String function, String username) throws SQLException {
-        connection.createStatement().executeUpdate("GRANT EXECUTE ON FUNCTION " + function + " TO " + username);
     }
 
     private double extractPostgresVersion(Connection connection) throws SQLException {

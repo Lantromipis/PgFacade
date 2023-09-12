@@ -1,7 +1,7 @@
 package com.lantromipis.rest.constant;
 
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
-import com.lantromipis.rest.model.postgres.PostgresSettingContextDescription;
+import com.lantromipis.rest.model.api.postgres.PostgresSettingContextDescription;
 
 import java.util.List;
 

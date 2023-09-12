@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.shutdown;
+package com.lantromipis.rest.model.api.stats;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ShutdownMessageResponseDto {
-    private String message;
+public class PgFacadeNodeHttpConnectionInfo {
+    private String address;
+    private int httpPort;
 }

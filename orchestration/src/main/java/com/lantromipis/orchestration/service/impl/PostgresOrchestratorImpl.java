@@ -13,10 +13,7 @@ import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
-import com.lantromipis.orchestration.service.api.PostgresArchiver;
-import com.lantromipis.orchestration.service.api.PostgresConfigurator;
-import com.lantromipis.orchestration.service.api.PostgresHealthcheckService;
-import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
+import com.lantromipis.orchestration.service.api.*;
 import com.lantromipis.orchestration.util.OrchestratorUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
@@ -65,6 +62,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     PostgresArchiver postgresArchiver;
 
     @Inject
+    PostgresRestorationService postgresRestorationService;
+
+    @Inject
     OrchestratorUtils orchestratorUtils;
 
     @Inject
@@ -92,7 +92,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
-            postgresArchiver.initialize();
+
+            if (archivingProperties.enabled()) {
+                postgresArchiver.initialize();
+            }
             return;
         }
 
@@ -111,7 +114,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Override
-    public void initializeFull() throws InitializationException {
+    public void initializeFull() throws NoPrimaryException, InitializationException {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresConfigurator.initialize();
@@ -160,20 +163,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         if (primaryPersistedInstanceInfo == null || !primaryStarted) {
-            if (archivingProperties.enabled() && orchestrationProperties.postgresClusterRestore().autoRestoreIfNoInstancesOnStartup()) {
-                primaryInstanceInfo = restoreClusterFromBackup(true);
-            } else {
-                log.error("No known Postgres primary found but restore from backup is not allowed!");
-            }
-
-            if (primaryInstanceInfo == null && orchestrationProperties.postgresClusterRestore().allowCreatingNewEmptyPrimaryIfRestoreOnStartupFailed()) {
-                log.info("Will create and start new and empty Primary because configuration allows it.");
-                primaryInstanceInfo = createStartAndWaitForNewInstanceToBeReady(true);
-                postgresConfigurator.configureNewlyCreatedPrimary(primaryInstanceInfo);
-
-            } else {
-                throw new InitializationException("Orchestrator failed to start because there is no active Postgres primary and all attempts to create new one failed. Restore primary manually and restart PgFacade in 'RECOVERY' mode!");
-            }
+            throw new NoPrimaryException("No Postgres primary found! Con not start orchestration!");
         }
 
         orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(primaryInstanceInfo);
@@ -384,6 +374,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
+    //TODO remove
     private PostgresCombinedInstanceInfo restoreClusterFromBackup(boolean initializeArchiver) {
         if (initializeArchiver) {
             postgresArchiver.initialize();
@@ -402,7 +393,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 }
 
                 raftFunctionalityCombinator.clearPostgresNodesInfosInRaft();
-                String newPrimaryAdapterId = postgresArchiver.restorePostgresToLatestVersionFromArchive();
+                String newPrimaryAdapterId = postgresRestorationService.stopArchiverAndRestorePostgresFromBackup();
                 platformAdapter.get().startPostgresInstance(newPrimaryAdapterId);
                 PostgresAdapterInstanceInfo primaryAdapterInstanceInfo = waitUntilPostgresInstanceHealthy(newPrimaryAdapterId);
 
@@ -713,6 +704,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
+    //TODO reuse on recovery
     private PostgresCombinedInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean primary) throws InstanceCreationException, AwaitHealthyInstanceException {
         UUID futureInstanceId = UUID.randomUUID();
         String adapterIdentifier = platformAdapter.get().createNewPostgresInstance(

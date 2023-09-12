@@ -4,10 +4,10 @@ import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.rest.constant.PostgresConstants;
 import com.lantromipis.rest.exception.GeneralRequestProcessingException;
-import com.lantromipis.rest.model.postgres.PatchPostgresSettingsRequestDto;
-import com.lantromipis.rest.model.postgres.PostgresSettingDescriptionDto;
-import com.lantromipis.rest.model.postgres.PostgresSettingValueDto;
-import com.lantromipis.rest.model.postgres.PostgresSettingsResponseDto;
+import com.lantromipis.rest.model.api.postgres.PatchPostgresSettingsRequestDto;
+import com.lantromipis.rest.model.api.postgres.PostgresSettingDescriptionDto;
+import com.lantromipis.rest.model.api.postgres.PostgresSettingValueDto;
+import com.lantromipis.rest.model.api.postgres.PostgresSettingsResponseDto;
 import com.lantromipis.rest.service.api.PostgresManagementService;
 
 import javax.enterprise.context.ApplicationScoped;
