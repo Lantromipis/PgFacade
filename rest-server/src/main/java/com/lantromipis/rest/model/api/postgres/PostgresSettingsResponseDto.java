@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.postgres;
+package com.lantromipis.rest.model.api.postgres;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;

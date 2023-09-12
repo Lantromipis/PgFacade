@@ -2,10 +2,11 @@ package com.lantromipis.rest.controller;
 
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.rest.constant.ApiConstants;
-import com.lantromipis.rest.model.shutdown.ForceShutdownRequestDto;
-import com.lantromipis.rest.model.shutdown.ShutdownMessageResponseDto;
-import com.lantromipis.rest.model.shutdown.ShutdownRaftAndOrchestrationRequestDto;
-import com.lantromipis.rest.model.shutdown.SoftShutdownRequestDto;
+import com.lantromipis.rest.filter.namebinding.CheckNotInRecoveryState;
+import com.lantromipis.rest.model.api.shutdown.ForceShutdownRequestDto;
+import com.lantromipis.rest.model.api.shutdown.ShutdownMessageResponseDto;
+import com.lantromipis.rest.model.api.shutdown.ShutdownRaftAndOrchestrationRequestDto;
+import com.lantromipis.rest.model.api.shutdown.SoftShutdownRequestDto;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.inject.Inject;
@@ -17,6 +18,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
 @Slf4j
+@CheckNotInRecoveryState
 @Path(ApiConstants.API_V1_PREFIX + "/shutdown")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)

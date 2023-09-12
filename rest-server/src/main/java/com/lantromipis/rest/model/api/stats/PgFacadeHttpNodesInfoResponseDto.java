@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.stats;
+package com.lantromipis.rest.model.api.stats;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -8,6 +8,7 @@ import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresRestorationService;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.FileUtils;
 
@@ -19,6 +20,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@Slf4j
 @ApplicationScoped
 public class PostgresRestorationServiceImpl implements PostgresRestorationService {
 
@@ -42,6 +44,7 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
     @Override
     public String stopArchiverAndRestorePostgresFromBackup() throws PostgresRestoreException {
         BaseBackupDownload baseBackupDownload = null;
+        log.info("Started Postgres restore from backup!");
         try {
             if (!clusterRestoreInProgress.compareAndSet(false, true)) {
                 throw new PostgresRestoreException("Cluster restore already in progress.");
@@ -59,6 +62,8 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
 
             Instant lastBackupInstant = instants.stream().sorted().findFirst().get();
 
+            log.info("Latest base backup found was created at {}. Will recover using it.", lastBackupInstant);
+
             baseBackupDownload = archiverAdapter.get().downloadBaseBackup(lastBackupInstant);
             List<String> walFiles = archiverAdapter.get().getAllWalFileNamesSortedStartingFrom(baseBackupDownload.getFirstWalFile());
             if (!walFiles.contains(baseBackupDownload.getFirstWalFile())) {
@@ -73,7 +78,13 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
                     walFileName -> archiverAdapter.get().downloadWalFile(walFileName).getInputStream()
             );
 
-            FileUtils.cleanDirectory(new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath()));
+            try {
+                FileUtils.cleanDirectory(new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath()));
+            } catch (Exception e) {
+                log.error("Failed to clean temp WAL directory!", e);
+            }
+
+            log.info("Successfully recovered Postgres!");
 
             return instanceId;
         } catch (PostgresRestoreException e) {

@@ -550,7 +550,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             if (e instanceof PostgresRestoreException) {
                 throw (PostgresRestoreException) e;
             } else {
-                throw new PostgresRestoreException("Failed to restore! ", e);
+                throw new PostgresRestoreException("Failed to restore! " + e.getMessage(), e);
             }
         }
     }

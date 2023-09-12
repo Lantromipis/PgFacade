@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.error;
+package com.lantromipis.rest.model.api.error;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

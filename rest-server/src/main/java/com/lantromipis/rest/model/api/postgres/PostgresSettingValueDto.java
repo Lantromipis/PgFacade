@@ -1,4 +1,4 @@
-package com.lantromipis.rest.model.stats;
+package com.lantromipis.rest.model.api.postgres;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgFacadeNodeHttpConnectionInfo {
-    private String address;
-    private int httpPort;
+public class PostgresSettingValueDto {
+    private String name;
+    private String value;
 }

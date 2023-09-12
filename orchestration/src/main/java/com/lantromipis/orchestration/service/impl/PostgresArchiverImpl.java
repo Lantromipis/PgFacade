@@ -105,6 +105,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     public void stop() {
         archiverActiveAndIsLeader = false;
         stopWalArchiving();
+        log.info("Postgres archiver stopped.");
     }
 
     @Override
