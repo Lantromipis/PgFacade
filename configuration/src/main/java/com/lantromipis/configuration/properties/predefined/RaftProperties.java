@@ -13,4 +13,12 @@ public interface RaftProperties {
     int appChecksRetryBeforeKill();
 
     Duration raftNoResponseTimeoutBeforeKill();
+
+    FollowerStartupHealthcheckProperties followerStartupHealthcheck();
+
+    interface FollowerStartupHealthcheckProperties {
+        int intervalMs();
+
+        Duration timeout();
+    }
 }
