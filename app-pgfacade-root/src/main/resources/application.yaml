@@ -4,6 +4,9 @@ pg-facade:
     nodes-check-interval: PT5S
     app-checks-retry-before-kill: 3
     raft-no-response-timeout-before-kill: PT5S
+    follower-startup-healthcheck:
+      interval-ms: 100
+      timeout: PT60S
   shutdown:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-

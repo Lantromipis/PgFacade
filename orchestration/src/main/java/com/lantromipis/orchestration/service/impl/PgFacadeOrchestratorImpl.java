@@ -436,7 +436,10 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
 
     private void awaitNewRaftNodeReadiness(String address) throws RaftException {
         try (PgFacadeHealtcheckTemplateRestClient healtcheckRestClient = createRestClient(PgFacadeHealtcheckTemplateRestClient.class, address, pgFacadeRuntimeProperties.getHttpPort())) {
-            for (int i = 0; i < 500; i++) {
+            long maxAwaitTimeMs = raftProperties.followerStartupHealthcheck().timeout().toMillis();
+            long intervalMs = raftProperties.followerStartupHealthcheck().intervalMs();
+
+            for (int i = 0; i < maxAwaitTimeMs / intervalMs; i++) {
                 try {
                     HealtcheckResponseDto response = healtcheckRestClient.checkReadiness();
                     boolean raftReady = response.getChecks()
@@ -446,12 +449,13 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                             && healthcheckItem.getStatus().equals(HealtcheckResponseDto.HealtcheckStatus.UP)
                             );
                     if (raftReady) {
+                        log.info("Raft node ");
                         return;
                     }
                 } catch (Exception ignored) {
                 }
 
-                Thread.sleep(10);
+                Thread.sleep(intervalMs);
             }
 
             throw new RaftException("Timout reached for new PgFacade raft server to become ready.");

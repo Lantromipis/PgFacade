@@ -38,7 +38,7 @@
         <postgresql.driver.version>42.5.0</postgresql.driver.version>
         <docker.client.version>3.2.14</docker.client.version>
         <docker.client.transport.version>3.2.3</docker.client.transport.version>
-        <aws.sdk.s3.version>1.12.420</aws.sdk.s3.version>
+        <aws.sdk.s3.version>1.12.560</aws.sdk.s3.version>
         <jakson.jsr310.version>2.15.0</jakson.jsr310.version>
     </properties>
     <dependencyManagement>
