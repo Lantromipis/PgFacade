@@ -374,7 +374,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 try {
                     raftNodeInfo = platformAdapter.get().createAndStartNewPgFacadeInstance();
 
-                    awaitNewRaftNodeReadiness(raftNodeInfo.getAddress());
+                    awaitNewRaftNodeReadiness(raftNodeInfo);
 
                     pgFacadeRaftService.addNewRaftNode(raftNodeInfo);
                     pgFacadeInstances.put(
@@ -434,8 +434,8 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
         }
     }
 
-    private void awaitNewRaftNodeReadiness(String address) throws RaftException {
-        try (PgFacadeHealtcheckTemplateRestClient healtcheckRestClient = createRestClient(PgFacadeHealtcheckTemplateRestClient.class, address, pgFacadeRuntimeProperties.getHttpPort())) {
+    private void awaitNewRaftNodeReadiness(PgFacadeRaftNodeInfo raftNodeInfo) throws RaftException {
+        try (PgFacadeHealtcheckTemplateRestClient healtcheckRestClient = createRestClient(PgFacadeHealtcheckTemplateRestClient.class, raftNodeInfo.getAddress(), pgFacadeRuntimeProperties.getHttpPort())) {
             long maxAwaitTimeMs = raftProperties.followerStartupHealthcheck().timeout().toMillis();
             long intervalMs = raftProperties.followerStartupHealthcheck().intervalMs();
 
@@ -449,7 +449,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                                             && healthcheckItem.getStatus().equals(HealtcheckResponseDto.HealtcheckStatus.UP)
                             );
                     if (raftReady) {
-                        log.info("Raft node ");
+                        log.info("Raft node with ID {} is healthy", raftNodeInfo.getPlatformAdapterIdentifier());
                         return;
                     }
                 } catch (Exception ignored) {
@@ -458,7 +458,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 Thread.sleep(intervalMs);
             }
 
-            throw new RaftException("Timout reached for new PgFacade raft server to become ready.");
+            throw new RaftException("Timout reached for new PgFacade raft node with id " + raftNodeInfo.getPlatformAdapterIdentifier() + " to become ready.");
 
         } catch (RaftException e) {
             throw e;
