@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
@@ -370,10 +371,16 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             );
 
             ret.add(new ObservableInputStream.Observer() {
+                final AtomicBoolean closed = new AtomicBoolean(false);
+
                 @Override
                 public void closed() throws IOException {
-                    forceDeleteContainerSafe(tempCreateContainerResponse.getId());
-                    super.closed();
+                    if (closed.compareAndSet(false, true)) {
+                        forceDeleteContainerSafe(tempCreateContainerResponse.getId());
+                        super.closed();
+                    } else {
+                        super.closed();
+                    }
                 }
             });
 
