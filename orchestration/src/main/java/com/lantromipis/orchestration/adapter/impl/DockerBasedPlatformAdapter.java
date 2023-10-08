@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
@@ -297,7 +298,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 try {
                     dockerClient.removeVolumeCmd(bind.getPath()).exec();
                 } catch (Exception ignored) {
-                    log.warn("Failed to remove volume of delete Postgres instance {}", bind.getPath());
+                    log.warn("Failed to remove volume {}", bind.getPath());
                 }
             }
 
@@ -305,7 +306,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         } catch (NotFoundException notFoundException) {
             return true;
         } catch (Exception e) {
-            log.error("Failed to remove Postgres container with ID {}. Remove it manually.", adapterInstanceId, e);
+            log.error("Failed to remove container with ID {}. Remove it manually.", adapterInstanceId, e);
             return false;
         }
 
@@ -370,10 +371,16 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             );
 
             ret.add(new ObservableInputStream.Observer() {
+                final AtomicBoolean closed = new AtomicBoolean(false);
+
                 @Override
                 public void closed() throws IOException {
-                    forceDeleteContainerSafe(tempCreateContainerResponse.getId());
-                    super.closed();
+                    if (closed.compareAndSet(false, true)) {
+                        forceDeleteContainerSafe(tempCreateContainerResponse.getId());
+                        super.closed();
+                    } else {
+                        super.closed();
+                    }
                 }
             });
 

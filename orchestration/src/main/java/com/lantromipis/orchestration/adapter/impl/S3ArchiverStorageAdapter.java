@@ -163,7 +163,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
         Queue<PartETag> eTagQueue = new ConcurrentLinkedQueue<>();
 
         byte[] buf = new byte[archivingProperties.s3().multipartUploadPartSizeMb() * 1024 * 1024];
-        int partsAdded = 0;
+        int partsAdded = 1;
 
         try {
             while (true) {
@@ -201,14 +201,14 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
             // free space
             while (true) {
-                AbortMultipartUploadRequest abortMultipartUploadRequest = new AbortMultipartUploadRequest(
-                        archivingProperties.s3().backupsBucket(),
-                        key,
-                        initResponse.getUploadId()
-                );
-                s3Client.abortMultipartUpload(abortMultipartUploadRequest);
-
                 try {
+                    AbortMultipartUploadRequest abortMultipartUploadRequest = new AbortMultipartUploadRequest(
+                            archivingProperties.s3().backupsBucket(),
+                            key,
+                            initResponse.getUploadId()
+                    );
+                    s3Client.abortMultipartUpload(abortMultipartUploadRequest);
+
                     ListPartsRequest listPartsRequest = new ListPartsRequest(
                             archivingProperties.s3().backupsBucket(),
                             key,
@@ -223,6 +223,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                     Thread.sleep(1000);
                 } catch (InterruptedException interruptedException) {
                     Thread.currentThread().interrupt();
+                    break;
                 } catch (Exception ignored) {
                     break;
                 }
