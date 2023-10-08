@@ -16,7 +16,7 @@ public class RaftPeerWrapper {
     private AtomicLong matchIndex;
     private AtomicLong commitIndex;
     private Channel channelCreatedBySelf;
-    private long lastTimeActive;
+    private long lastTimeActive = 0;
 
     public RaftPeerWrapper(RaftNode raftNode) {
         this.raftNode = raftNode;
@@ -24,6 +24,12 @@ public class RaftPeerWrapper {
         nextIndex = new AtomicLong(0);
         matchIndex = new AtomicLong(-1);
         commitIndex = new AtomicLong(-1);
+        lastTimeActive = System.currentTimeMillis();
+    }
+
+    public RaftPeerWrapper(RaftNode raftNode, long lastTimeActive) {
+        this(raftNode);
+        this.lastTimeActive = lastTimeActive;
     }
 
     public synchronized void setChannelCreatedBySelf(Channel channelCreatedBySelf) {
