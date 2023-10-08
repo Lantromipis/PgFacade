@@ -298,7 +298,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                 try {
                     dockerClient.removeVolumeCmd(bind.getPath()).exec();
                 } catch (Exception ignored) {
-                    log.warn("Failed to remove volume of delete Postgres instance {}", bind.getPath());
+                    log.warn("Failed to remove volume {}", bind.getPath());
                 }
             }
 
@@ -306,7 +306,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         } catch (NotFoundException notFoundException) {
             return true;
         } catch (Exception e) {
-            log.error("Failed to remove Postgres container with ID {}. Remove it manually.", adapterInstanceId, e);
+            log.error("Failed to remove container with ID {}. Remove it manually.", adapterInstanceId, e);
             return false;
         }
 
