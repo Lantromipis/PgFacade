@@ -349,6 +349,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 try {
                     RaftPeerInfo peerInfo = raftPeerInfos.get(instance.getRaftIdAndAdapterId());
                     if (peerInfo != null
+                            && peerInfo.getLastTimeActive() > 0
                             && Instant.now().compareTo(Instant.ofEpochMilli(peerInfo.getLastTimeActive()).plus(raftProperties.raftNoResponseTimeoutBeforeKill())) > 0) {
                         killUnhealthyNode(peerInfo.getId());
                         continue;

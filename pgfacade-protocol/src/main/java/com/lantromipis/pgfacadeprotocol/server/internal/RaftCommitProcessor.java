@@ -112,14 +112,14 @@ public class RaftCommitProcessor {
                         .collect(
                                 Collectors.toMap(
                                         RaftNode::getId,
-                                        node -> new RaftPeerWrapper(
-                                                RaftNode.builder()
-                                                        .id(node.getId())
-                                                        .groupId(node.getGroupId())
-                                                        .ipAddress(node.getIpAddress())
-                                                        .port(node.getPort())
-                                                        .build()
-                                        )
+                                        node -> {
+                                            RaftPeerWrapper previousWrapper = context.getRaftPeers().get(node.getId());
+                                            if (previousWrapper != null && previousWrapper.getLastTimeActive() != 0) {
+                                                return new RaftPeerWrapper(node, previousWrapper.getLastTimeActive());
+                                            } else {
+                                                return new RaftPeerWrapper(node, System.currentTimeMillis());
+                                            }
+                                        }
                                 )
                         );
 
