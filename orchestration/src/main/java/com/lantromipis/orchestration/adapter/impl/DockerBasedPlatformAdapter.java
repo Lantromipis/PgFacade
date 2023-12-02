@@ -438,7 +438,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                     .withNetworkMode(dockerProperties.postgres().networkName())
                     )
                     // do not execute any default entrypoint scripts
-                    .withEntrypoint("sh", "-c", "mkdir -p " + DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH + " " + DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH + " ; sleep infinity")
+                    .withEntrypoint("sh", "-c", "mkdir -p "
+                            + DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH + " "
+                            + DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH + " "
+                            + DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH + " ; sleep infinity")
                     .exec();
 
             recoveryContainerId = tempCreateContainerResponse.getId();
@@ -448,14 +451,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             // copy backup
             try (basebackupTarInputStream) {
                 dockerClient.copyArchiveToContainerCmd(recoveryContainerId)
-                        .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH)
+                        .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH)
                         .withTarInputStream(basebackupTarInputStream)
                         .exec();
             }
 
             AdapterShellCommandExecutionResult findPgWalCommandResult = executeCmdInContainer(
                     recoveryContainerId,
-                    "find " + DockerConstants.HELP_CONTAINER_RESTORE_ROOT_PATH + " -type d -name pg_wal",
+                    "find " + DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH + " -type d -name pg_wal",
                     List.of(0L),
                     null
             );
