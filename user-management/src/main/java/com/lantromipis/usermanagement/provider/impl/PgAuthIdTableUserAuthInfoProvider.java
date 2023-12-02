@@ -5,11 +5,11 @@ import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.usermanagement.model.UserAuthInfo;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.ResultSet;

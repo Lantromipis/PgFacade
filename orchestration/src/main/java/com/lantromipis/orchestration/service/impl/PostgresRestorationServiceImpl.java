@@ -8,13 +8,13 @@ import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresRestorationService;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.FileUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.inject.Instance;
-import javax.inject.Inject;
 import java.io.File;
 import java.time.Instant;
 import java.util.List;

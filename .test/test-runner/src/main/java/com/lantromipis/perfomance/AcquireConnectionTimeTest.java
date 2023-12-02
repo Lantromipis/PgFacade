@@ -3,10 +3,10 @@ package com.lantromipis.perfomance;
 import com.lantromipis.PerformanceTestsProperties;
 import com.lantromipis.utils.MathUtils;
 import com.lantromipis.utils.PostgresUtils;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.ArrayList;

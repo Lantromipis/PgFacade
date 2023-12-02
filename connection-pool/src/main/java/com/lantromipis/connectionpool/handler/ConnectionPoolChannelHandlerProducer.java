@@ -9,8 +9,8 @@ import com.lantromipis.connectionpool.model.PgChannelCleanResult;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
+import jakarta.enterprise.context.ApplicationScoped;
 
-import javax.enterprise.context.ApplicationScoped;
 import java.util.function.Consumer;
 
 @ApplicationScoped

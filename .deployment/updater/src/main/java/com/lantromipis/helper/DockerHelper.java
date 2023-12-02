@@ -17,13 +17,13 @@ import com.github.dockerjava.transport.DockerHttpClient;
 import com.lantromipis.model.copy.PostgresPersistedInstanceInfoCopy;
 import com.lantromipis.model.docker.DockerNetworkDto;
 import com.lantromipis.properties.UpdaterProperties;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;

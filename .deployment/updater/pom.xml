@@ -12,18 +12,18 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
     <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
-    <quarkus.platform.version>2.13.3.Final</quarkus.platform.version>
+    <quarkus.platform.version>3.6.0</quarkus.platform.version>
     <skipITs>true</skipITs>
     <surefire-plugin.version>3.0.0</surefire-plugin.version>
 
     <!--dependencies versions-->
-    <postgresql.driver.version>42.5.4</postgresql.driver.version>
+    <postgresql.driver.version>42.7.0</postgresql.driver.version>
     <docker.client.version>3.3.0</docker.client.version>
     <docker.client.transport.version>3.3.0</docker.client.transport.version>
-    <apache.commons.long3.version>3.12.0</apache.commons.long3.version>
+    <apache.commons.long3.version>3.14.0</apache.commons.long3.version>
     <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
     <commons-io.version>2.11.0</commons-io.version>
-    <lombok.version>1.18.26</lombok.version>
+    <lombok.version>1.18.30</lombok.version>
   </properties>
   <dependencyManagement>
     <dependencies>

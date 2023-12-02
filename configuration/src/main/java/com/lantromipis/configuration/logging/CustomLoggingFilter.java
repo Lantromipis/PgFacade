@@ -4,9 +4,9 @@ import com.lantromipis.configuration.constants.MDCConstants;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import io.quarkus.logging.LoggingFilter;
+import jakarta.inject.Inject;
 import org.slf4j.MDC;
 
-import javax.inject.Inject;
 import java.util.logging.Filter;
 import java.util.logging.LogRecord;
 

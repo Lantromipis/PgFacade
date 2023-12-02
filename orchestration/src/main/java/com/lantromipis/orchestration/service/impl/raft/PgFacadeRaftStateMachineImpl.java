@@ -14,10 +14,10 @@ import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import com.lantromipis.orchestration.util.RaftCommitUtils;
 import com.lantromipis.pgfacadeprotocol.model.api.SnapshotChunk;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;

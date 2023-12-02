@@ -32,13 +32,13 @@ import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.input.ObservableInputStream;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;

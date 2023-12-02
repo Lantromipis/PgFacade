@@ -2,11 +2,11 @@ package com.lantromipis.quarkusroot.validator;
 
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.orchestration.util.DockerUtils;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.math.BigDecimal;
 
 @Slf4j

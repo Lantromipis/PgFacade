@@ -3,10 +3,9 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.service.api.PostgresHealthcheckService;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
-
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 
 @Slf4j
 @ApplicationScoped

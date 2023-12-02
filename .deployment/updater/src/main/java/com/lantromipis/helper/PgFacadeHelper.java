@@ -3,9 +3,9 @@ package com.lantromipis.helper;
 import com.lantromipis.client.PgFacadeShutdownTemplateRestClient;
 import com.lantromipis.client.model.ShutdownRaftAndOrchestrationRequestDto;
 import com.lantromipis.client.model.SoftShutdownRequestDto;
+import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
-import javax.enterprise.context.ApplicationScoped;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 

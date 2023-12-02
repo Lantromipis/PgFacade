@@ -5,10 +5,9 @@ import com.lantromipis.rest.filter.namebinding.CheckNotInRecoveryState;
 import com.lantromipis.rest.model.api.postgres.PatchPostgresSettingsRequestDto;
 import com.lantromipis.rest.model.api.postgres.PostgresSettingsResponseDto;
 import com.lantromipis.rest.service.api.PostgresManagementService;
-
-import javax.inject.Inject;
-import javax.ws.rs.*;
-import javax.ws.rs.core.MediaType;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.MediaType;
 
 @CheckNotInRecoveryState
 @Path(ApiConstants.API_V1_PREFIX + "/postgresManagement")
