@@ -29,7 +29,7 @@
 
         <!--plugins versions-->
         <surefire-plugin.version>3.0.0</surefire-plugin.version>
-        <jandex-plugin.version>1.2.1</jandex-plugin.version>
+        <jandex-plugin.version>1.2.3</jandex-plugin.version>
 
         <!--dependencies versions-->
         <quarkus.platform.version>3.6.0</quarkus.platform.version>
