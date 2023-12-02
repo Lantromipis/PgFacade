@@ -5,13 +5,12 @@ import com.lantromipis.perfomance.LoadTest;
 import com.lantromipis.perfomance.ProxyEffectOnDelayTest;
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
+import jakarta.interceptor.Interceptor;
 import lombok.extern.slf4j.Slf4j;
-
-import javax.annotation.Priority;
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Observes;
-import javax.inject.Inject;
-import javax.interceptor.Interceptor;
 
 @Slf4j
 @ApplicationScoped

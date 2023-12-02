@@ -9,9 +9,9 @@ import com.lantromipis.rest.model.api.postgres.PostgresSettingDescriptionDto;
 import com.lantromipis.rest.model.api.postgres.PostgresSettingValueDto;
 import com.lantromipis.rest.model.api.postgres.PostgresSettingsResponseDto;
 import com.lantromipis.rest.service.api.PostgresManagementService;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;

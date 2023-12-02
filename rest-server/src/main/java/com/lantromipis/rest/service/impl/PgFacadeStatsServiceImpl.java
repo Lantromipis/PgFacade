@@ -7,11 +7,11 @@ import com.lantromipis.orchestration.model.PgFacadeNodeExternalConnectionsInfo;
 import com.lantromipis.orchestration.model.PgFacadeNodeHttpConnectionsInfo;
 import com.lantromipis.rest.model.api.stats.*;
 import com.lantromipis.rest.service.api.PgFacadeStatsService;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 import org.apache.commons.collections4.CollectionUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.inject.Instance;
-import javax.inject.Inject;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;

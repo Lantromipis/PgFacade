@@ -1,9 +1,9 @@
 package com.lantromipis.helper;
 
 import com.lantromipis.model.docker.ConfigurationInfo;
+import jakarta.enterprise.context.ApplicationScoped;
 import lombok.extern.slf4j.Slf4j;
 
-import javax.enterprise.context.ApplicationScoped;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;

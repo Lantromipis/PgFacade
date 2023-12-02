@@ -9,12 +9,12 @@ import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftRole;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.event.Event;
-import javax.inject.Inject;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 

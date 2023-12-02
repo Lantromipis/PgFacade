@@ -32,13 +32,13 @@ import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import io.quarkus.arc.lookup.LookupIfProperty;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.io.input.ObservableInputStream;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -438,7 +438,10 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                                     .withNetworkMode(dockerProperties.postgres().networkName())
                     )
                     // do not execute any default entrypoint scripts
-                    .withEntrypoint("sh", "-c", "mkdir -p " + DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH + " " + DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH + " ; sleep infinity")
+                    .withEntrypoint("sh", "-c", "mkdir -p "
+                            + DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH + " "
+                            + DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH + " "
+                            + DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH + " ; sleep infinity")
                     .exec();
 
             recoveryContainerId = tempCreateContainerResponse.getId();
@@ -448,14 +451,14 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             // copy backup
             try (basebackupTarInputStream) {
                 dockerClient.copyArchiveToContainerCmd(recoveryContainerId)
-                        .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_PGDATA_PATH)
+                        .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH)
                         .withTarInputStream(basebackupTarInputStream)
                         .exec();
             }
 
             AdapterShellCommandExecutionResult findPgWalCommandResult = executeCmdInContainer(
                     recoveryContainerId,
-                    "find " + DockerConstants.HELP_CONTAINER_RESTORE_ROOT_PATH + " -type d -name pg_wal",
+                    "find " + DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH + " -type d -name pg_wal",
                     List.of(0L),
                     null
             );

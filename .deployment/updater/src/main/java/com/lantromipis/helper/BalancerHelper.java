@@ -2,9 +2,9 @@ package com.lantromipis.helper;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.model.copy.BalancerHostInFileInfoCopy;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.util.List;
 
 @ApplicationScoped

@@ -2,11 +2,11 @@ package com.lantromipis.rest.exceptionmapper;
 
 import com.lantromipis.rest.exception.GeneralRequestProcessingException;
 import com.lantromipis.rest.model.api.error.ErrorDto;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.ExceptionMapper;
+import jakarta.ws.rs.ext.Provider;
 import lombok.extern.slf4j.Slf4j;
 
-import javax.ws.rs.core.Response;
-import javax.ws.rs.ext.ExceptionMapper;
-import javax.ws.rs.ext.Provider;
 import java.time.Instant;
 
 @Slf4j

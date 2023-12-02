@@ -15,9 +15,9 @@ import com.lantromipis.proxy.handler.proxy.database.SimpleProxyDatabaseChannelHa
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.channel.Channel;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
 import java.util.function.Consumer;
 
 @ApplicationScoped
