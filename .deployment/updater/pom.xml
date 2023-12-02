@@ -18,8 +18,8 @@
 
     <!--dependencies versions-->
     <postgresql.driver.version>42.7.0</postgresql.driver.version>
-    <docker.client.version>3.3.0</docker.client.version>
-    <docker.client.transport.version>3.3.0</docker.client.transport.version>
+    <docker.client.version>3.3.4</docker.client.version>
+    <docker.client.transport.version>3.3.4</docker.client.transport.version>
     <apache.commons.long3.version>3.14.0</apache.commons.long3.version>
     <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
     <commons-io.version>2.11.0</commons-io.version>

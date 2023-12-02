@@ -26,7 +26,7 @@
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <skipITs>true</skipITs>
-        <surefire-plugin.version>3.0.0-M7</surefire-plugin.version>
+        <surefire-plugin.version>3.0.0</surefire-plugin.version>
 
         <!--dependencies versions-->
         <quarkus.platform.version>3.6.0</quarkus.platform.version>
@@ -36,9 +36,9 @@
         <commons-io.version>2.11.0</commons-io.version>
         <netty.version>4.1.101.Final</netty.version>
         <postgresql.driver.version>42.7.0</postgresql.driver.version>
-        <docker.client.version>3.2.14</docker.client.version>
-        <docker.client.transport.version>3.2.3</docker.client.transport.version>
-        <aws.sdk.s3.version>1.12.560</aws.sdk.s3.version>
+        <docker.client.version>3.3.4</docker.client.version>
+        <docker.client.transport.version>3.3.4</docker.client.transport.version>
+        <aws.sdk.s3.version>1.12.603</aws.sdk.s3.version>
         <jakson.jsr310.version>2.16.0</jakson.jsr310.version>
         <jaxb-api.version>2.3.1</jaxb-api.version>
     </properties>
