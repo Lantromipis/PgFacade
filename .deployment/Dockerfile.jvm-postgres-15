@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17.0.6_10-jdk-jammy
+FROM eclipse-temurin:21.0.1_12-jdk-jammy
 
 ENV LANGUAGE='en_US:en'
 
