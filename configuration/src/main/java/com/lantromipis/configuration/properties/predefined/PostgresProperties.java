@@ -14,8 +14,6 @@ public interface PostgresProperties {
     }
 
     interface UserProperties {
-        UserCredentialsProperties superuser();
-
         UserCredentialsProperties pgFacade();
 
         UserCredentialsProperties replication();

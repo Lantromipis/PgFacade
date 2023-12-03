@@ -144,7 +144,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public String createNewPostgresInstance(PostgresInstanceCreationRequest request) throws PlatformAdapterOperationExecutionException {
+    public String createNewPostgresStandbyInstance(PostgresInstanceCreationRequest request) throws PlatformAdapterOperationExecutionException {
         //used to delete container if it was created but method failed.
         String containerId = null;
 
@@ -153,45 +153,29 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             CreateContainerCmd createContainerCmd = getPostgresDefaultCreateContainerCmdRequest(containerNamePostfix);
 
-            // for primary will create empty DB.
-            if (!request.isPrimary()) {
-                Map<String, String> postgresSettings = new HashMap<>(request.getSettings());
-                postgresSettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
+            Map<String, String> postgresSettings = new HashMap<>(request.getSettings());
+            postgresSettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
 
-                String volumeName = createVolumeWithPgBaseBackupForStandby(containerNamePostfix, postgresSettings);
+            String volumeName = createVolumeWithPgBaseBackupForStandby(containerNamePostfix, postgresSettings);
 
-                createContainerCmd.getHostConfig()
-                        .withBinds(
-                                new Bind(
-                                        volumeName,
-                                        new Volume(orchestrationProperties.docker().postgres().imagePgData())
-                                )
-                        )
-                        .withMemory(
-                                dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().postgres().resources().memoryLimit())
-                        )
-                        .withNanoCPUs(
-                                dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().postgres().resources().cpuLimit())
-                        );
-            } else {
-                createContainerCmd
-                        .withEnv(
-                                List.of(
-                                        createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_PASSWORD, postgresProperties.users().superuser().password()),
-                                        createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_USERNAME, postgresProperties.users().superuser().username()),
-                                        createEnvValueForRequest(DockerConstants.POSTGRES_ENV_VAR_DB, postgresProperties.users().superuser().database())
-                                )
-                        );
-            }
+            createContainerCmd.getHostConfig()
+                    .withBinds(
+                            new Bind(
+                                    volumeName,
+                                    new Volume(orchestrationProperties.docker().postgres().imagePgData())
+                            )
+                    )
+                    .withMemory(
+                            dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().postgres().resources().memoryLimit())
+                    )
+                    .withNanoCPUs(
+                            dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().postgres().resources().cpuLimit())
+                    );
 
             CreateContainerResponse createResponse = createContainerCmd.exec();
             containerId = createResponse.getId();
 
-            if (request.isPrimary()) {
-                log.info("Created container with primary. Ready to start it.");
-            } else {
-                log.info("Created container with stand-by. Ready to start it.");
-            }
+            log.info("Created container with stand-by. Ready to start it.");
 
             return containerId;
 

@@ -80,6 +80,8 @@ public class RaftEventListenerImpl implements RaftEventListener {
                 postgresOrchestrator.stopOrchestrator(false);
                 pgFacadeOrchestrator.stopOrchestration();
                 log.info("This PgFacade node is now follower!");
+            } else {
+                log.info("This PgFacade node is already leader. No actions required.");
             }
         } catch (Throwable t) {
             log.error("Error performing raft role change! Impossible to recover!", t);

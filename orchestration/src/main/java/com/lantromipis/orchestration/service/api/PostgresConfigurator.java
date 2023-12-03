@@ -30,7 +30,8 @@ public interface PostgresConfigurator {
      * Method is used to change Postgres settings. It is an automated alternative to manually modifying postgresql.conf or calling ALTER SYSTEM.
      *
      * @param combinedInstanceInfo        info about instance
-     * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value
+     * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value.
+     *                                    Settings will be merged with existing one in special PgFacade conf file.
      * @return true if restart is needed, and false if not
      * @throws PostgresConfigurationCheckException  when some settings are invalid
      * @throws PostgresConfigurationChangeException when something went wrong during settings update
@@ -42,10 +43,11 @@ public interface PostgresConfigurator {
      * Must be used carefully when it is critical to apply settings fast (ex. switchover)
      *
      * @param combinedInstanceInfo        info about instance
-     * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value
+     * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value.
+     *                                    Settings will be merged with existing one in special PgFacade conf file.
      * @param reloadConf                  if true, pg_reload_conf() will be called
      * @param connection                  optional param. If provided, then connection will be used, if not, then new one will be created.
      * @return true if success, false if not
      */
-    boolean fastPostgresSettingsChange(PostgresCombinedInstanceInfo combinedInstanceInfo, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection);
+    boolean fastPostgresSettingsChange(String adapterIdentifier, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection);
 }

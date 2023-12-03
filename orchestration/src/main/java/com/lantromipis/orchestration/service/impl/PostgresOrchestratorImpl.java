@@ -3,11 +3,13 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
+import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.*;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
@@ -75,6 +77,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
     @Inject
     Instance<PostgresHealthcheckService> postgresHealthcheckService;
+
+    @Inject
+    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
@@ -175,15 +180,40 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         log.info("Checking standby count.");
 
-        if (CollectionUtils.isNotEmpty(standbyInfos) && standbyInfos.stream().noneMatch(info -> info.getAdapter().isActive())) {
-            log.info("All standby inactive. Will start required amount.");
-            // All standby inactive which means that PgFacade is starting up after full shutdown. Start required count.
-            for (int i = 0; i < Math.min(standbyInfos.size(), orchestrationProperties.common().standby().count()); i++) {
-                PostgresCombinedInstanceInfo standbyInfo = standbyInfos.get(i);
+        if (CollectionUtils.isNotEmpty(standbyInfos) && standbyInfos.stream().anyMatch(info -> !info.getAdapter().isActive())) {
+            log.info("Some standby(s) is/are inactive. Will start it/them.");
+            for (PostgresCombinedInstanceInfo standbyInfo : standbyInfos) {
                 try {
                     boolean standbyStarted = platformAdapter.get().startPostgresInstance(standbyInfo.getPersisted().getAdapterIdentifier());
                     if (standbyStarted) {
-                        waitUntilPostgresInstanceHealthy(standbyInfo.getPersisted().getAdapterIdentifier());
+                        PostgresAdapterInstanceInfo standbyAdapterInfo = waitUntilPostgresInstanceHealthy(standbyInfo.getPersisted().getAdapterIdentifier());
+
+                        // change primary_conninfo because ip/port can be changed while instances was inactive
+                        Map<String, String> primaryConnInfoSetting = Map.of(
+                                PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME,
+                                postgresUtils.getPrimaryConnInfoSetting()
+                        );
+                        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(standbyAdapterInfo.getInstanceAddress(), standbyAdapterInfo.getInstancePort())) {
+                            boolean settingsChanged = postgresConfigurator.fastPostgresSettingsChange(
+                                    standbyInfo.getAdapter().getAdapterInstanceId(),
+                                    primaryConnInfoSetting,
+                                    true,
+                                    connection
+                            );
+                            if (!settingsChanged) {
+                                log.error("Failed to change {} setting for started standby. Standby will be removed.", PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME);
+                                platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
+                                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInfo.getPersisted().getInstanceId());
+                            }
+                        }
+
+                        // standby healthy and primary_conninfo changed. Add it to runtime properties
+                        PostgresCombinedInstanceInfo standbyRealCombinedInfo = PostgresCombinedInstanceInfo
+                                .builder()
+                                .adapter(standbyAdapterInfo)
+                                .persisted(standbyInfo.getPersisted())
+                                .build();
+                        orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(standbyRealCombinedInfo);
                     }
                 } catch (Exception e) {
                     log.error("Error while starting standby. It will be removed.");
@@ -593,7 +623,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             for (int i = 0; i < countDiff; i++) {
                 completableFutureList.add(managedExecutor.runAsync(() -> {
-                            createStartAndWaitForNewInstanceToBeReady(false);
+                            createStartAndWaitForNewStandbyToBeReady();
                             log.info("Standby is up and running!");
                         })
                 );
@@ -705,13 +735,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     //TODO reuse on recovery
-    private PostgresCombinedInstanceInfo createStartAndWaitForNewInstanceToBeReady(boolean primary) throws InstanceCreationException, AwaitHealthyInstanceException {
+    private PostgresCombinedInstanceInfo createStartAndWaitForNewStandbyToBeReady() throws InstanceCreationException, AwaitHealthyInstanceException {
         UUID futureInstanceId = UUID.randomUUID();
-        String adapterIdentifier = platformAdapter.get().createNewPostgresInstance(
+        String adapterIdentifier = platformAdapter.get().createNewPostgresStandbyInstance(
                 PostgresInstanceCreationRequest
                         .builder()
                         .futureInstanceId(UUID.randomUUID())
-                        .primary(primary)
                         .settings(raftFunctionalityCombinator.getPostgresSettingInfos())
                         .build()
         );
@@ -734,7 +763,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             PostgresPersistedInstanceInfo persistedInstanceInfo = PostgresPersistedInstanceInfo
                     .builder()
-                    .primary(primary)
+                    .primary(false)
                     .instanceId(futureInstanceId)
                     .adapterIdentifier(adapterIdentifier)
                     .build();

@@ -39,10 +39,17 @@ public class RuntimePostgresConnectionProducer {
             return null;
         }
 
+        return createNewPgFacadeUserConnection(
+                runtimePostgresInstanceInfo.getAddress(),
+                runtimePostgresInstanceInfo.getPort()
+        );
+    }
+
+    public Connection createNewPgFacadeUserConnection(String address, int port) throws SQLException {
         String jdbcUrl = "jdbc:postgresql://"
-                + runtimePostgresInstanceInfo.getAddress()
+                + address
                 + ":"
-                + runtimePostgresInstanceInfo.getPort()
+                + port
                 + "/"
                 + postgresProperties.users().pgFacade().database();
 

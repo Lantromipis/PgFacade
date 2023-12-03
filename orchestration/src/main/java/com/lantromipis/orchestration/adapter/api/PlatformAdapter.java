@@ -37,7 +37,7 @@ public interface PlatformAdapter {
      * @return adapter identifier of Postgres instance
      * @throws PlatformAdapterOperationExecutionException if unexpected error occurred
      */
-    String createNewPostgresInstance(PostgresInstanceCreationRequest request) throws PlatformAdapterOperationExecutionException;
+    String createNewPostgresStandbyInstance(PostgresInstanceCreationRequest request) throws PlatformAdapterOperationExecutionException;
 
     /**
      * Start existing Postgres instance
