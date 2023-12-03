@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.ObjectUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.io.ByteArrayInputStream;
@@ -128,7 +129,10 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 return Collections.emptyList();
             }
 
-            return backupsListing.getObjectSummaries().stream().map(summary -> parseBackupInstantSafely(summary.getKey())).filter(Objects::nonNull).collect(Collectors.toList());
+            return backupsListing.getObjectSummaries().stream()
+                    .map(summary -> parseBackupInstantSafely(summary.getKey()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Failed to retrieve backups list.", e);
             return Collections.emptyList();
@@ -137,17 +141,18 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
 
     @Override
     public void uploadBackupTar(InputStream inputStreamWithBackupTar, Instant creationTime, String firstWalFileName) throws UploadException {
-        String key = String.format(ArchiverConstants.S3_BACKUP_KEY_FORMAT, ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime));
-
-        InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(archivingProperties.s3().backupsBucket(), key);
-        if (firstWalFileName == null || firstWalFileName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
-            log.error("Invalid first WAL file name. Backup will be created, but auto-remove WAL files wont work.");
-        } else {
-            ObjectMetadata metadata = new ObjectMetadata();
-            metadata.addUserMetadata(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY, firstWalFileName);
-            initRequest.setObjectMetadata(metadata);
+        if (!isWalFileNameValid(firstWalFileName)) {
+            log.error("Invalid first WAL file name. Backup will be created, but PgFacade will not be able to restore such backup or remove unneeded WAL files.");
+            firstWalFileName = ArchiverConstants.S3_DUMMY_FIRST_WAL_FILE_NAME;
         }
 
+        String key = String.format(
+                ArchiverConstants.S3_BACKUP_KEY_FORMAT,
+                ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.format(creationTime),
+                firstWalFileName
+        );
+
+        InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(archivingProperties.s3().backupsBucket(), key);
         InitiateMultipartUploadResult initResponse;
 
         try {
@@ -283,26 +288,27 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
                 }
             }).toList();
 
-            if (removed.get() != 0) {
-                S3ObjectSummary oldestBackupObjectSummary = remainingBackupsSummaries.stream().min((summary1, summary2) -> {
-                    Instant backupInstant1 = parseBackupInstantSafely(summary1.getKey());
-                    Instant backupInstant2 = parseBackupInstantSafely(summary2.getKey());
+            if (removed.get() != 0 && removeWal) {
+                S3ObjectSummary oldestBackupObjectSummary = remainingBackupsSummaries
+                        .stream()
+                        .min((summary1, summary2) -> {
+                            Instant backupInstant1 = parseBackupInstantSafely(summary1.getKey());
+                            Instant backupInstant2 = parseBackupInstantSafely(summary2.getKey());
 
-                    return backupInstant1.compareTo(backupInstant2);
-                }).stream().findFirst().orElse(null);
+                            return ObjectUtils.compare(backupInstant1, backupInstant2);
+                        }).stream().findFirst().orElse(null);
 
                 if (oldestBackupObjectSummary == null) {
                     log.error("Removed backup but failed to remove old WAL files. Consider removing them manually.");
                 } else {
-                    ObjectMetadata metadata = s3Client.getObjectMetadata(archivingProperties.s3().backupsBucket(), oldestBackupObjectSummary.getKey());
-                    String lastWalName = metadata.getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
+                    String lastWalName = parseBackupFirstWalSafely(oldestBackupObjectSummary.getKey());
 
-                    if (removeWal) {
-                        if (lastWalName == null || lastWalName.length() != ArchiverConstants.WAL_FILE_NAME_LENGTH) {
-                            log.error("Oldest backup has corrupted {} metadata parameter. Can not remove old WAL files. Consider removing them manually.", ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
-                        } else {
-                            removeWalFilesOlderThan(lastWalName);
-                        }
+                    if (lastWalName == null) {
+                        log.error("Can not detect first required WAL for backup with key {}. Old WAL files will not be removed.", oldestBackupObjectSummary.getKey());
+                    } else if (!isWalFileNameValid(lastWalName)) {
+                        log.error("Backup key {} contains invalid WAL file name.", oldestBackupObjectSummary.getKey());
+                    } else {
+                        removeWalFilesOlderThan(lastWalName);
                     }
                 }
             }
@@ -319,13 +325,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
         try {
             String key = String.format(ArchiverConstants.S3_WAL_FILE_KEY_FORMAT, file.getName());
 
-            ObjectMetadata objectMetadata = new ObjectMetadata();
-            objectMetadata.addUserMetadata(ArchiverConstants.S3_WAL_INSTANT_METADATA_KEY, Instant.now().toString());
-
             PutObjectRequest putObjectRequest = new PutObjectRequest(archivingProperties.s3().walBucket(), key, file);
-
-            putObjectRequest.setMetadata(objectMetadata);
-
             s3Client.putObject(putObjectRequest);
         } catch (Exception e) {
             throw new UploadException("Failed to upload WAL file " + file.getName(), e);
@@ -354,11 +354,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
             S3ObjectSummary targetBackupSummary = backupsListing.getObjectSummaries().stream().filter(summary -> {
                 Instant backupInstant = parseBackupInstantSafely(summary.getKey());
 
-                if (backupInstant != null && backupInstant.equals(instant)) {
-                    return true;
-                }
-
-                return false;
+                return backupInstant != null && backupInstant.equals(instant);
             }).findFirst().orElse(null);
 
             if (targetBackupSummary == null) {
@@ -366,11 +362,10 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
             }
 
             S3Object backup = s3Client.getObject(archivingProperties.s3().backupsBucket(), targetBackupSummary.getKey());
+            String firstWalFile = parseBackupFirstWalSafely(backup.getKey());
 
-            String firstWalFile = backup.getObjectMetadata().getUserMetaDataOf(ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY);
-
-            if (firstWalFile == null || firstWalFile.length() < ArchiverConstants.WAL_FILE_NAME_LENGTH) {
-                throw new DownloadException("Corrupted metadata for backup. No metadata '" + ArchiverConstants.S3_BACKUP_FIRST_REQUIRED_WAL_METADATA_KEY + "' provided.");
+            if (!isWalFileNameValid(firstWalFile)) {
+                throw new DownloadException("Corrupted backup object name. Can not extract valid first WAL file name.");
             }
 
             return BaseBackupDownload.builder().firstWalFile(firstWalFile).inputStreamWithBackupTar(backup.getObjectContent()).build();
@@ -459,14 +454,39 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
             Matcher matcher = ArchiverConstants.S3_BACKUP_KEY_PATTERN.matcher(backupKey);
 
             if (!matcher.matches()) {
-                log.error("Unable to check backup creation time for object with key '{}'. Did you change tha name of the object? You will need to remove it manually now.", backupKey);
+                log.error("Unable to check backup creation time for object with key '{}'. Does object key matches format {}?", backupKey, ArchiverConstants.S3_BACKUP_KEY_FORMAT);
                 return null;
             }
 
             return ArchiverConstants.S3_BACKUP_KEY_DATE_TIME_FORMATTER.parse(matcher.group(1), Instant::from);
         } catch (Exception e) {
-            log.error("Unable to check backup creation time for object with key '{}'. Did you change tha name of the object? You will need to remove it manually now.", backupKey);
+            log.error("Unable to check backup creation time for object with key '{}'. Does object key matches format {}?", backupKey, ArchiverConstants.S3_BACKUP_KEY_FORMAT);
             return null;
         }
+    }
+
+    private String parseBackupFirstWalSafely(String backupKey) {
+        try {
+            Matcher matcher = ArchiverConstants.S3_BACKUP_KEY_PATTERN.matcher(backupKey);
+
+            if (!matcher.matches()) {
+                log.error("Unable to check backup creation time for object with key '{}'. Does object key matches format {}?", backupKey, ArchiverConstants.S3_BACKUP_KEY_FORMAT);
+                return null;
+            }
+
+            return matcher.group(2);
+        } catch (Exception e) {
+            log.error("Unable to check backup creation time for object with key '{}'. Does object key matches format {}?", backupKey, ArchiverConstants.S3_BACKUP_KEY_FORMAT);
+            return null;
+        }
+    }
+
+    private boolean isWalFileNameValid(String walFileName) {
+        if (walFileName == null) {
+            return false;
+        }
+
+        Matcher matcher = ArchiverConstants.WAL_FILE_NAME_PATTERN.matcher(walFileName);
+        return matcher.matches();
     }
 }
