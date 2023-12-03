@@ -67,9 +67,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
     ManagedExecutor managedExecutor;
 
     private Bootstrap primaryBootstrap;
-
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
+
     private Map<UUID, StandbyPostgresPoolWrapper> standbyConnectionsStorages = new ConcurrentHashMap<>();
+    
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
     private AtomicBoolean switchoverInProgress = new AtomicBoolean(false);

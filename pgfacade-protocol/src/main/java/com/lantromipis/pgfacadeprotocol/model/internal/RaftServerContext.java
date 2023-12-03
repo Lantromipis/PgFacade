@@ -9,7 +9,6 @@ import com.lantromipis.pgfacadeprotocol.server.impl.RaftTimer;
 import com.lantromipis.pgfacadeprotocol.server.internal.RaftServerOperationsLog;
 import io.netty.channel.EventLoopGroup;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 
 import java.util.Map;
@@ -18,7 +17,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Data
-@Builder
 @AllArgsConstructor
 public class RaftServerContext {
 
@@ -41,7 +39,7 @@ public class RaftServerContext {
     // self info
     private String selfNodeId;
     private RaftNode selfNode;
-    private RaftRole selfRole = RaftRole.FOLLOWER;
+    private RaftRole selfRole;
     private AtomicLong currentTerm;
     private AtomicLong commitIndex;
     private AtomicLong stateMachineApplyIndex;
@@ -64,6 +62,7 @@ public class RaftServerContext {
         commitInProgress = new AtomicBoolean(false);
         voteResponses = new ConcurrentHashMap<>();
         raftPeers = new ConcurrentHashMap<>();
+        selfRole = RaftRole.FOLLOWER;
 
         active = false;
     }

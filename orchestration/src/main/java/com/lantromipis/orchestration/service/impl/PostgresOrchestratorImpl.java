@@ -658,7 +658,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
 
             newPrimaryInstanceInfo.getPersisted().setPrimary(true);
-            raftFunctionalityCombinator.savePostgresNodeInfoInRaft(newPrimaryInstanceInfo.getPersisted());
+            raftFunctionalityCombinator.updatePostgresNodeInfoInRaft(newPrimaryInstanceInfo.getPersisted());
 
             platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
             raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
