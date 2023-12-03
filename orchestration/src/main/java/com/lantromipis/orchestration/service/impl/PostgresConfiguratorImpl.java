@@ -130,7 +130,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
             List<String> oldConfLines = getFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath);
 
-            fastPostgresSettingsChange(combinedInstanceInfo, newSettingNamesAndValuesMap, false, connection);
+            fastPostgresSettingsChange(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), newSettingNamesAndValuesMap, false, connection);
 
             ResultSet checkSettingResultSet = connection.createStatement().executeQuery("SELECT * FROM pg_file_settings WHERE error NOTNULL AND sourcefile = '" + filePath + "'");
 
@@ -172,18 +172,11 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
     }
 
     @Override
-    public boolean fastPostgresSettingsChange(PostgresCombinedInstanceInfo combinedInstanceInfo, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
+    public boolean fastPostgresSettingsChange(String adapterIdentifier, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
         try {
-            boolean closeConnection = false;
-
-            if (connection == null) {
-                closeConnection = true;
-                connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(combinedInstanceInfo.getPersisted().getInstanceId());
-            }
-
             String filePath = getPgFacadePostgresqlConfFilePath(connection);
 
-            List<String> oldConfLines = getFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath);
+            List<String> oldConfLines = getFileLines(adapterIdentifier, filePath);
 
             Map<String, String> newConfSettingsMap = new HashMap<>();
             for (String settingLine : oldConfLines) {
@@ -201,14 +194,10 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
                 newConfLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
             }
 
-            replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath, newConfLines);
+            replaceFileLines(adapterIdentifier, filePath, newConfLines);
 
             if (reloadConf) {
                 reloadConf(connection);
-            }
-
-            if (closeConnection) {
-                connection.close();
             }
 
             return true;
