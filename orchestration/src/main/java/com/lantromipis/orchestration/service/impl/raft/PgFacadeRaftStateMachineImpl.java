@@ -66,6 +66,11 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                     raftStorage.deletePostgresNodeInfo(instanceId);
                     raftCommitUtils.processCommittedDeletePostgresNodeInfoCommand(instanceId);
                 }
+                case UPDATE_POSTGRES_NODE_INFO -> {
+                    PostgresPersistedInstanceInfo newPostgresPersistedInstanceInfo = objectMapper.readValue(new String(data), PostgresPersistedInstanceInfo.class);
+                    raftStorage.savePostgresNodeInfo(newPostgresPersistedInstanceInfo);
+                    raftCommitUtils.processCommittedUpdatePostgresNodeInfoCommand(newPostgresPersistedInstanceInfo);
+                }
                 case CLEAR_POSTGRES_NODES_INFOS -> {
                     raftStorage.clearPostgresNodesInfos();
                     raftCommitUtils.processCommittedClearPostgresNodeInfoCommand();

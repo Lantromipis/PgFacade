@@ -122,6 +122,14 @@ public class RaftFunctionalityCombinator {
         );
     }
 
+    public void updatePostgresNodeInfoInRaft(PostgresPersistedInstanceInfo updatedPostgresPersistedInstanceInfo) throws RaftException {
+        raftService.appendToLogAndAwaitCommit(
+                UPDATE_POSTGRES_NODE_INFO,
+                writeAsBytesSafe(updatedPostgresPersistedInstanceInfo),
+                TIMEOUT
+        );
+    }
+
     public void clearPostgresNodesInfosInRaft() throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 CLEAR_POSTGRES_NODES_INFOS,

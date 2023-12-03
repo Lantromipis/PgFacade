@@ -103,6 +103,29 @@ public class RaftCommitUtils {
         }
     }
 
+    public void processCommittedUpdatePostgresNodeInfoCommand(PostgresPersistedInstanceInfo updatedCommittedInfo) {
+        try {
+            // delete old instance info
+            orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(updatedCommittedInfo.getInstanceId());
+
+            // save new info
+            PostgresAdapterInstanceInfo adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(
+                    updatedCommittedInfo.getAdapterIdentifier()
+            );
+
+            orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(
+                    PostgresCombinedInstanceInfo
+                            .builder()
+                            .persisted(updatedCommittedInfo)
+                            .adapter(adapterInstanceInfo)
+                            .build()
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to add instance to runtime properties, after its info was committed in Raft. Maybe instance is removed.");
+        }
+    }
+
     public void processCommittedDeletePostgresNodeInfoCommand(UUID deletedInstanceId) {
         orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(deletedInstanceId);
     }

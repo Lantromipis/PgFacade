@@ -15,6 +15,7 @@ public class RaftConstants {
     // node info
     public static final String SAVE_POSTGRES_NODE_INFO = "SPNI";
     public static final String DELETE_POSTGRES_NODE_INFO = "DPNI";
+    public static final String UPDATE_POSTGRES_NODE_INFO = "UPNI";
     public static final String CLEAR_POSTGRES_NODES_INFOS = "CPNI";
 
     // settings info
