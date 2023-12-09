@@ -173,7 +173,7 @@ public class LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler 
     private void freeResources() {
         if (resourcesFreed.compareAndSet(false, true)) {
             if (primaryConnectionWrapper != null) {
-                primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().rollback(true).build());
+                primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().cleanup(true).build());
             }
             clientConnectionsManagementService.unregisterClientChannelHandler(this);
             setActive(false);

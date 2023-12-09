@@ -20,32 +20,57 @@ import java.util.function.Consumer;
 public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandler {
 
     private Consumer<PgChannelCleanResult> callback;
-    private ByteBuf leftovers;
+    private ByteBuf leftovers = null;
     private List<MessageInfo> messageInfos;
 
-    private boolean ready;
+    private int commandsCounter = 0;
 
     public PgChannelCleaningHandler(Consumer<PgChannelCleanResult> callback) {
         this.callback = callback;
         messageInfos = new ArrayList<>();
-        ready = false;
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("rollback;"));
-        ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("deallocate all;"));
-        ready = true;
         super.handlerAdded(ctx);
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
-        leftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos);
 
-        if (ready && DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
-            callback.accept(new PgChannelCleanResult(true));
+        ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos, ctx.alloc());
+
+        if (leftovers != null) {
+            leftovers.release();
+        }
+        leftovers = newLeftovers;
+
+        if (DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
+            freeMessages();
+            commandsCounter = -1;
+            log.error("Failed to clean connection after client, because Postgres responded with error");
+            callback.accept(new PgChannelCleanResult(false));
+            return;
+        }
+
+        // 0 == rollback, 1 == deallocate all.
+        switch (commandsCounter) {
+            case 0 -> {
+                if (DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
+                    freeMessages();
+                    commandsCounter++;
+                    ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("deallocate all;"));
+                }
+            }
+            case 1 -> {
+                if (DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
+                    freeMessages();
+                    callback.accept(new PgChannelCleanResult(true));
+                    commandsCounter++;
+                }
+            }
         }
 
         ctx.channel().read();
@@ -57,5 +82,14 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
         ctx.channel().close();
         callback.accept(new PgChannelCleanResult(false));
         log.error("Failed to clean connection after client", cause);
+    }
+
+    private void freeMessages() {
+        DecoderUtils.freeMessageInfos(messageInfos);
+
+        if (leftovers != null) {
+            leftovers.release();
+            leftovers = null;
+        }
     }
 }

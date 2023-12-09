@@ -3,11 +3,16 @@ package com.lantromipis.postgresprotocol.utils;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBufAllocator;
 
 import java.util.List;
 
 public class DecoderUtils {
+
+    public static void freeMessageInfos(List<MessageInfo> messageInfos) {
+        messageInfos.forEach(m -> m.getEntireMessage().release());
+        messageInfos.clear();
+    }
 
     public static boolean checkIfMessageIsTermination(ByteBuf buf) {
         byte startChar = buf.readByte();
@@ -37,11 +42,11 @@ public class DecoderUtils {
         return false;
     }
 
-    private static ByteBuf splitToMessages(ByteBuf packet, List<MessageInfo> retMessages) {
+    private static ByteBuf splitToMessages(ByteBuf packet, List<MessageInfo> retMessages, ByteBufAllocator allocator) {
         ByteBuf leftovers = null;
 
         if (packet.readableBytes() < 5) {
-            leftovers = Unpooled.buffer();
+            leftovers = allocator.buffer(packet.readableBytes());
             packet.readBytes(leftovers, packet.readableBytes());
 
             return leftovers;
@@ -68,25 +73,21 @@ public class DecoderUtils {
             int entireMessageLength = length + 1;
 
             if (packet.readableBytes() < entireMessageLength) {
-                leftovers = Unpooled.buffer(packet.readableBytes());
+                leftovers = allocator.buffer(packet.readableBytes());
                 leftovers.writeBytes(packet, packet.readableBytes());
                 break;
             }
 
-            ByteBuf message = Unpooled.buffer(entireMessageLength);
+            ByteBuf message = allocator.buffer(entireMessageLength);
             message.writeBytes(packet, entireMessageLength);
 
-            byte[] messageBytes = new byte[message.readableBytes()];
-            message.readBytes(messageBytes, 0, messageBytes.length);
-
-            message.release();
-
-            retMessages.add(MessageInfo
-                    .builder()
-                    .startByte(startByte)
-                    .length(length)
-                    .entireMessage(messageBytes)
-                    .build()
+            retMessages.add(
+                    MessageInfo
+                            .builder()
+                            .startByte(startByte)
+                            .length(length)
+                            .entireMessage(message)
+                            .build()
             );
 
             // packet completed and all messaged were split
@@ -106,8 +107,8 @@ public class DecoderUtils {
         return leftovers;
     }
 
-    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, List<MessageInfo> retMessages) {
-        ByteBuf leftovers = null;
+    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, List<MessageInfo> retMessages, ByteBufAllocator allocator) {
+        ByteBuf leftovers;
 
         // for previous incomplete message
         if (previousPacketLastIncompleteMessage != null && previousPacketLastIncompleteMessage.readableBytes() > 0) {
@@ -127,7 +128,7 @@ public class DecoderUtils {
 
                 previousPacketLastIncompleteMessage.resetReaderIndex();
             } else {
-                ByteBuf buf = Unpooled.buffer();
+                ByteBuf buf = allocator.buffer(5);
                 buf.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
                 buf.writeBytes(packet, 5 - prevAvailableMessageBytes);
 
@@ -136,32 +137,31 @@ public class DecoderUtils {
 
                 prevMsgStartByte = buf.readByte();
                 prevMsgLength = buf.readInt();
+
+                buf.release();
             }
 
+            // 1 byte for message type
             int needToReadFromPacket = prevMsgLength - prevAvailableMessageBytes + 1;
 
             if (packet.readableBytes() >= needToReadFromPacket) {
-                ByteBuf message = Unpooled.buffer(prevMsgLength + 1);
+                ByteBuf message = allocator.buffer(prevMsgLength + 1);
 
                 message.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
                 message.writeBytes(packet, needToReadFromPacket);
-
-                byte[] messageBytes = new byte[message.readableBytes()];
-                message.readBytes(messageBytes, 0, messageBytes.length);
-                message.release();
 
                 retMessages.add(
                         MessageInfo
                                 .builder()
                                 .length(prevMsgLength)
                                 .startByte(prevMsgStartByte)
-                                .entireMessage(messageBytes)
+                                .entireMessage(message)
                                 .build()
                 );
 
             } else {
                 // new packet is incomplete too. All data to leftovers
-                leftovers = Unpooled.buffer(prevAvailableMessageBytes + packet.readableBytes());
+                leftovers = allocator.buffer(prevAvailableMessageBytes + packet.readableBytes());
                 leftovers.writeBytes(previousPacketLastIncompleteMessage, prevAvailableMessageBytes);
                 leftovers.writeBytes(packet, packet.readableBytes());
 
@@ -169,10 +169,9 @@ public class DecoderUtils {
 
                 return leftovers;
             }
-            previousPacketLastIncompleteMessage.release();
         }
 
-        leftovers = splitToMessages(packet, retMessages);
+        leftovers = splitToMessages(packet, retMessages, allocator);
 
         return leftovers;
 

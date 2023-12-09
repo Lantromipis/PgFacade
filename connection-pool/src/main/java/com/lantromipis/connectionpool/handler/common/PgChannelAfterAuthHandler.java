@@ -32,7 +32,12 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
-        leftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos);
+        ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos, ctx.alloc());
+
+        if (leftovers != null) {
+            leftovers.release();
+        }
+        leftovers = newLeftovers;
 
         if (DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
             callbackFunction.accept(
@@ -51,7 +56,7 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
                 if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR
                         && messageInfo.getLength() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_LENGTH) {
 
-                    ByteBuf byteBuf = ctx.alloc().buffer(messageInfo.getEntireMessage().length);
+                    ByteBuf byteBuf = ctx.alloc().buffer(messageInfo.getEntireMessage().readableBytes());
                     byteBuf.writeBytes(messageInfo.getEntireMessage());
 
                     // remove start byte and length
@@ -69,10 +74,15 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
                 }
             }
 
-
             callbackFunction.accept(
                     new PgChannelAuthResult(containsAuthOk, messageInfos)
             );
+
+            if (leftovers != null) {
+                leftovers.release();
+            }
+            DecoderUtils.freeMessageInfos(messageInfos);
+
             ctx.channel().pipeline().remove(this);
             return;
         }

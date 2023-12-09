@@ -251,7 +251,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                                 .stream()
                                                 .filter(messageInfo -> messageInfo.getStartByte() == PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR)
                                                 .forEach(messageInfo ->
-                                                        serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().length)
+                                                        serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().readableBytes())
                                                 );
 
                                         byte[] serverParameterMessagesBytes = new byte[serverParameterMessagesBuf.readableBytes()];
@@ -357,18 +357,18 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
                         HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
 
-                        if (params.isRollback() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
+                        if (params.isCleanup() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
                             AtomicBoolean finished = new AtomicBoolean(false);
 
                             ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
                                         if (finished.compareAndSet(false, true)) {
-                                            log.warn("Timeout reached for real Postgres connection auth.");
+                                            log.warn("Timeout reached for real Postgres connection cleanup.");
                                             HandlerUtils.closeOnFlush(
                                                     pooledConnectionInternalInfo.getRealPostgresConnection(),
                                                     ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
                                             );
                                         } else {
-                                            log.debug("Postgres connection acquired. Canceling scheduled...");
+                                            log.debug("Postgres connection cleaned. Canceling scheduled...");
                                         }
                                     },
                                     proxyProperties.connectionPool().cleanRealUsedConnectionTimeout().toMillis(),
