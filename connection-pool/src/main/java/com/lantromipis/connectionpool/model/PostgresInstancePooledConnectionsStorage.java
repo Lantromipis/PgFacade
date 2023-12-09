@@ -130,7 +130,12 @@ public class PostgresInstancePooledConnectionsStorage {
      * Returns connection after client stopped using it.
      * If channel is closed, it will be removed from storage.
      * If connection has reached its max-age, then such connection is removed from storage.
-     * If connection has not reached its max-age, then this method checks if there are some connection await requests. If yes, then return connection to awaiting caller. If no, then method returns connection back to storage and marks it as 'free'. Such connection must have been added earlier and marked as 'taken'.
+     * <p>
+     * If connection has not reached its max-age, then this method checks if there are some connection await requests.
+     * If yes, then return connection to awaiting caller.
+     * If no, then method returns connection back to storage and marks it as 'free'.
+     * Such connection must have been added earlier and marked as 'taken'.
+     * <p>
      * There are NO checks if connection was really added previously or marked as 'taken'! Checks are not included to improve performance.
      *
      * @param pooledConnectionInternalInfo polled connection that was taken from the pool
@@ -138,11 +143,13 @@ public class PostgresInstancePooledConnectionsStorage {
      * @return Netty channel if connection reached it max-age or null if it doesn't.
      */
     public Channel returnTakenConnectionAndCheckAge(PooledConnectionInternalInfo pooledConnectionInternalInfo, long maxAgeMillis) {
+        // inactive connection
         if (!pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
             removeConnection(pooledConnectionInternalInfo);
             return pooledConnectionInternalInfo.getRealPostgresConnection();
         }
 
+        // max age reached
         if (System.currentTimeMillis() - maxAgeMillis > pooledConnectionInternalInfo.getCreatedTimestamp()) {
             removeConnection(pooledConnectionInternalInfo);
             return pooledConnectionInternalInfo.getRealPostgresConnection();
@@ -156,19 +163,16 @@ public class PostgresInstancePooledConnectionsStorage {
                 break;
             }
 
-            storageAwaitRequest.setAwaitResult(pooledConnectionInternalInfo);
-
             // try to tell caller that await request was successful
             if (storageAwaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
                 // caller still waiting, notify
-                storageAwaitRequest.getCallerLatch().countDown();
+                storageAwaitRequest.getConnectionReadyCallback().accept(pooledConnectionInternalInfo);
                 return null;
-            } else {
-                // caller not waiting anymore, remove result and proceed to another caller
-                storageAwaitRequest.setAwaitResult(null);
             }
+            // caller not waiting anymore, skip it and proceed to another caller
         }
 
+        // nobody in queue, mark connection as taken
         pooledConnectionInternalInfo.getTaken().set(false);
         addConnectionToMap(pooledConnectionInternalInfo.getStartupMessageInfo(), pooledConnectionInternalInfo, freeConnections);
         return null;

@@ -6,10 +6,6 @@ package com.lantromipis.configuration.properties.constant;
 public class PostgresqlConfConstants {
 
     public static final String PG_FACADE_POSTGRESQL_CONF_FILE_NAME = "postgresql.pgfacade.conf";
-    /**
-     * How many connections PgFacade reserves for internal use.
-     */
-    public static final int PG_FACADE_RESERVED_CONNECTIONS_COUNT = 3;
 
     private PostgresqlConfConstants() {
     }

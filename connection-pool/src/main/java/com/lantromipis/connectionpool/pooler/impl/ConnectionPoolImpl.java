@@ -2,7 +2,6 @@ package com.lantromipis.connectionpool.pooler.impl;
 
 import com.lantromipis.configuration.event.*;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
-import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
@@ -34,7 +33,6 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
-import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.util.Comparator;
 import java.util.List;
@@ -63,14 +61,11 @@ public class ConnectionPoolImpl implements ConnectionPool {
     @Inject
     ProxyProperties proxyProperties;
 
-    @Inject
-    ManagedExecutor managedExecutor;
-
     private Bootstrap primaryBootstrap;
     private PostgresInstancePooledConnectionsStorage primaryConnectionsStorage;
 
     private Map<UUID, StandbyPostgresPoolWrapper> standbyConnectionsStorages = new ConcurrentHashMap<>();
-    
+
     private AtomicBoolean clearUnneededConnectionsInProgress = new AtomicBoolean(false);
     private AtomicBoolean poolActive = new AtomicBoolean(false);
     private AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
@@ -180,48 +175,38 @@ public class ConnectionPoolImpl implements ConnectionPool {
         if (!storage.reserveSpaceForNewChannel()) {
             log.warn("Reached Postgres max connections limit and there are no free connections in pool. " +
                             "New connection can not be added. Consider increasing 'max_connections' Postgres setting using REST API. " +
-                            "Current max_connections: {} ({} of them are reserved by PgFacade for internal needs)",
-                    storage.getMaxConnections() + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT,
-                    PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT
+                            "Current max_connections: {}",
+                    storage.getMaxConnections()
             );
 
+            // if allowed, add this caller to queue to wait for connection
             if (proxyProperties.connectionPool().awaitConnectionWhenPoolEmpty()) {
                 StorageAwaitRequest awaitRequest = new StorageAwaitRequest();
+                awaitRequest.setConnectionReadyCallback((connectionInternalInfo) -> {
+                            readyCallback.accept(
+                                    wrapPooledConnection(
+                                            connectionInternalInfo,
+                                            storage
+                                    )
+                            );
+                        }
+                );
                 storage.waitForConnection(awaitRequest);
 
-                try {
-                    if (awaitRequest.getCallerLatch().await(proxyProperties.connectionPool().awaitConnectionWhenPoolEmptyTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
-                        readyCallback.accept(wrapPooledConnection(awaitRequest.getAwaitResult(), storage));
-                        return;
-                    } else {
-                        if (!awaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
-                            // unable to set! Storage returned connection after timeout!
-                            readyCallback.accept(wrapPooledConnection(awaitRequest.getAwaitResult(), storage));
-                            return;
-                        }
-                    }
-                } catch (Exception e) {
-                    log.error("Failed while waiting for connection in pool!");
-                    if (!awaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
-                        // storage returned connection, but exception happened. Return back to pool.
-                        Channel channel = storage.returnTakenConnectionAndCheckAge(
-                                awaitRequest.getAwaitResult(),
-                                proxyProperties.connectionPool().connectionMaxAge().toMillis()
-                        );
-
-                        if (channel != null) {
-                            log.debug("Connection reached its max-age. Removing it from pool and closing.");
-                            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
-                        }
-                    }
-
-                    if (e instanceof InterruptedException) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
+                // cancel request once timeout reached
+                ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
+                            if (awaitRequest.getSynchronizationPoint().compareAndSet(false, true)) {
+                                readyCallback.accept(null);
+                                log.debug("Timeout reached for while waiting for connection to become free in pool.");
+                            } else {
+                                log.debug("Successfully got connection from pool after waiting. Canceling scheduled...");
+                            }
+                        },
+                        proxyProperties.connectionPool().awaitConnectionWhenPoolEmptyTimeout().toMillis(),
+                        TimeUnit.MILLISECONDS
+                );
             }
 
-            readyCallback.accept(null);
             return;
         }
 
@@ -234,7 +219,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 channel.pipeline().remove(EmptyHandler.class);
                 AtomicBoolean finished = new AtomicBoolean(false);
 
-                ScheduledFuture<?> cancelFuture = channel.eventLoop().schedule(() -> {
+                ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
                             if (finished.compareAndSet(false, true)) {
                                 readyCallback.accept(null);
                                 HandlerUtils.closeOnFlush(channel);
@@ -375,7 +360,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         if (params.isRollback() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
                             AtomicBoolean finished = new AtomicBoolean(false);
 
-                            ScheduledFuture<?> cancelFuture = pooledConnectionInternalInfo.getRealPostgresConnection().eventLoop().schedule(() -> {
+                            ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
                                         if (finished.compareAndSet(false, true)) {
                                             log.warn("Timeout reached for real Postgres connection auth.");
                                             HandlerUtils.closeOnFlush(
@@ -424,10 +409,6 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                 pooledConnectionInternalInfo.getRealPostgresConnection(),
                                 ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
                         );
-
-                        if (e instanceof InterruptedException) {
-                            Thread.currentThread().interrupt();
-                        }
                     }
                 }
         );
