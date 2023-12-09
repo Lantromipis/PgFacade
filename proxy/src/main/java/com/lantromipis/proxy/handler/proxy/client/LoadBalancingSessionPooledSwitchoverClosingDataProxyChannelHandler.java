@@ -67,7 +67,14 @@ public class LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler 
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
                 proxyChannelHandlersProducer.createNewCallbackProxyDatabaseChannelHandler(
-                        this::databaseReplayed,
+                        this::primaryReplayed,
+                        this::closeClientConnectionExceptionally
+                )
+        );
+
+        standbyConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
+                proxyChannelHandlersProducer.createNewCallbackProxyDatabaseChannelHandler(
+                        this::standbyReplayed,
                         this::closeClientConnectionExceptionally
                 )
         );
