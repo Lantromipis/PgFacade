@@ -4,7 +4,6 @@ import com.lantromipis.connectionpool.model.PgChannelCleanResult;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
-import com.lantromipis.postgresprotocol.model.internal.SplitResult;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -43,14 +42,11 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
-        SplitResult splitResult = DecoderUtils.splitToMessages(leftovers, message);
-        messageInfos.addAll(splitResult.getMessageInfos());
+        leftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos);
 
-        if (ready && DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
+        if (ready && DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
             callback.accept(new PgChannelCleanResult(true));
         }
-
-        leftovers = splitResult.getLastIncompleteMessage();
 
         ctx.channel().read();
         super.channelRead(ctx, msg);

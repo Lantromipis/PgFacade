@@ -67,14 +67,14 @@ public class LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler 
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
                 proxyChannelHandlersProducer.createNewCallbackProxyDatabaseChannelHandler(
-                        this::primaryReplayed,
+                        this::primaryReplied,
                         this::closeClientConnectionExceptionally
                 )
         );
 
         standbyConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
                 proxyChannelHandlersProducer.createNewCallbackProxyDatabaseChannelHandler(
-                        this::standbyReplayed,
+                        this::standbyReplied,
                         this::closeClientConnectionExceptionally
                 )
         );
@@ -108,7 +108,7 @@ public class LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler 
         super.channelRead(ctx, msg);
     }
 
-    private void primaryReplayed(Object msg) {
+    private void primaryReplied(Object msg) {
         clientChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
                 primaryChannel.read();
@@ -118,7 +118,7 @@ public class LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler 
         });
     }
 
-    private void standbyReplayed(Object msg) {
+    private void standbyReplied(Object msg) {
         clientChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
                 standbyChannel.read();

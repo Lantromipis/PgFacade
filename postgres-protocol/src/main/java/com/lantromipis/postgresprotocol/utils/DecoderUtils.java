@@ -2,11 +2,9 @@ package com.lantromipis.postgresprotocol.utils;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
-import com.lantromipis.postgresprotocol.model.internal.SplitResult;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class DecoderUtils {
@@ -19,23 +17,34 @@ public class DecoderUtils {
     }
 
     public static boolean containsMessageOfType(List<MessageInfo> messageInfos, byte targetMessageStartByte) {
-        return messageInfos.stream()
-                .anyMatch(messageInfo -> messageInfo.getStartByte() == targetMessageStartByte);
+        for (MessageInfo messageInfo : messageInfos) {
+            if (messageInfo.getStartByte() == targetMessageStartByte) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    public static SplitResult splitToMessages(ByteBuf packet) {
-        List<MessageInfo> messageInfos = new ArrayList<>();
+    public static boolean containsMessageOfTypeReversed(List<MessageInfo> messageInfos, byte targetMessageStartByte) {
+        for (int i = messageInfos.size() - 1; i >= 0; i--) {
+            MessageInfo messageInfo = messageInfos.get(i);
+            if (messageInfo.getStartByte() == targetMessageStartByte) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static ByteBuf splitToMessages(ByteBuf packet, List<MessageInfo> retMessages) {
         ByteBuf leftovers = null;
 
         if (packet.readableBytes() < 5) {
             leftovers = Unpooled.buffer();
             packet.readBytes(leftovers, packet.readableBytes());
 
-            return SplitResult
-                    .builder()
-                    .messageInfos(messageInfos)
-                    .lastIncompleteMessage(leftovers)
-                    .build();
+            return leftovers;
         }
 
         while (true) {
@@ -72,7 +81,7 @@ public class DecoderUtils {
 
             message.release();
 
-            messageInfos.add(MessageInfo
+            retMessages.add(MessageInfo
                     .builder()
                     .startByte(startByte)
                     .length(length)
@@ -94,15 +103,10 @@ public class DecoderUtils {
 
         packet.readerIndex(0);
 
-        return SplitResult
-                .builder()
-                .messageInfos(messageInfos)
-                .lastIncompleteMessage(leftovers)
-                .build();
+        return leftovers;
     }
 
-    public static SplitResult splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet) {
-        List<MessageInfo> messageInfos = new ArrayList<>();
+    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, List<MessageInfo> retMessages) {
         ByteBuf leftovers = null;
 
         // for previous incomplete message
@@ -144,10 +148,9 @@ public class DecoderUtils {
 
                 byte[] messageBytes = new byte[message.readableBytes()];
                 message.readBytes(messageBytes, 0, messageBytes.length);
-
                 message.release();
 
-                messageInfos.add(
+                retMessages.add(
                         MessageInfo
                                 .builder()
                                 .length(prevMsgLength)
@@ -164,24 +167,14 @@ public class DecoderUtils {
 
                 packet.readerIndex(0);
 
-                return SplitResult
-                        .builder()
-                        .messageInfos(messageInfos)
-                        .lastIncompleteMessage(leftovers)
-                        .build();
+                return leftovers;
             }
             previousPacketLastIncompleteMessage.release();
         }
 
-        SplitResult splitResult = splitToMessages(packet);
+        leftovers = splitToMessages(packet, retMessages);
 
-        messageInfos.addAll(splitResult.getMessageInfos());
-
-        return SplitResult
-                .builder()
-                .messageInfos(messageInfos)
-                .lastIncompleteMessage(splitResult.getLastIncompleteMessage())
-                .build();
+        return leftovers;
 
     }
 
