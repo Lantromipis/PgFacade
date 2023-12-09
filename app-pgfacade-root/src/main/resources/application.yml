@@ -152,7 +152,7 @@ quarkus:
           level: DEBUG
         "com.lantromipis.proxy.initializer":
           min-level: TRACE
-          level: DEBUG
+          level: TRACE
         "com.lantromipis.proxy":
           level: DEBUG
         "com.lantromipis.connectionpool":

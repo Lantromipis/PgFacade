@@ -7,9 +7,11 @@ import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEnc
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.proxy.handler.proxy.database.CallbackProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
@@ -17,20 +19,30 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
+public class LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
     private final String username;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
-    private PooledConnectionWrapper primaryConnectionWrapper;
+    private final PooledConnectionWrapper primaryConnectionWrapper;
+    private final PooledConnectionWrapper standbyConnectionWrapper;
     private final AtomicBoolean resourcesFreed;
 
-    public SessionPooledSwitchoverClosingDataProxyChannelHandler(final String username,
-                                                                 final PooledConnectionWrapper primaryConnectionWrapper,
-                                                                 final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
-                                                                 final ClientConnectionsManagementService clientConnectionsManagementService) {
+    private CallbackProxyDatabaseChannelHandler primaryChannelHandler;
+    private CallbackProxyDatabaseChannelHandler standbyChannelHandler;
+
+    private Channel clientChannel;
+    private Channel primaryChannel;
+    private Channel standbyChannel;
+
+    public LoadBalancingSessionPooledSwitchoverClosingDataProxyChannelHandler(final String username,
+                                                                              final PooledConnectionWrapper primaryConnectionWrapper,
+                                                                              final PooledConnectionWrapper standbyConnectionWrapper,
+                                                                              final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
+                                                                              final ClientConnectionsManagementService clientConnectionsManagementService) {
         this.username = username;
         this.primaryConnectionWrapper = primaryConnectionWrapper;
+        this.standbyConnectionWrapper = standbyConnectionWrapper;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
         resourcesFreed = new AtomicBoolean(false);
@@ -38,7 +50,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        if (primaryConnectionWrapper == null) {
+        if (primaryConnectionWrapper == null || standbyConnectionWrapper == null) {
             setInitialChannelHandlerContext(ctx);
             HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
             clientConnectionsManagementService.unregisterClientChannelHandler(this);
@@ -54,11 +66,16 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
         ctx.writeAndFlush(response);
 
         primaryConnectionWrapper.getRealPostgresConnection().pipeline().addLast(
-                proxyChannelHandlersProducer.createNewSimpleDatabasePrimaryConnectionHandler(
-                        ctx.channel(),
+                proxyChannelHandlersProducer.createNewCallbackProxyDatabaseChannelHandler(
+                        this::databaseReplayed,
                         this::closeClientConnectionExceptionally
                 )
         );
+
+        this.clientChannel = ctx.channel();
+        this.primaryChannel = primaryConnectionWrapper.getRealPostgresConnection();
+        this.standbyChannel = standbyConnectionWrapper.getRealPostgresConnection();
+
         // read first message from client
         super.handlerAdded(ctx);
     }
@@ -82,6 +99,26 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
                     });
         }
         super.channelRead(ctx, msg);
+    }
+
+    private void primaryReplayed(Object msg) {
+        clientChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                primaryChannel.read();
+            } else {
+                future.channel().close();
+            }
+        });
+    }
+
+    private void standbyReplayed(Object msg) {
+        clientChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                standbyChannel.read();
+            } else {
+                future.channel().close();
+            }
+        });
     }
 
     @Override

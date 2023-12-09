@@ -11,6 +11,7 @@ import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
 import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
+import com.lantromipis.proxy.handler.proxy.database.CallbackProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.handler.proxy.database.SimpleProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -118,5 +119,9 @@ public class ProxyChannelHandlersProducer {
 
     public SimpleProxyDatabaseChannelHandler createNewSimpleDatabasePrimaryConnectionHandler(Channel clientConnection, Runnable realDatabaseConnectionClosedCallback) {
         return new SimpleProxyDatabaseChannelHandler(clientConnection, realDatabaseConnectionClosedCallback);
+    }
+
+    public CallbackProxyDatabaseChannelHandler createNewCallbackProxyDatabaseChannelHandler(Consumer<Object> messageReadCallback, Runnable realDatabaseConnectionClosedCallback) {
+        return new CallbackProxyDatabaseChannelHandler(messageReadCallback, realDatabaseConnectionClosedCallback);
     }
 }

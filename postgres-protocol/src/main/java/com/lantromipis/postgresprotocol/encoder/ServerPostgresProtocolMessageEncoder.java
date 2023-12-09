@@ -35,7 +35,7 @@ public class ServerPostgresProtocolMessageEncoder {
 
     public static ByteBuf createErrorMessage(Map<Byte, String> markerAndItsValueMap) {
         // 4 length bytes + 1 last delimiter
-        int length = 1;
+        int length = 5;
 
         ByteBuf content = Unpooled.buffer();
         for (var entry : markerAndItsValueMap.entrySet()) {

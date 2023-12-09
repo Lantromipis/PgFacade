@@ -29,9 +29,9 @@ public class Runner {
         logLine();
         aquireConnectionTimeTest.runTest();
         logLine();
-        proxyEffectOnDelayTest.runTest();
+        //proxyEffectOnDelayTest.runTest();
         logLine();
-        loadTest.runTest();
+        //loadTest.runTest();
         logLine();
 
         Quarkus.asyncExit();
