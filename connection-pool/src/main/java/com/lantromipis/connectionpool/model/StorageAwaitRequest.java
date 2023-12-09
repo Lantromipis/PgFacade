@@ -1,31 +1,26 @@
 package com.lantromipis.connectionpool.model;
 
-import lombok.*;
+import lombok.Getter;
+import lombok.Setter;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 @Getter
 public class StorageAwaitRequest {
     /**
-     * Latch that caller will use to lock and await. Storage will count down it after setting awaitResult.
+     * Used for synchronization. Caller set it to true when reached timeout and not waiting for connection. On the other hand storage sets it true before calling connectionReadyCallback.
+     * Before calling connectionReadyCallback storage will check if this boolean is true. If so, then caller does not need connection anymore (ex. timeout reached).
      */
-    private CountDownLatch callerLatch;
-
-    /**
-     * Used for synchronization. Caller set it to true when reached timeout and not waiting for connection, and storage sets it true before setting awaitResult.
-     * Before setting awaitResult storage will check if this boolean is true. If so, then caller does not need connection anymore.
-     */
-    private AtomicBoolean synchronizationPoint;
+    private final AtomicBoolean synchronizationPoint;
 
     /**
      * Result of awaiting connection
      */
     @Setter
-    private PooledConnectionInternalInfo awaitResult;
+    private Consumer<PooledConnectionInternalInfo> connectionReadyCallback;
 
     public StorageAwaitRequest() {
-        callerLatch = new CountDownLatch(1);
         synchronizationPoint = new AtomicBoolean(false);
     }
 }

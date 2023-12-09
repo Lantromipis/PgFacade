@@ -166,3 +166,5 @@ quarkus:
       enabled: false
     test:
       continuous-testing: disabled
+    analytics:
+      disabled: true

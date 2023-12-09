@@ -1,15 +1,16 @@
 package com.lantromipis.configuration.properties.runtime;
 
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
-import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
 import jakarta.enterprise.context.ApplicationScoped;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+@Slf4j
 @Getter
 @Setter
 @ApplicationScoped
@@ -21,7 +22,8 @@ public class ClusterRuntimeProperties {
     private ConcurrentMap<UUID, RuntimePostgresInstanceInfo> allPostgresInstancesInfos = new ConcurrentHashMap<>();
 
     public void setMaxPostgresConnections(int maxPostgresConnections) {
-        this.maxPostgresConnections = maxPostgresConnections - PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT;
+        this.maxPostgresConnections = maxPostgresConnections;
+        log.info("Setting max pool connection limit per instance to {} (max_connections - superuser_reserved_connections)", this.maxPostgresConnections);
     }
 
 

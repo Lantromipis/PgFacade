@@ -44,14 +44,19 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary();
             ResultSet pgSettingsResultSet = connection.createStatement().executeQuery("SELECT name, setting, context FROM pg_settings");
 
-            // remember connection limit
+            Map<String, String> settingNameToValue = new HashMap<>();
+
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
-                if (PostgresConstants.MAX_CONNECTIONS_SETTING_NAME.equals(settingName)) {
-                    clusterRuntimeProperties.setMaxPostgresConnections(Integer.parseInt(pgSettingsResultSet.getString("setting")));
-                    break;
-                }
+                String settingValue = pgSettingsResultSet.getString("setting");
+
+                settingNameToValue.put(settingName, settingValue);
             }
+
+            // set connection limit
+            int maxConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME));
+            int superuserReservedConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME));
+            clusterRuntimeProperties.setMaxPostgresConnections(maxConnections - superuserReservedConnections);
 
             clusterRuntimeProperties.setPostgresVersion(extractPostgresVersion(connection));
 
@@ -76,14 +81,6 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
             for (String forbiddenSettingName : PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES) {
                 if (settingsToCheck.containsKey(forbiddenSettingName)) {
                     throw new PostgresConfigurationCheckException("Unable to change setting '" + forbiddenSettingName + "' because it is managed by PgFacade.");
-                }
-            }
-
-            // checking if max_connections is lower than needed
-            if (settingsToCheck.containsKey(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME)) {
-                int maxConnectionsSettingValue = Integer.parseInt(settingsToCheck.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME));
-                if (maxConnectionsSettingValue <= PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT) {
-                    throw new PostgresConfigurationCheckException("'max_connections' settings must be greater than " + PostgresqlConfConstants.PG_FACADE_RESERVED_CONNECTIONS_COUNT + " due to builtin configuration value.");
                 }
             }
 

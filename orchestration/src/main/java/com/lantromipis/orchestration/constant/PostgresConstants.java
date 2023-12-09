@@ -1,6 +1,7 @@
 package com.lantromipis.orchestration.constant;
 
-import lombok.*;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 import java.util.Set;
@@ -23,6 +24,7 @@ public class PostgresConstants {
     public static final String DATA_DIRECTORY_SETTING_NAME = "data_directory";
     public static final String CONFIG_FILE_SETTING_NAME = "config_file";
     public static final String MAX_CONNECTIONS_SETTING_NAME = "max_connections";
+    public static final String SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME = "superuser_reserved_connections";
     public static final String WAL_KEEP_SIZE_SETTING_NAME = "wal_keep_size";
     public static final String WAL_KEEP_SEGMENTS_SETTING_NAME = "wal_keep_segments";
 
