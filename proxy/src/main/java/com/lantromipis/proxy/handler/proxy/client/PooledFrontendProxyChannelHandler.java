@@ -7,6 +7,7 @@ import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEnc
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.proxy.model.FrontendConnectionState;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import io.netty.buffer.ByteBuf;
@@ -17,32 +18,36 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
+public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientChannelHandler {
 
-    private final String username;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
     private final ClientConnectionsManagementService clientConnectionsManagementService;
-    private PooledConnectionWrapper primaryConnectionWrapper;
-    private final AtomicBoolean resourcesFreed;
 
-    public SessionPooledSwitchoverClosingDataProxyChannelHandler(final String username,
-                                                                 final PooledConnectionWrapper primaryConnectionWrapper,
-                                                                 final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
-                                                                 final ClientConnectionsManagementService clientConnectionsManagementService) {
-        this.username = username;
+    private final FrontendConnectionState frontendConnectionState;
+    private final PooledConnectionWrapper primaryConnectionWrapper;
+
+    public PooledFrontendProxyChannelHandler(final PooledConnectionWrapper primaryConnectionWrapper,
+                                             final ProxyChannelHandlersProducer proxyChannelHandlersProducer,
+                                             final ClientConnectionsManagementService clientConnectionsManagementService) {
+        super();
+
         this.primaryConnectionWrapper = primaryConnectionWrapper;
         this.proxyChannelHandlersProducer = proxyChannelHandlersProducer;
         this.clientConnectionsManagementService = clientConnectionsManagementService;
-        resourcesFreed = new AtomicBoolean(false);
+
+        this.frontendConnectionState = FrontendConnectionState
+                .builder()
+                .resourcesFreed(new AtomicBoolean(false))
+                .loadBalancing(false)
+                .build();
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (primaryConnectionWrapper == null) {
             setInitialChannelHandlerContext(ctx);
-            HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
-            clientConnectionsManagementService.unregisterClientChannelHandler(this);
-            setActive(false);
+            HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getTooManyConnectionsErrorMessage());
+            freeResources();
             return;
         }
 
@@ -66,12 +71,22 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
+
+        // intercept termination message to keep Postgres connection active
         if (DecoderUtils.checkIfMessageIsTermination(message)) {
-            closeClientConnectionSilently(ctx);
+            ctx.channel().close();
+            freeResources();
+            // never red again
             return;
         }
 
-        if (primaryConnectionWrapper.getRealPostgresConnection().isActive()) {
+        if (!primaryConnectionWrapper.getRealPostgresConnection().isActive()) {
+            super.channelRead(ctx, msg);
+            return;
+        }
+
+        // no load-balancing
+        if (!frontendConnectionState.isLoadBalancing()) {
             primaryConnectionWrapper.getRealPostgresConnection().writeAndFlush(msg)
                     .addListener((ChannelFutureListener) future -> {
                         if (future.isSuccess()) {
@@ -80,7 +95,34 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
                             future.channel().close();
                         }
                     });
+        } else {
+            // read message
+            frontendConnectionState.replacePevMessageLeftovers(
+                    DecoderUtils.splitToMessages(
+                            frontendConnectionState.getPrevMessageLeftovers(),
+                            message,
+                            frontendConnectionState.getMessageInfos(),
+                            ctx.alloc()
+                    )
+            );
+
+            boolean simpleQueryIssued = DecoderUtils.containsMessageOfTypeReversed(frontendConnectionState.getMessageInfos(), PostgresProtocolGeneralConstants.QUERY_MESSAGE_START_BYTE);
+            if (simpleQueryIssued) {
+                // no transaction and non-mod statement, send to standby
+                if (frontendConnectionState.isInTransaction()) {
+                    frontendConnectionState.getStandbyChannel().writeAndFlush(msg)
+                            .addListener((ChannelFutureListener) future -> {
+                                if (future.isSuccess()) {
+                                    ctx.channel().read();
+                                } else {
+                                    future.channel().close();
+                                }
+                            });
+                }
+            }
+
         }
+
         super.channelRead(ctx, msg);
     }
 
@@ -97,16 +139,7 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
 
     @Override
     public void handleSwitchoverStarted() {
-        resourcesFreed.set(true);
-        primaryConnectionWrapper.returnConnectionToPool(
-                PooledConnectionReturnParameters
-                        .builder()
-                        .terminate(true)
-                        .build()
-        );
-        clientConnectionsManagementService.unregisterClientChannelHandler(this);
-        setActive(false);
-
+        freeResources();
         HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
     }
 
@@ -117,17 +150,11 @@ public class SessionPooledSwitchoverClosingDataProxyChannelHandler extends Abstr
 
     private void closeClientConnectionExceptionally() {
         HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
-
-        freeResources();
-    }
-
-    private void closeClientConnectionSilently(ChannelHandlerContext ctx) {
-        ctx.channel().close();
         freeResources();
     }
 
     private void freeResources() {
-        if (resourcesFreed.compareAndSet(false, true)) {
+        if (frontendConnectionState.getResourcesFreed().compareAndSet(false, true)) {
             if (primaryConnectionWrapper != null) {
                 primaryConnectionWrapper.returnConnectionToPool(PooledConnectionReturnParameters.builder().cleanup(true).build());
             }
