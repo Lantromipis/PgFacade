@@ -44,7 +44,7 @@ public class PgChannelStartupHandler extends AbstractConnectionPoolClientHandler
                 .parameters(startupMessageInfo.getParameters())
                 .build();
 
-        ByteBuf buf = ClientPostgresProtocolMessageEncoder.encodeClientStartupMessage(startupMessage);
+        ByteBuf buf = ClientPostgresProtocolMessageEncoder.encodeClientStartupMessage(startupMessage, ctx.alloc());
 
         ctx.channel().writeAndFlush(buf);
         ctx.channel().read();

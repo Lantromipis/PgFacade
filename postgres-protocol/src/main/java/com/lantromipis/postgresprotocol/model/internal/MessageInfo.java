@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class MessageInfo {
     private byte startByte;
-    private int length;
     private ByteBuf entireMessage;
+
+    public int getLength() {
+        return entireMessage.readableBytes() - 1;
+    }
 }

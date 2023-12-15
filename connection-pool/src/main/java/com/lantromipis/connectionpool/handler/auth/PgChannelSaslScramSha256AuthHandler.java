@@ -68,7 +68,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
                 .saslMechanismSpecificData(PostgresProtocolScramConstants.GS2_HEADER + clientFirstMessageBare)
                 .build();
 
-        ByteBuf message = ClientPostgresProtocolMessageEncoder.encodeSaslInitialResponseMessage(saslInitialResponse);
+        ByteBuf message = ClientPostgresProtocolMessageEncoder.encodeSaslInitialResponseMessage(saslInitialResponse, ctx.alloc());
 
         ctx.channel().writeAndFlush(message);
         authStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_SENT;
@@ -121,7 +121,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
                     .saslMechanismSpecificData(clientFinalMessage)
                     .build();
 
-            ByteBuf response = ClientPostgresProtocolMessageEncoder.encodeSaslResponseMessage(saslResponse);
+            ByteBuf response = ClientPostgresProtocolMessageEncoder.encodeSaslResponseMessage(saslResponse, ctx.alloc());
 
             ctx.channel().writeAndFlush(response);
             authStatus = SaslAuthStatus.LAST_CLIENT_MESSAGE_SENT;

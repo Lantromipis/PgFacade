@@ -4,12 +4,16 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import lombok.extern.slf4j.Slf4j;
 
-import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.Deque;
+import java.util.Iterator;
 
+@Slf4j
 public class DecoderUtils {
 
-    public static void freeMessageInfos(List<MessageInfo> messageInfos) {
+    public static void freeMessageInfos(Deque<MessageInfo> messageInfos) {
         messageInfos.forEach(m -> m.getEntireMessage().release());
         messageInfos.clear();
     }
@@ -21,7 +25,7 @@ public class DecoderUtils {
         return startChar == PostgresProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR;
     }
 
-    public static boolean containsMessageOfType(List<MessageInfo> messageInfos, byte targetMessageStartByte) {
+    public static boolean containsMessageOfType(Deque<MessageInfo> messageInfos, byte targetMessageStartByte) {
         for (MessageInfo messageInfo : messageInfos) {
             if (messageInfo.getStartByte() == targetMessageStartByte) {
                 return true;
@@ -31,9 +35,11 @@ public class DecoderUtils {
         return false;
     }
 
-    public static boolean containsMessageOfTypeReversed(List<MessageInfo> messageInfos, byte targetMessageStartByte) {
-        for (int i = messageInfos.size() - 1; i >= 0; i--) {
-            MessageInfo messageInfo = messageInfos.get(i);
+    public static boolean containsMessageOfTypeReversed(Deque<MessageInfo> messageInfos, byte targetMessageStartByte) {
+        Iterator<MessageInfo> iterator = messageInfos.descendingIterator();
+
+        while (iterator.hasNext()) {
+            MessageInfo messageInfo = iterator.next();
             if (messageInfo.getStartByte() == targetMessageStartByte) {
                 return true;
             }
@@ -42,9 +48,40 @@ public class DecoderUtils {
         return false;
     }
 
-    private static ByteBuf splitToMessages(ByteBuf packet, List<MessageInfo> retMessages, ByteBufAllocator allocator) {
+    public static String readNextNullTerminatedString(ByteBuf byteBuf) {
+        byte[] byteArrayBuf = TempFastThreadLocalStorageUtils.getThreadLocalByteArray();
+        int bytesIdx = 0;
+
+        while (byteBuf.readerIndex() < byteBuf.writerIndex()) {
+            byte b = byteBuf.readByte();
+
+            if (b == PostgresProtocolGeneralConstants.DELIMITER_BYTE) {
+                break;
+            }
+
+            byteArrayBuf[bytesIdx] = b;
+            bytesIdx++;
+        }
+
+        if (bytesIdx != 0) {
+            return new String(byteArrayBuf, 0, bytesIdx, StandardCharsets.UTF_8);
+        }
+
+        return null;
+    }
+
+    public static String readString(ByteBuf byteBuf, int length) {
+        byte[] byteArrayBuf = TempFastThreadLocalStorageUtils.getThreadLocalByteArray();
+
+        byteBuf.readBytes(byteArrayBuf, 0, length);
+
+        return new String(byteArrayBuf, 0, length, StandardCharsets.UTF_8);
+    }
+
+    private static ByteBuf splitToMessages(ByteBuf packet, Deque<MessageInfo> retMessages, ByteBufAllocator allocator) {
         ByteBuf leftovers = null;
 
+        // TODO move to while
         if (packet.readableBytes() < 5) {
             leftovers = allocator.buffer(packet.readableBytes());
             packet.readBytes(leftovers, packet.readableBytes());
@@ -85,12 +122,11 @@ public class DecoderUtils {
                     MessageInfo
                             .builder()
                             .startByte(startByte)
-                            .length(length)
                             .entireMessage(message)
                             .build()
             );
 
-            // packet completed and all messaged were split
+            // packet completed and all messages were split
             if (packet.readableBytes() == 0) {
                 break;
             }
@@ -107,7 +143,7 @@ public class DecoderUtils {
         return leftovers;
     }
 
-    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, List<MessageInfo> retMessages, ByteBufAllocator allocator) {
+    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, Deque<MessageInfo> retMessages, ByteBufAllocator allocator) {
         ByteBuf leftovers;
 
         // for previous incomplete message
@@ -153,7 +189,6 @@ public class DecoderUtils {
                 retMessages.add(
                         MessageInfo
                                 .builder()
-                                .length(prevMsgLength)
                                 .startByte(prevMsgStartByte)
                                 .entireMessage(message)
                                 .build()

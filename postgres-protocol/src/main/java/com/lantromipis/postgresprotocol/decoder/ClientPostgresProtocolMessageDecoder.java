@@ -5,6 +5,8 @@ import com.lantromipis.postgresprotocol.exception.MessageDecodingException;
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
+import com.lantromipis.postgresprotocol.utils.DecoderUtils;
+import com.lantromipis.postgresprotocol.utils.TempFastThreadLocalStorageUtils;
 import io.netty.buffer.ByteBuf;
 
 import java.nio.charset.StandardCharsets;
@@ -24,10 +26,7 @@ public class ClientPostgresProtocolMessageDecoder {
             //int (4 bytes) + short (2 bytes) + short (2 bytes)
             int parametersLength = length - 8;
 
-            byte[] parameterBytes = new byte[parametersLength];
-            byteBuf.readBytes(parameterBytes, 0, parametersLength);
-
-            String parametersString = new String(parameterBytes, StandardCharsets.UTF_8);
+            String parametersString = DecoderUtils.readString(byteBuf, parametersLength);
             String[] paramsNamesWithValues = parametersString.split(PostgresProtocolGeneralConstants.DELIMITER_BYTE_CHAR);
 
             for (int i = 0; i < paramsNamesWithValues.length; i += 2) {
@@ -61,7 +60,7 @@ public class ClientPostgresProtocolMessageDecoder {
             //4 bytes for length (int32)
             int messageLength = totalLength - 4;
 
-            byte[] messageBytes = new byte[messageLength];
+            byte[] messageBytes = TempFastThreadLocalStorageUtils.getThreadLocalByteArray();
             byteBuf.readBytes(messageBytes, 0, messageLength);
 
             int saslMechanismNameEndByteIndex = 0;
@@ -117,10 +116,10 @@ public class ClientPostgresProtocolMessageDecoder {
             //4 bytes for length (int32)
             int length = byteBuf.readInt() - 4;
 
-            byte[] messageBytes = new byte[length];
+            byte[] messageBytes = TempFastThreadLocalStorageUtils.getThreadLocalByteArray();
             byteBuf.readBytes(messageBytes, 0, length);
 
-            return new SaslResponse(new String(messageBytes, StandardCharsets.UTF_8));
+            return new SaslResponse(new String(messageBytes, 0, length, StandardCharsets.UTF_8));
         } catch (Exception e) {
             if (e instanceof MessageDecodingException) {
                 throw e;

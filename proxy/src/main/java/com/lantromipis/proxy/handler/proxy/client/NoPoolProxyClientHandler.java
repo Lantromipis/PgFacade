@@ -65,7 +65,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (postgreSqlChannel != null) {
-            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
         }
     }
 
@@ -98,13 +98,13 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     }
 
     private void forceCloseConnectionWithEmptyError(ChannelHandlerContext ctx) {
-        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
         setActive(false);
     }
 
     private void closeRealPostgresConnection() {
         if (postgreSqlChannel != null) {
-            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(postgreSqlChannel.alloc()));
         }
     }
 }

@@ -4,13 +4,13 @@ import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
-import java.util.List;
+import java.util.Deque;
 
 @Data
 @AllArgsConstructor
 public class PgChannelAuthResult {
     boolean success;
-    private List<MessageInfo> serverStartMessagesInfos;
+    private Deque<MessageInfo> serverStartMessagesInfos;
 
     public PgChannelAuthResult(boolean success) {
         this.success = success;

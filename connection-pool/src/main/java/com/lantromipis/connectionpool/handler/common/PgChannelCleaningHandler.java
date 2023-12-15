@@ -9,8 +9,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.function.Consumer;
 
 /**
@@ -21,18 +21,18 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
 
     private Consumer<PgChannelCleanResult> callback;
     private ByteBuf leftovers = null;
-    private List<MessageInfo> messageInfos;
+    private Deque<MessageInfo> messageInfos;
 
     private int commandsCounter = 0;
 
     public PgChannelCleaningHandler(Consumer<PgChannelCleanResult> callback) {
         this.callback = callback;
-        messageInfos = new ArrayList<>();
+        messageInfos = new ArrayDeque<>();
     }
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("rollback;"));
+        ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("rollback;", ctx.alloc()));
         super.handlerAdded(ctx);
     }
 
@@ -61,7 +61,7 @@ public class PgChannelCleaningHandler extends AbstractConnectionPoolClientHandle
                 if (DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
                     freeMessages();
                     commandsCounter++;
-                    ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("deallocate all;"));
+                    ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("deallocate all;", ctx.alloc()));
                 }
             }
             case 1 -> {

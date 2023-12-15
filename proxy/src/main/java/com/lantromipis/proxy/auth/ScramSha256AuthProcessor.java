@@ -179,6 +179,6 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
     }
 
     private void forceCloseConnectionWithAuthError(Channel channel) {
-        HandlerUtils.closeOnFlush(channel, ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+        HandlerUtils.closeOnFlush(channel, ErrorMessageUtils.getAuthFailedForUserErrorMessage(username, channel.alloc()));
     }
 }

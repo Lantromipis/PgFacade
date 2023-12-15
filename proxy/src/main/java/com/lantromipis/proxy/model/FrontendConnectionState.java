@@ -9,7 +9,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
+import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Data
@@ -33,7 +33,9 @@ public class FrontendConnectionState {
     private Channel standbyChannel;
 
     private ByteBuf prevMessageLeftovers;
-    private List<MessageInfo> messageInfos;
+    private Deque<MessageInfo> messageInfos;
+
+    private ExtendedProtocolStage extendedProtocolStage;
 
     public void replacePevMessageLeftovers(ByteBuf newLeftovers) {
         if (prevMessageLeftovers != null) {

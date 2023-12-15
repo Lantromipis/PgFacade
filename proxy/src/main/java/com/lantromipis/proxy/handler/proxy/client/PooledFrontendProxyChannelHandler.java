@@ -4,6 +4,7 @@ import com.lantromipis.connectionpool.model.PooledConnectionReturnParameters;
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
@@ -15,6 +16,8 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -39,6 +42,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
                 .builder()
                 .resourcesFreed(new AtomicBoolean(false))
                 .loadBalancing(false)
+                .messageInfos(new ArrayDeque<>())
                 .build();
     }
 
@@ -46,7 +50,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (primaryConnectionWrapper == null) {
             setInitialChannelHandlerContext(ctx);
-            HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getTooManyConnectionsErrorMessage());
+            HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getTooManyConnectionsErrorMessage(ctx.alloc()));
             freeResources();
             return;
         }
@@ -76,7 +80,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
         if (DecoderUtils.checkIfMessageIsTermination(message)) {
             ctx.channel().close();
             freeResources();
-            // never red again
+            // never read again
             return;
         }
 
@@ -85,7 +89,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
             return;
         }
 
-        // no load-balancing
+/*        // no load-balancing
         if (!frontendConnectionState.isLoadBalancing()) {
             primaryConnectionWrapper.getRealPostgresConnection().writeAndFlush(msg)
                     .addListener((ChannelFutureListener) future -> {
@@ -96,32 +100,63 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
                         }
                     });
         } else {
-            // read message
-            frontendConnectionState.replacePevMessageLeftovers(
-                    DecoderUtils.splitToMessages(
-                            frontendConnectionState.getPrevMessageLeftovers(),
-                            message,
-                            frontendConnectionState.getMessageInfos(),
-                            ctx.alloc()
-                    )
-            );
 
-            boolean simpleQueryIssued = DecoderUtils.containsMessageOfTypeReversed(frontendConnectionState.getMessageInfos(), PostgresProtocolGeneralConstants.QUERY_MESSAGE_START_BYTE);
-            if (simpleQueryIssued) {
-                // no transaction and non-mod statement, send to standby
-                if (frontendConnectionState.isInTransaction()) {
-                    frontendConnectionState.getStandbyChannel().writeAndFlush(msg)
-                            .addListener((ChannelFutureListener) future -> {
-                                if (future.isSuccess()) {
-                                    ctx.channel().read();
-                                } else {
-                                    future.channel().close();
-                                }
-                            });
+        }*/
+
+        // read message
+        ByteBuf newLeftovers = DecoderUtils.splitToMessages(
+                frontendConnectionState.getPrevMessageLeftovers(),
+                message,
+                frontendConnectionState.getMessageInfos(),
+                ctx.alloc()
+        );
+        frontendConnectionState.replacePevMessageLeftovers(newLeftovers);
+
+        MessageInfo messageInfo = frontendConnectionState.getMessageInfos().poll();
+        while (messageInfo != null) {
+            ByteBuf byteBuf = messageInfo.getEntireMessage();
+            byte startByte = byteBuf.readByte();
+
+            switch (startByte) {
+                case PostgresProtocolGeneralConstants.QUERY_MESSAGE_START_BYTE -> {
+                    int length = byteBuf.readInt() - PostgresProtocolGeneralConstants.MESSAGE_LENGTH_BYTES_COUNT;
+                    String sqlStatement = byteBuf.toString(byteBuf.readerIndex(), length, StandardCharsets.UTF_8);
+                    log.debug("SQL in simple query is {}", sqlStatement);
+                }
+                case PostgresProtocolGeneralConstants.PARSE_MESSAGE_START_BYTE -> {
+                    int length = byteBuf.readInt() - PostgresProtocolGeneralConstants.MESSAGE_LENGTH_BYTES_COUNT;
+
+                    String name = DecoderUtils.readNextNullTerminatedString(byteBuf);
+                    String sqlStatement = DecoderUtils.readNextNullTerminatedString(byteBuf);
+
+                    log.debug("SQL in parse is {}", sqlStatement);
+                }
+                case PostgresProtocolGeneralConstants.DESCRIBE_MESSAGE_START_BYTE -> {
+
+                }
+                case PostgresProtocolGeneralConstants.BIND_MESSAGE_START_BYTE -> {
+
+                }
+                case PostgresProtocolGeneralConstants.EXECUTE_MESSAGE_START_BYTE -> {
+
+                }
+                case PostgresProtocolGeneralConstants.SYNC_MESSAGE_START_BYTE -> {
+
                 }
             }
 
+            messageInfo.getEntireMessage().release();
+            messageInfo = frontendConnectionState.getMessageInfos().poll();
         }
+
+        primaryConnectionWrapper.getRealPostgresConnection().writeAndFlush(msg)
+                .addListener((ChannelFutureListener) future -> {
+                    if (future.isSuccess()) {
+                        ctx.channel().read();
+                    } else {
+                        future.channel().close();
+                    }
+                });
 
         super.channelRead(ctx, msg);
     }
@@ -140,7 +175,8 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
     @Override
     public void handleSwitchoverStarted() {
         freeResources();
-        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        ChannelHandlerContext ctx = getInitialChannelHandlerContext();
+        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
     }
 
     @Override
@@ -149,7 +185,8 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
     }
 
     private void closeClientConnectionExceptionally() {
-        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        ChannelHandlerContext ctx = getInitialChannelHandlerContext();
+        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
         freeResources();
     }
 

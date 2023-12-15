@@ -9,5 +9,5 @@ public interface PgFrontendMessagesService {
      *
      * @return check result indicating if SQL statement can or cannot be load-balanced
      */
-    MessageLoadBalancingCheckResult checkIfStatementCanBeLoadBalanced(String sqlStatement);
+    MessageLoadBalancingCheckResult checkSQLStatement(String sqlStatement);
 }

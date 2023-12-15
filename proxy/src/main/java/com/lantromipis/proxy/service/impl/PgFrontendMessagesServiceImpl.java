@@ -7,8 +7,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class PgFrontendMessagesServiceImpl implements PgFrontendMessagesService {
 
-    public MessageLoadBalancingCheckResult checkIfStatementCanBeLoadBalanced(String sqlStatement) {
-        
+    public MessageLoadBalancingCheckResult checkSQLStatement(String sqlStatement) {
+
         return null;
     }
 }
