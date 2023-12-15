@@ -129,6 +129,11 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
                     String name = DecoderUtils.readNextNullTerminatedString(byteBuf);
                     String sqlStatement = DecoderUtils.readNextNullTerminatedString(byteBuf);
 
+                    short parametersCount = byteBuf.readShort();
+                    for (short i = 0; i < parametersCount; i++) {
+                        int parameterOid = byteBuf.readInt();
+                    }
+
                     log.debug("SQL in parse is {}", sqlStatement);
                 }
                 case PostgresProtocolGeneralConstants.DESCRIBE_MESSAGE_START_BYTE -> {
