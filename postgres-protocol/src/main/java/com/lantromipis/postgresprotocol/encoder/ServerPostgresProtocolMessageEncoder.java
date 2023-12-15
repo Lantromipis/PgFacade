@@ -2,9 +2,9 @@ package com.lantromipis.postgresprotocol.encoder;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.utils.TempFastThreadLocalStorageUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.Unpooled;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
@@ -33,33 +33,36 @@ public class ServerPostgresProtocolMessageEncoder {
             PostgresProtocolGeneralConstants.READY_FOR_QUERY_TRANSACTION_IDLE
     };
 
-    public static ByteBuf createErrorMessage(Map<Byte, String> markerAndItsValueMap) {
+    public static ByteBuf createErrorMessage(Map<Byte, String> markerAndItsValueMap, ByteBufAllocator allocator) {
         // 4 length bytes + 1 last delimiter
-        int length = 1;
+        int length = 5;
 
-        ByteBuf content = Unpooled.buffer();
+        byte[] contentBytes = TempFastThreadLocalStorageUtils.getThreadLocalByteArray();
+        int contentIdx = 0;
         for (var entry : markerAndItsValueMap.entrySet()) {
             byte[] valueBytes = entry.getValue().getBytes();
 
             // field length + 1 byte field marker + 1 byte delimiter
             length += valueBytes.length + 2;
 
-            content.writeByte(entry.getKey());
-            content.writeBytes(valueBytes);
-            content.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
+            contentBytes[contentIdx++] = entry.getKey();
+            System.arraycopy(valueBytes, 0, contentBytes, contentIdx, valueBytes.length);
+            contentIdx = contentIdx + valueBytes.length;
+            contentBytes[contentIdx++] = PostgresProtocolGeneralConstants.DELIMITER_BYTE;
         }
 
-        ByteBuf buf = Unpooled.buffer(length + 1);
+        ByteBuf buf = allocator.buffer(length + 1);
+
         buf.writeByte(PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR);
         buf.writeInt(length);
-        buf.writeBytes(content);
+        buf.writeBytes(contentBytes, 0, contentIdx);
         buf.writeByte(PostgresProtocolGeneralConstants.DELIMITER_BYTE);
 
         return buf;
     }
 
-    public static ByteBuf createEmptyErrorMessage() {
-        ByteBuf buf = Unpooled.buffer(6);
+    public static ByteBuf createEmptyErrorMessage(ByteBufAllocator allocator) {
+        ByteBuf buf = allocator.buffer(6);
         buf.writeByte(PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR);
         // 4 length bytes + 1 code byte
         buf.writeInt(5);
@@ -69,7 +72,7 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    // no support fro SCRAM-SHA256-PLUS
+    // no support for SCRAM-SHA256-PLUS
     public static ByteBuf createAuthenticationSASLMessage(ByteBufAllocator allocator) {
         byte[] nameOfSaslAuthMechanism = PostgresProtocolAuthenticationMethod.SCRAM_SHA256.getProtocolMethodName().getBytes();
         int length = nameOfSaslAuthMechanism.length;
@@ -132,14 +135,14 @@ public class ServerPostgresProtocolMessageEncoder {
         return buf;
     }
 
-    public static ByteBuf encodeParameterStatusMessage(String parameterName, String parameterValue) {
+    public static ByteBuf encodeParameterStatusMessage(String parameterName, String parameterValue, ByteBufAllocator allocator) {
         byte[] parameterNameBytes = parameterName.getBytes();
         byte[] parameterValueBytes = parameterValue.getBytes();
 
         // length 4 bytes + 2 delimiter byte
         int length = 6 + parameterNameBytes.length + parameterValueBytes.length;
 
-        ByteBuf buf = Unpooled.buffer(length + 1);
+        ByteBuf buf = allocator.buffer(length + 1);
 
         buf.writeByte(PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR);
         buf.writeInt(length);

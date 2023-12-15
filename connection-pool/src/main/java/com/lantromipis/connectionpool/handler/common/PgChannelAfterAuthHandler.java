@@ -3,24 +3,23 @@ package com.lantromipis.connectionpool.handler.common;
 import com.lantromipis.connectionpool.model.PgChannelAuthResult;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
-import com.lantromipis.postgresprotocol.model.internal.SplitResult;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.function.Consumer;
 
 public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandler {
 
     private final Consumer<PgChannelAuthResult> callbackFunction;
-    private final List<MessageInfo> messageInfos;
+    private final Deque<MessageInfo> messageInfos;
     private ByteBuf leftovers = null;
 
     public PgChannelAfterAuthHandler(final Consumer<PgChannelAuthResult> callbackFunction) {
         this.callbackFunction = callbackFunction;
-        this.messageInfos = new ArrayList<>();
+        this.messageInfos = new ArrayDeque<>();
     }
 
     @Override
@@ -33,49 +32,51 @@ public class PgChannelAfterAuthHandler extends AbstractConnectionPoolClientHandl
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
-        SplitResult splitResult = DecoderUtils.splitToMessages(leftovers, message);
+        ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos, ctx.alloc());
 
-        if (DecoderUtils.containsMessageOfType(splitResult.getMessageInfos(), PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
-            callbackFunction.accept(
-                    new PgChannelAuthResult(false)
-            );
+        if (leftovers != null) {
+            leftovers.release();
+        }
+        leftovers = newLeftovers;
+
+        if (DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
+            callbackFunction.accept(new PgChannelAuthResult(false));
             ctx.channel().pipeline().remove(this);
             return;
         }
 
-        messageInfos.addAll(splitResult.getMessageInfos());
+        if (leftovers == null || leftovers.readableBytes() == 0) {
+            boolean containsAuthOk = false;
 
-        if (splitResult.getLastIncompleteMessage() == null || splitResult.getLastIncompleteMessage().readableBytes() == 0) {
-            boolean containsAuthOk = messageInfos.stream()
-                    .anyMatch(messageInfo -> {
-                        if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR
-                                && messageInfo.getLength() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_LENGTH) {
-                            ByteBuf byteBuf = ctx.alloc().buffer(messageInfo.getEntireMessage().length);
-                            byteBuf.writeBytes(messageInfo.getEntireMessage());
+            MessageInfo messageInfo = messageInfos.poll();
+            while (messageInfo != null) {
+                if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR
+                        && messageInfo.getLength() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_LENGTH) {
+                    ByteBuf messageBytes = messageInfo.getEntireMessage();
 
-                            // remove start byte and length
-                            byteBuf.readByte();
-                            byteBuf.readInt();
+                    // 1 byte start byte + 4 bytes length
+                    messageBytes.readerIndex(5);
 
-                            int data = byteBuf.readInt();
+                    if (messageBytes.readInt() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA) {
+                        containsAuthOk = true;
+                        break;
+                    }
+                }
 
-                            byteBuf.release();
+                messageInfo.getEntireMessage().release();
+                messageInfo = messageInfos.poll();
+            }
 
-                            return data == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA;
-                        }
+            callbackFunction.accept(new PgChannelAuthResult(containsAuthOk, messageInfos));
 
-                        return false;
-                    });
+            if (leftovers != null) {
+                leftovers.release();
+            }
+            DecoderUtils.freeMessageInfos(messageInfos);
 
-
-            callbackFunction.accept(
-                    new PgChannelAuthResult(containsAuthOk, messageInfos)
-            );
             ctx.channel().pipeline().remove(this);
             return;
         }
-
-        leftovers = splitResult.getLastIncompleteMessage();
 
         ctx.channel().read();
     }

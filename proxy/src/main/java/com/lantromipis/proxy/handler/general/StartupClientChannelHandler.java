@@ -130,12 +130,14 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
     }
 
     private void forceCloseConnectionWithAuthError(String username) {
-        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username));
+        ChannelHandlerContext ctx = getInitialChannelHandlerContext();
+        HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username, ctx.alloc()));
         setActive(false);
     }
 
     private void forceCloseConnectionWithEmptyError() {
-        HandlerUtils.closeOnFlush(getInitialChannelHandlerContext().channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage());
+        ChannelHandlerContext ctx = getInitialChannelHandlerContext();
+        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
         setActive(false);
     }
 

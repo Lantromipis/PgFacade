@@ -3,6 +3,8 @@ package com.lantromipis.postgresprotocol.constant;
 public class PostgresProtocolGeneralConstants {
     public static final byte DELIMITER_BYTE = 0;
     public static final String DELIMITER_BYTE_CHAR = "\0";
+    public static final int MESSAGE_LENGTH_BYTES_COUNT = 4;
+    public static final int MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT = MESSAGE_LENGTH_BYTES_COUNT + 1;
     public static final int INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT = 8;
     public static final int AUTH_OK_MESSAGE_DATA = 0;
     public static final int AUTH_OK_MESSAGE_LENGTH = 8;
@@ -21,7 +23,13 @@ public class PostgresProtocolGeneralConstants {
     public static final byte READY_FOR_QUERY_MESSAGE_START_CHAR = 'Z';
     public static final byte CLIENT_TERMINATION_MESSAGE_START_CHAR = 'X';
     public static final byte CLIENT_PASSWORD_RESPONSE_START_CHAR = 'p';
+
     public static final byte QUERY_MESSAGE_START_BYTE = 'Q';
+    public static final byte PARSE_MESSAGE_START_BYTE = 'P';
+    public static final byte DESCRIBE_MESSAGE_START_BYTE = 'D';
+    public static final byte BIND_MESSAGE_START_BYTE = 'B';
+    public static final byte EXECUTE_MESSAGE_START_BYTE = 'E';
+    public static final byte SYNC_MESSAGE_START_BYTE = 'S';
 
 
     //ready for query

@@ -10,7 +10,8 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
-import com.lantromipis.proxy.handler.proxy.client.SessionPooledSwitchoverClosingDataProxyChannelHandler;
+import com.lantromipis.proxy.handler.proxy.client.PooledFrontendProxyChannelHandler;
+import com.lantromipis.proxy.handler.proxy.database.CallbackProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.handler.proxy.database.SimpleProxyDatabaseChannelHandler;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -49,14 +50,12 @@ public class ProxyChannelHandlersProducer {
 
     public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage,
                                                                PoolAuthInfo poolAuthInfo,
-                                                               Consumer<SessionPooledSwitchoverClosingDataProxyChannelHandler> createdCallback,
+                                                               Consumer<PooledFrontendProxyChannelHandler> createdCallback,
                                                                boolean primaryConnection
     ) {
-        String username = startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER);
-
         StartupMessageInfo startupMessageInfo = StartupMessageInfo
                 .builder()
-                .username(username)
+                .username(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER))
                 .database(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_DATABASE))
                 .parameters(startupMessage.getParameters())
                 .build();
@@ -66,8 +65,7 @@ public class ProxyChannelHandlersProducer {
                 primaryConnection,
                 poolAuthInfo,
                 pooledConnectionWrapper -> {
-                    SessionPooledSwitchoverClosingDataProxyChannelHandler handler = new SessionPooledSwitchoverClosingDataProxyChannelHandler(
-                            username,
+                    PooledFrontendProxyChannelHandler handler = new PooledFrontendProxyChannelHandler(
                             pooledConnectionWrapper,
                             this,
                             clientConnectionsManagementService
@@ -118,5 +116,9 @@ public class ProxyChannelHandlersProducer {
 
     public SimpleProxyDatabaseChannelHandler createNewSimpleDatabasePrimaryConnectionHandler(Channel clientConnection, Runnable realDatabaseConnectionClosedCallback) {
         return new SimpleProxyDatabaseChannelHandler(clientConnection, realDatabaseConnectionClosedCallback);
+    }
+
+    public CallbackProxyDatabaseChannelHandler createNewCallbackProxyDatabaseChannelHandler(Consumer<Object> messageReadCallback, Runnable realDatabaseConnectionClosedCallback) {
+        return new CallbackProxyDatabaseChannelHandler(messageReadCallback, realDatabaseConnectionClosedCallback);
     }
 }

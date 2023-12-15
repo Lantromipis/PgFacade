@@ -11,12 +11,14 @@ public class PostgresProtocolErrorAndNoticeConstant {
 
     // Error Codes https://www.postgresql.org/docs/current/errcodes-appendix.html
     public static final String INVALID_PASSWORD_SQLSTATE_ERROR_CODE = "28P01";
+    public static final String TOO_MANY_CONNECTIONS_SQLSTATE_ERROR_CODE = "53300";
 
     // Severity
     public static final String FATAL_SEVERITY = "FATAL";
 
     // Messages
     public static final String AUTH_FAILED_MESSAGE_FORMAT = "password authentication failed for user \"%s\"";
+    public static final String TOO_MANY_CONNECTIONS = "remaining connection slots are reserved for non-replication superuser connections";
 
     private PostgresProtocolErrorAndNoticeConstant() {
     }

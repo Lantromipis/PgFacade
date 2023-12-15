@@ -2,9 +2,10 @@ package com.lantromipis.postgresprotocol.decoder;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.exception.MessageDecodingException;
-import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationSASLContinue;
+import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
+import com.lantromipis.postgresprotocol.utils.TempFastThreadLocalStorageUtils;
 import io.netty.buffer.ByteBuf;
 
 import java.nio.charset.StandardCharsets;
@@ -25,13 +26,10 @@ public class ServerPostgresProtocolMessageDecoder {
                 }
             }
 
-            //marker + length(int32) + methodMarker(int32)
+            // marker + length(int32) + methodMarker(int32)
             int methodSpecificDataLength = length - 9;
 
-            byte[] methodSpecificDataBytes = new byte[methodSpecificDataLength];
-            byteBuf.readBytes(methodSpecificDataBytes, 0, methodSpecificDataLength);
-
-            String parametersSpecificDataString = new String(methodSpecificDataBytes, StandardCharsets.UTF_8);
+            String parametersSpecificDataString = byteBuf.toString(byteBuf.readerIndex(), methodSpecificDataLength, StandardCharsets.UTF_8);
 
             return AuthenticationRequestMessage
                     .builder()
@@ -62,12 +60,12 @@ public class ServerPostgresProtocolMessageDecoder {
                 throw new MessageDecodingException("Not a SASL challenge message.");
             }
 
-            byte[] messageBytes = new byte[length];
+            byte[] messageBytes = TempFastThreadLocalStorageUtils.getThreadLocalByteArray();
             byteBuf.readBytes(messageBytes, 0, length);
 
             return AuthenticationSASLContinue
                     .builder()
-                    .saslMechanismSpecificData(new String(messageBytes))
+                    .saslMechanismSpecificData(new String(messageBytes, 0, length))
                     .build();
 
         } catch (Exception e) {

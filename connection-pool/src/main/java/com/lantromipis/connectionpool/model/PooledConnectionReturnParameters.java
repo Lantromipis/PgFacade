@@ -11,9 +11,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PooledConnectionReturnParameters {
     /**
-     * Execute ROLLBACK SQL statement to close active transaction before returning connection to pool.
+     * Execute SQL statements to cleanup connection before returning to pool (rollback, deallocate all, etc.).
      */
-    boolean rollback;
+    boolean cleanup;
     /**
      * Force close primary connection. Main purpose is to use for switchover.
      */

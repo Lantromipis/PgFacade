@@ -135,7 +135,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 List<Channel> redundantChannels = primaryConnectionsStorage.removeRedundantConnections(lastTimestamp, proxyProperties.connectionPool().connectionMaxAge().toMillis());
                 if (CollectionUtils.isNotEmpty(redundantChannels)) {
                     redundantChannels
-                            .forEach(channel -> HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()));
+                            .forEach(channel -> HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(channel.alloc())));
                     log.debug("Closed and removed from pool {} redundant connections because they were not required for too long, reached max-age or was already closed.", redundantChannels.size());
                 }
             } finally {
@@ -234,6 +234,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 );
 
                 channel.pipeline().addLast(
+                        //new LoggingHandler(this.getClass(), LogLevel.DEBUG),
                         connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
                                 poolAuthInfo,
                                 startupMessageInfo,
@@ -251,7 +252,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                                 .stream()
                                                 .filter(messageInfo -> messageInfo.getStartByte() == PostgresProtocolGeneralConstants.PARAMETER_STATUS_MESSAGE_START_CHAR)
                                                 .forEach(messageInfo ->
-                                                        serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().length)
+                                                        serverParameterMessagesBuf.writeBytes(messageInfo.getEntireMessage(), 0, messageInfo.getEntireMessage().readableBytes())
                                                 );
 
                                         byte[] serverParameterMessagesBytes = new byte[serverParameterMessagesBuf.readableBytes()];
@@ -344,7 +345,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                             log.debug("Closing real Postgres connection because client connection handler requested this action.");
                             HandlerUtils.closeOnFlush(
                                     pooledConnectionInternalInfo.getRealPostgresConnection(),
-                                    ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                                    ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(pooledConnectionInternalInfo.getRealPostgresConnection().alloc())
                             );
                             storage.removeConnection(pooledConnectionInternalInfo);
                             return;
@@ -357,18 +358,18 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
                         HandlerUtils.removeAllHandlersFromChannelPipeline(pooledConnectionInternalInfo.getRealPostgresConnection());
 
-                        if (params.isRollback() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
+                        if (params.isCleanup() && pooledConnectionInternalInfo.getRealPostgresConnection().isActive()) {
                             AtomicBoolean finished = new AtomicBoolean(false);
 
                             ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
                                         if (finished.compareAndSet(false, true)) {
-                                            log.warn("Timeout reached for real Postgres connection auth.");
+                                            log.warn("Timeout reached for real Postgres connection cleanup.");
                                             HandlerUtils.closeOnFlush(
                                                     pooledConnectionInternalInfo.getRealPostgresConnection(),
-                                                    ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                                                    ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(pooledConnectionInternalInfo.getRealPostgresConnection().alloc())
                                             );
                                         } else {
-                                            log.debug("Postgres connection acquired. Canceling scheduled...");
+                                            log.debug("Postgres connection cleaned. Canceling scheduled...");
                                         }
                                     },
                                     proxyProperties.connectionPool().cleanRealUsedConnectionTimeout().toMillis(),
@@ -390,7 +391,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                                 } else {
                                                     HandlerUtils.closeOnFlush(
                                                             pooledConnectionInternalInfo.getRealPostgresConnection(),
-                                                            ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                                                            ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(pooledConnectionInternalInfo.getRealPostgresConnection().alloc())
                                                     );
                                                 }
                                             }
@@ -407,7 +408,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                         log.error("Error while returning connection to pool", e);
                         HandlerUtils.closeOnFlush(
                                 pooledConnectionInternalInfo.getRealPostgresConnection(),
-                                ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage()
+                                ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(pooledConnectionInternalInfo.getRealPostgresConnection().alloc())
                         );
                     }
                 }
@@ -422,7 +423,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
         if (channel != null) {
             log.debug("Connection reached its max-age. Removing it from pool and closing.");
-            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage());
+            HandlerUtils.closeOnFlush(channel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(channel.alloc()));
         } else {
             log.debug("Returned connection to pool.");
         }
