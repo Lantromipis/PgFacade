@@ -5,13 +5,14 @@ import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.common.EmptyHandler;
+import com.lantromipis.connectionpool.handler.EmptyHandler;
 import com.lantromipis.connectionpool.model.*;
-import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
+import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -55,6 +56,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
     ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
 
     @Inject
+    PgFrontendChannelHandlerProducer pgFrontendChannelHandlerProducer;
+
+    @Inject
     @Named("worker")
     EventLoopGroup workerGroup;
 
@@ -78,15 +82,15 @@ public class ConnectionPoolImpl implements ConnectionPool {
     }
 
     @Override
-    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, PoolAuthInfo poolAuthInfo, Consumer<PooledConnectionWrapper> readyCallback) {
+    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, PgAuthInfo pgAuthInfo, Consumer<PooledConnectionWrapper> readyCallback) {
         if (primary) {
             log.debug("Primary connection requested.");
-            getConnection(startupMessageInfo, poolAuthInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
+            getConnection(startupMessageInfo, pgAuthInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
         } else {
             log.debug("Standby connection requested.");
             StandbyPostgresPoolWrapper wrapper = getLeastLoadedStandbyStorage();
             if (wrapper != null) {
-                getConnection(startupMessageInfo, poolAuthInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
+                getConnection(startupMessageInfo, pgAuthInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
             } else {
                 readyCallback.accept(null);
             }
@@ -144,7 +148,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
     }
 
-    private void getConnection(StartupMessageInfo startupMessageInfo, PoolAuthInfo poolAuthInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
+    private void getConnection(StartupMessageInfo startupMessageInfo, PgAuthInfo pgAuthInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
         if (!poolActive.get()) {
             readyCallback.accept(null);
             return;
@@ -235,9 +239,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
                 channel.pipeline().addLast(
                         //new LoggingHandler(this.getClass(), LogLevel.DEBUG),
-                        connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
-                                poolAuthInfo,
-                                startupMessageInfo,
+                        pgFrontendChannelHandlerProducer.createNewChannelStartupHandler(
+                                pgAuthInfo,
+                                startupMessageInfo.getParameters(),
                                 result -> {
                                     if (finished.compareAndSet(false, true)) {
                                         cancelFuture.cancel(false);

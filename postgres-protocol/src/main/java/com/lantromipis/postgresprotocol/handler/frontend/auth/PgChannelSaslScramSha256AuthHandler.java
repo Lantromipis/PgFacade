@@ -1,17 +1,16 @@
-package com.lantromipis.connectionpool.handler.auth;
+package com.lantromipis.postgresprotocol.handler.frontend.auth;
 
-import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
-import com.lantromipis.connectionpool.model.PgChannelAuthResult;
-import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.handler.frontend.AbstractPgFrontendChannelHandler;
+import com.lantromipis.postgresprotocol.model.internal.PgChannelAuthResult;
+import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationSASLContinue;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import io.netty.buffer.ByteBuf;
@@ -26,7 +25,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
-public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolClientHandler {
+public class PgChannelSaslScramSha256AuthHandler extends AbstractPgFrontendChannelHandler {
 
     private enum SaslAuthStatus {
         NOT_STARTED,
@@ -34,27 +33,22 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
         LAST_CLIENT_MESSAGE_SENT
     }
 
-    private SaslAuthStatus saslAuthStatus = SaslAuthStatus.NOT_STARTED;
-
-    private String clientNonce;
+    private final String clientNonce;
     private String clientFirstMessageBare;
 
-    private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
-    private ScramPoolAuthInfo scramAuthInfo;
-    private StartupMessageInfo startupMessageInfo;
-    private Consumer<PgChannelAuthResult> callbackFunction;
+    private final PgFrontendChannelHandlerProducer connectionPoolChannelHandlerProducer;
+    private final ScramPgAuthInfo scramAuthInfo;
+    private final Consumer<PgChannelAuthResult> callbackFunction;
 
     private SaslAuthStatus authStatus = SaslAuthStatus.NOT_STARTED;
 
-    public PgChannelSaslScramSha256AuthHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
-                                               final ScramPoolAuthInfo scramAuthInfo,
-                                               final StartupMessageInfo startupMessageInfo,
+    public PgChannelSaslScramSha256AuthHandler(final PgFrontendChannelHandlerProducer connectionPoolChannelHandlerProducer,
+                                               final ScramPgAuthInfo scramAuthInfo,
                                                final Consumer<PgChannelAuthResult> callbackFunction) {
         this.clientNonce = UUID.randomUUID().toString();
 
         this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
         this.scramAuthInfo = scramAuthInfo;
-        this.startupMessageInfo = startupMessageInfo;
         this.callbackFunction = callbackFunction;
     }
 

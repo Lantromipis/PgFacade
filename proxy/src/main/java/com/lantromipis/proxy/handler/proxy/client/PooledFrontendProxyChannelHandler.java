@@ -4,7 +4,7 @@ import com.lantromipis.connectionpool.model.PooledConnectionReturnParameters;
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
+import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
@@ -42,7 +42,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
                 .builder()
                 .resourcesFreed(new AtomicBoolean(false))
                 .loadBalancing(false)
-                .messageInfos(new ArrayDeque<>())
+                .pgMessageInfos(new ArrayDeque<>())
                 .build();
     }
 
@@ -107,14 +107,14 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
         ByteBuf newLeftovers = DecoderUtils.splitToMessages(
                 frontendConnectionState.getPrevMessageLeftovers(),
                 message,
-                frontendConnectionState.getMessageInfos(),
+                frontendConnectionState.getPgMessageInfos(),
                 ctx.alloc()
         );
         frontendConnectionState.replacePevMessageLeftovers(newLeftovers);
 
-        MessageInfo messageInfo = frontendConnectionState.getMessageInfos().poll();
-        while (messageInfo != null) {
-            ByteBuf byteBuf = messageInfo.getEntireMessage();
+        PgMessageInfo pgMessageInfo = frontendConnectionState.getPgMessageInfos().poll();
+        while (pgMessageInfo != null) {
+            ByteBuf byteBuf = pgMessageInfo.getEntireMessage();
             byte startByte = byteBuf.readByte();
 
             switch (startByte) {
@@ -150,8 +150,8 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
                 }
             }
 
-            messageInfo.getEntireMessage().release();
-            messageInfo = frontendConnectionState.getMessageInfos().poll();
+            pgMessageInfo.getEntireMessage().release();
+            pgMessageInfo = frontendConnectionState.getPgMessageInfos().poll();
         }
 
         primaryConnectionWrapper.getRealPostgresConnection().writeAndFlush(msg)

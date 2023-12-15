@@ -1,7 +1,7 @@
-package com.lantromipis.connectionpool.model.auth;
+package com.lantromipis.postgresprotocol.model.internal.auth;
 
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 
-public interface PoolAuthInfo {
+public interface PgAuthInfo {
     PostgresProtocolAuthenticationMethod getExpectedAuthMethod();
 }

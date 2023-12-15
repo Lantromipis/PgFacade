@@ -1,7 +1,7 @@
 package com.lantromipis.postgresprotocol.utils;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
+import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import lombok.extern.slf4j.Slf4j;
@@ -13,9 +13,9 @@ import java.util.Iterator;
 @Slf4j
 public class DecoderUtils {
 
-    public static void freeMessageInfos(Deque<MessageInfo> messageInfos) {
-        messageInfos.forEach(m -> m.getEntireMessage().release());
-        messageInfos.clear();
+    public static void freeMessageInfos(Deque<PgMessageInfo> pgMessageInfos) {
+        pgMessageInfos.forEach(m -> m.getEntireMessage().release());
+        pgMessageInfos.clear();
     }
 
     public static boolean checkIfMessageIsTermination(ByteBuf buf) {
@@ -25,9 +25,9 @@ public class DecoderUtils {
         return startChar == PostgresProtocolGeneralConstants.CLIENT_TERMINATION_MESSAGE_START_CHAR;
     }
 
-    public static boolean containsMessageOfType(Deque<MessageInfo> messageInfos, byte targetMessageStartByte) {
-        for (MessageInfo messageInfo : messageInfos) {
-            if (messageInfo.getStartByte() == targetMessageStartByte) {
+    public static boolean containsMessageOfType(Deque<PgMessageInfo> pgMessageInfos, byte targetMessageStartByte) {
+        for (PgMessageInfo pgMessageInfo : pgMessageInfos) {
+            if (pgMessageInfo.getStartByte() == targetMessageStartByte) {
                 return true;
             }
         }
@@ -35,12 +35,12 @@ public class DecoderUtils {
         return false;
     }
 
-    public static boolean containsMessageOfTypeReversed(Deque<MessageInfo> messageInfos, byte targetMessageStartByte) {
-        Iterator<MessageInfo> iterator = messageInfos.descendingIterator();
+    public static boolean containsMessageOfTypeReversed(Deque<PgMessageInfo> pgMessageInfos, byte targetMessageStartByte) {
+        Iterator<PgMessageInfo> iterator = pgMessageInfos.descendingIterator();
 
         while (iterator.hasNext()) {
-            MessageInfo messageInfo = iterator.next();
-            if (messageInfo.getStartByte() == targetMessageStartByte) {
+            PgMessageInfo pgMessageInfo = iterator.next();
+            if (pgMessageInfo.getStartByte() == targetMessageStartByte) {
                 return true;
             }
         }
@@ -78,7 +78,7 @@ public class DecoderUtils {
         return new String(byteArrayBuf, 0, length, StandardCharsets.UTF_8);
     }
 
-    private static ByteBuf splitToMessages(ByteBuf packet, Deque<MessageInfo> retMessages, ByteBufAllocator allocator) {
+    private static ByteBuf splitToMessages(ByteBuf packet, Deque<PgMessageInfo> retMessages, ByteBufAllocator allocator) {
         ByteBuf leftovers = null;
 
         // TODO move to while
@@ -119,7 +119,7 @@ public class DecoderUtils {
             message.writeBytes(packet, entireMessageLength);
 
             retMessages.add(
-                    MessageInfo
+                    PgMessageInfo
                             .builder()
                             .startByte(startByte)
                             .entireMessage(message)
@@ -143,7 +143,7 @@ public class DecoderUtils {
         return leftovers;
     }
 
-    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, Deque<MessageInfo> retMessages, ByteBufAllocator allocator) {
+    public static ByteBuf splitToMessages(ByteBuf previousPacketLastIncompleteMessage, ByteBuf packet, Deque<PgMessageInfo> retMessages, ByteBufAllocator allocator) {
         ByteBuf leftovers;
 
         // for previous incomplete message
@@ -187,7 +187,7 @@ public class DecoderUtils {
                 message.writeBytes(packet, needToReadFromPacket);
 
                 retMessages.add(
-                        MessageInfo
+                        PgMessageInfo
                                 .builder()
                                 .startByte(prevMsgStartByte)
                                 .entireMessage(message)

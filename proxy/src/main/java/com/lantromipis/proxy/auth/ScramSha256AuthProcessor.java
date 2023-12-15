@@ -1,9 +1,9 @@
 package com.lantromipis.proxy.auth;
 
-import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
@@ -66,7 +66,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
     }
 
     @Override
-    public ScramPoolAuthInfo processAuth(ChannelHandlerContext ctx, ByteBuf message) throws Exception {
+    public ScramPgAuthInfo processAuth(ChannelHandlerContext ctx, ByteBuf message) throws Exception {
         switch (saslAuthStatus) {
             case NOT_STARTED -> {
                 processFirstMessage(ctx, message);
@@ -117,7 +117,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
     }
 
-    private ScramPoolAuthInfo processFinalMessage(ChannelHandlerContext ctx, ByteBuf msg) throws NoSuchAlgorithmException, InvalidKeyException {
+    private ScramPgAuthInfo processFinalMessage(ChannelHandlerContext ctx, ByteBuf msg) throws NoSuchAlgorithmException, InvalidKeyException {
         SaslResponse saslResponse = ClientPostgresProtocolMessageDecoder.decodeSaslResponse(msg);
 
         Pattern saslFinalMessagePattern = PostgresProtocolScramConstants.CLIENT_FINAL_MESSAGE_PATTERN;
@@ -171,7 +171,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
 
         ctx.writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSASLFinalMessageWithAuthOk(saslServerFinalMessage, ctx.alloc()));
 
-        return ScramPoolAuthInfo
+        return ScramPgAuthInfo
                 .builder()
                 .clientKey(computedClientKey)
                 .storedKeyBase64(storedKey)

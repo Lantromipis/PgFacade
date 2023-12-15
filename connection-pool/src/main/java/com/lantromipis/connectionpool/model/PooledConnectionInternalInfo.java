@@ -1,13 +1,11 @@
 package com.lantromipis.connectionpool.model;
 
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import io.netty.channel.Channel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 

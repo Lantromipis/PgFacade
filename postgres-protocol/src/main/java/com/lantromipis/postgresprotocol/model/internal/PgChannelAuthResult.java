@@ -1,6 +1,5 @@
-package com.lantromipis.connectionpool.model;
+package com.lantromipis.postgresprotocol.model.internal;
 
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -10,7 +9,7 @@ import java.util.Deque;
 @AllArgsConstructor
 public class PgChannelAuthResult {
     boolean success;
-    private Deque<MessageInfo> serverStartMessagesInfos;
+    private Deque<PgMessageInfo> serverStartMessagesInfos;
 
     public PgChannelAuthResult(boolean success) {
         this.success = success;

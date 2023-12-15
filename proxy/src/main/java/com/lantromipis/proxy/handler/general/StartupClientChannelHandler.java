@@ -1,9 +1,9 @@
 package com.lantromipis.proxy.handler.general;
 
-import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
@@ -52,12 +52,12 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             processMessageBeforeStartupMessage(ctx, message);
             ctx.channel().read();
         } else {
-            PoolAuthInfo poolAuthInfo = proxyAuthProcessor.processAuth(ctx, message);
+            PgAuthInfo pgAuthInfo = proxyAuthProcessor.processAuth(ctx, message);
 
-            if (poolAuthInfo != null) {
+            if (pgAuthInfo != null) {
                 proxyChannelHandlersProducer.getNewSessionPooledConnectionHandlerByCallback(
                         startupMessage,
-                        poolAuthInfo,
+                        pgAuthInfo,
                         handler -> {
                             ctx.channel().pipeline().addLast(handler);
                             ctx.channel().pipeline().remove(this);
