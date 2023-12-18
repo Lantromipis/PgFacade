@@ -1,5 +1,8 @@
 package com.lantromipis.postgresprotocol.model.internal;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
 import java.nio.ByteBuffer;
 
 
@@ -75,7 +78,42 @@ public class PgLogSequenceNumber implements Comparable<PgLogSequenceNumber> {
 
         int logicalXlog = buf.getInt();
         int segment = buf.getInt();
-        return String.format("%X/%X", logicalXlog, segment);
+        return String.format("%08X/%X", logicalXlog, segment);
+    }
+
+    public String toWalName(String timeline) {
+        String lsn = asString();
+
+        String[] split = lsn.split("/");
+        String lsnHigher = split[0];
+        String lsnLower = split[1];
+
+        return timeline
+                + lsnHigher
+                + "000000"
+                + lsnLower.substring(
+                0,
+                2
+        );
+    }
+
+    public boolean compareIfBelongsToSameWal(PgLogSequenceNumber other) {
+        ByteBuf buf1 = Unpooled.buffer(8);
+        buf1.writeLong(value);
+
+        ByteBuf buf2 = Unpooled.buffer(8);
+        buf2.writeLong(other.asLong());
+
+        int logicalXlog1 = buf1.readInt();
+        int logicalXlog2 = buf2.readInt();
+
+        byte segmentHighestByte1 = buf1.readByte();
+        byte segmentHighestByte2 = buf2.readByte();
+
+        buf1.release();
+        buf2.release();
+
+        return logicalXlog1 == logicalXlog2 && segmentHighestByte1 == segmentHighestByte2;
     }
 
     @Override

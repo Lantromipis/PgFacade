@@ -162,7 +162,7 @@ public class PgProxyServiceImpl implements PgProxyService {
 
                                     PgStreamingReplicationHandler streamingReplicationHandler = new PgStreamingReplicationHandler();
                                     channel.pipeline().addLast(streamingReplicationHandler);
-                                    streamingReplicationHandler.startPhysicalReplication(null, "0/30000000", null, str -> {
+                                    streamingReplicationHandler.startPhysicalReplication(null, "0/33000000", "00000001", str -> {
                                     });
 
 /*                                    PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();

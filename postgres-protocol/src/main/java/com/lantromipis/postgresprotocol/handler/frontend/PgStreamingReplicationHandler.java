@@ -35,11 +35,11 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private int leftToReadFromCopyData = 0;
     private boolean finishedReadingCopyDataMessageStartInfo = false;
 
-    private PgLogSequenceNumber lastServerLSN = PgLogSequenceNumber.INVALID_LSN;
     private PgLogSequenceNumber lastReceivedLsn = PgLogSequenceNumber.INVALID_LSN;
     private PgLogSequenceNumber lastFlushedLsn = PgLogSequenceNumber.INVALID_LSN;
     private PgLogSequenceNumber lastAppliedLsn = PgLogSequenceNumber.INVALID_LSN;
 
+    private String timeline;
 
     private ByteBuf internalByteBuf;
 
@@ -58,6 +58,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                                          final String timeline,
                                          final Consumer<ReplicationStartResult> startedCallback) {
         this.startedCallback = startedCallback;
+        this.timeline = timeline;
 
         StringBuilder query = new StringBuilder("START_REPLICATION");
 
@@ -68,9 +69,10 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         query.append(" ").append("PHYSICAL");
         query.append(" ").append(startLsn);
         lastReceivedLsn = PgLogSequenceNumber.valueOf(startLsn);
+        currentWalName = lastReceivedLsn.toWalName(timeline);
 
         if (StringUtils.isNotEmpty(timeline)) {
-            query.append(" ").append("TIMELINE").append(" ").append(slotName);
+            query.append(" ").append("TIMELINE").append(" ").append(timeline);
         }
 
         ByteBuf startReplicationQuery = ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage(query.toString(), initialChannelHandlerContext.alloc());
@@ -95,7 +97,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
-
 
         while (message.readerIndex() < message.writerIndex()) {
             if (!readingCopyDataMessage) {
@@ -224,10 +225,17 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
             long currentEndOfWalOnServer = internalByteBuf.readLong();
             long serverTimeInPostgresEpoch = internalByteBuf.readLong();
 
-            lastServerLSN = PgLogSequenceNumber.valueOf(currentEndOfWalOnServer);
             // skip marker and preamble
             int xLogDataMessageContentSize = currentCopyDataMessageLength - 1 - PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_PREAMBLE_LENGTH;
-            lastReceivedLsn = PgLogSequenceNumber.valueOf(currentEndOfWalOnServer + xLogDataMessageContentSize);
+            PgLogSequenceNumber newReceivedLsn = PgLogSequenceNumber.valueOf(walDataStartPoint + xLogDataMessageContentSize);
+
+            if (!newReceivedLsn.compareIfBelongsToSameWal(lastReceivedLsn)) {
+                String newLsn = newReceivedLsn.toWalName(timeline);
+                String oldLsn = lastReceivedLsn.toWalName(timeline);
+                log.info("Switched wal from {} to {} (checked fast)!", oldLsn, newLsn);
+            }
+
+            lastReceivedLsn = newReceivedLsn;
             lastAppliedLsn = lastReceivedLsn;
             lastFlushedLsn = lastAppliedLsn;
 
@@ -263,8 +271,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         long currentEndOfWalOnServer = internalByteBuf.readLong();
         long serverTimeInPostgresEpoch = internalByteBuf.readLong();
         byte replyAsSoonAsPossible = internalByteBuf.readByte();
-
-        lastServerLSN = PgLogSequenceNumber.valueOf(currentEndOfWalOnServer);
 
         leftToReadFromCopyData = leftToReadFromCopyData - PostgresProtocolStreamingReplicationConstants.PRIMARY_KEEPALIVE_CONTENT_LENGTH;
         readingCopyDataMessage = false;
