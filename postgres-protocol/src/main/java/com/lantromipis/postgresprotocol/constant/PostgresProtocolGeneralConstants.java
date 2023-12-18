@@ -3,8 +3,8 @@ package com.lantromipis.postgresprotocol.constant;
 public class PostgresProtocolGeneralConstants {
     public static final byte DELIMITER_BYTE = 0;
     public static final String DELIMITER_BYTE_CHAR = "\0";
-    public static final int MESSAGE_LENGTH_BYTES_COUNT = 4;
-    public static final int MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT = MESSAGE_LENGTH_BYTES_COUNT + 1;
+    public static final int MESSAGE_MARKER_LENGTH_BYTES_COUNT = 4;
+    public static final int MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT = MESSAGE_MARKER_LENGTH_BYTES_COUNT + 1;
     public static final int INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT = 8;
     public static final int AUTH_OK_MESSAGE_DATA = 0;
     public static final int AUTH_OK_MESSAGE_LENGTH = 8;

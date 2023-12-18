@@ -13,4 +13,5 @@ public class ErrorResponse {
     // not all fields are listed
     // https://www.postgresql.org/docs/current/protocol-error-fields.html
     private String code;
+    private String message;
 }

@@ -96,9 +96,9 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
 
-        if (!readingCopyDataMessage) {
-            loop:
-            while (message.readerIndex() < message.writerIndex()) {
+
+        while (message.readerIndex() < message.writerIndex()) {
+            if (!readingCopyDataMessage) {
                 boolean readMarkerAndLength = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, PostgresProtocolGeneralConstants.MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT);
                 if (!readMarkerAndLength) {
                     // failed to read marker and length of message
@@ -108,94 +108,104 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                 byte marker = internalByteBuf.readByte();
                 int length = internalByteBuf.readInt();
 
+
                 switch (marker) {
                     case PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR -> {
-                        // need to read full message
-                        boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
-                        if (!readMessage) {
-                            // failed to read entire message
-                            // reset index to keep marker and length
-                            internalByteBuf.readerIndex(0);
-                            return;
-                        }
-
-                        internalByteBuf.readerIndex(0);
-                        ErrorResponse errorResponse = ServerPostgresProtocolMessageDecoder.decodeErrorResponse(internalByteBuf);
-
-                        if (!replicationStarted) {
-                            // fail start callback
-                            startedCallback.accept(
-                                    ReplicationStartResult
-                                            .builder()
-                                            .success(false)
-                                            .serverError(true)
-                                            .errorResponse(errorResponse)
-                                            .build()
-                            );
-                            return;
-                        } else {
-
-                        }
+                        log.info("Received Error");
+                        handleErrorResponseMessage(message, length);
+                        return;
                     }
                     case PostgresProtocolGeneralConstants.COPY_BOTH_RESPONSE_START_CHAR -> {
-                        replicationStarted = true;
-                        // need to read full message
-                        boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
-                        if (!readMessage) {
-                            // failed to read entire message
-                            // reset index to keep marker and length
-                            internalByteBuf.readerIndex(0);
-                            return;
-                        }
-                        // just skip message because it's useless
+                        log.info("Received CopyBoth");
+                        handleCopyBothResponseMessage(message, length);
                     }
                     case PostgresProtocolGeneralConstants.COPY_DATA_START_CHAR -> {
-                        currentCopyDataMessageLength = length - PostgresProtocolGeneralConstants.MESSAGE_LENGTH_BYTES_COUNT;
-                        leftToReadFromCopyData = currentCopyDataMessageLength;
-                        readingCopyDataMessage = true;
-                        currentCopyDataMessageStartByte = FAKE_COPY_DATA_MESSAGE_START_BYTE;
-                        finishedReadingCopyDataMessageStartInfo = false;
-                        // clear buf
-                        internalByteBuf.clear();
-                        // break loop
-                        break loop;
+                        log.info("Received CopyData");
+                        handelCopyDataMessage(message, length);
                     }
                     default ->
                             throw new RuntimeException("Unknown message '" + (char) marker + "' during streaming replication! Expected only 'E', 'W' or 'd'!");
                 }
-
-                // message processed
-                internalByteBuf.clear();
+            } else {
+                switch (currentCopyDataMessageStartByte) {
+                    case FAKE_COPY_DATA_MESSAGE_START_BYTE -> {
+                        // not yet defined CopyData message type
+                        currentCopyDataMessageStartByte = message.readByte();
+                        leftToReadFromCopyData = leftToReadFromCopyData - 1;
+                    }
+                    case PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_START_CHAR -> {
+                        log.info("Received XLogData");
+                        handleXLogDataMessage(message, ctx);
+                    }
+                    case PostgresProtocolStreamingReplicationConstants.PRIMARY_KEEPALIVE_MESSAGE_START_CHAR -> {
+                        log.info("Received Keepalive");
+                        handlePrimaryKeepalive(message, ctx);
+                    }
+                    default ->
+                            throw new RuntimeException("Unknown message '" + (char) currentCopyDataMessageStartByte + "' in streaming replication copy data sub-protocol!");
+                }
             }
         }
 
-        // read CopyData message until packet not ended
-        while (message.readerIndex() < message.writerIndex()) {
-            switch (currentCopyDataMessageStartByte) {
-                case FAKE_COPY_DATA_MESSAGE_START_BYTE -> {
-                    // not yet defined CopyData message type
-                    currentCopyDataMessageStartByte = message.readByte();
-                    leftToReadFromCopyData = leftToReadFromCopyData - 1;
-                }
-                case PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_START_CHAR -> {
-                    log.info("Received XLogData");
-                    handleXLogDataMessage(message, ctx);
-                }
-                case PostgresProtocolStreamingReplicationConstants.PRIMARY_KEEPALIVE_MESSAGE_START_CHAR -> {
-                    log.info("Received Keepalive");
-                    handlePrimaryKeepalive(message, ctx);
-                }
-                default ->
-                        throw new RuntimeException("Unknown message '" + (char) currentCopyDataMessageStartByte + "' in streaming replication copy data sub-protocol!");
-            }
-        }
 
         ctx.channel().read();
         super.channelRead(ctx, msg);
     }
 
-    private void handleErrorResponseMessage(ByteBuf message, ChannelHandlerContext ctx) {
+    private void handleErrorResponseMessage(ByteBuf message, int length) {
+        // need to read full message
+        boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
+        if (!readMessage) {
+            // failed to read entire message
+            // reset index to keep marker and length
+            internalByteBuf.readerIndex(0);
+            return;
+        }
 
+        internalByteBuf.readerIndex(0);
+        ErrorResponse errorResponse = ServerPostgresProtocolMessageDecoder.decodeErrorResponse(internalByteBuf);
+
+        if (!replicationStarted) {
+            // fail start callback
+            startedCallback.accept(
+                    ReplicationStartResult
+                            .builder()
+                            .success(false)
+                            .serverError(true)
+                            .errorResponse(errorResponse)
+                            .build()
+            );
+        } else {
+
+        }
+
+        // message processed
+        internalByteBuf.clear();
+        log.error("Received error from remote during streaming replication! Code {}, message {}", errorResponse.getCode(), errorResponse.getMessage());
+    }
+
+    private void handleCopyBothResponseMessage(ByteBuf message, int length) {
+        replicationStarted = true;
+        // need to read full message
+        boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
+        if (!readMessage) {
+            // failed to read entire message
+            // reset index to keep marker and length
+            internalByteBuf.readerIndex(0);
+        }
+        // just skip message because it's useless
+        // message processed
+        internalByteBuf.clear();
+    }
+
+    private void handelCopyDataMessage(ByteBuf message, int length) {
+        currentCopyDataMessageLength = length - PostgresProtocolGeneralConstants.MESSAGE_MARKER_LENGTH_BYTES_COUNT;
+        leftToReadFromCopyData = currentCopyDataMessageLength;
+        readingCopyDataMessage = true;
+        currentCopyDataMessageStartByte = FAKE_COPY_DATA_MESSAGE_START_BYTE;
+        finishedReadingCopyDataMessageStartInfo = false;
+        // message processed
+        internalByteBuf.clear();
     }
 
     private void handleXLogDataMessage(ByteBuf message, ChannelHandlerContext ctx) {
@@ -262,13 +272,19 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         internalByteBuf.clear();
 
         // TODO check if need to reply
-        ByteBuf response = createStandbyStatusUpdateMessage(ctx.alloc(), false);
+        ByteBuf response = createStandbyStatusUpdateMessageInCopyDataMessage(ctx.alloc(), false);
         ctx.channel().writeAndFlush(response, ctx.voidPromise());
+        log.info("Responded to keepalive");
     }
 
-    private ByteBuf createStandbyStatusUpdateMessage(ByteBufAllocator allocator, boolean ping) {
-        ByteBuf ret = allocator.buffer(PostgresProtocolStreamingReplicationConstants.STANDBY_STATUS_UPDATE_MESSAGE_LENGTH);
+    private ByteBuf createStandbyStatusUpdateMessageInCopyDataMessage(ByteBufAllocator allocator, boolean ping) {
+        ByteBuf ret = allocator.buffer(PostgresProtocolStreamingReplicationConstants.STANDBY_STATUS_UPDATE_MESSAGE_LENGTH + PostgresProtocolGeneralConstants.MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT);
 
+        // copy data
+        ret.writeByte(PostgresProtocolGeneralConstants.COPY_DATA_START_CHAR);
+        ret.writeInt(PostgresProtocolStreamingReplicationConstants.STANDBY_STATUS_UPDATE_MESSAGE_LENGTH + PostgresProtocolGeneralConstants.MESSAGE_MARKER_LENGTH_BYTES_COUNT);
+
+        // standby update
         ret.writeByte(PostgresProtocolStreamingReplicationConstants.STANDBY_STATUS_UPDATE_MESSAGE_START_CHAR);
 
         ret.writeLong(lastReceivedLsn.asLong());

@@ -189,6 +189,11 @@ public class ServerPostgresProtocolMessageDecoder {
                 }
                 case PostgresProtocolErrorAndNoticeConstant.SQLSTATE_CODE_MARKER ->
                         ret.setCode(DecoderUtils.readNextNullTerminatedString(byteBuf));
+                case PostgresProtocolErrorAndNoticeConstant.MESSAGE_MARKER ->
+                        ret.setMessage(DecoderUtils.readNextNullTerminatedString(byteBuf));
+                default -> {
+                    DecoderUtils.readNextNullTerminatedString(byteBuf);
+                }
             }
         }
 

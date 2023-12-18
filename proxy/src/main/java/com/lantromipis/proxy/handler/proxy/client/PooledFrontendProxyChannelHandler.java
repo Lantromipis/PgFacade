@@ -119,12 +119,12 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
 
             switch (startByte) {
                 case PostgresProtocolGeneralConstants.QUERY_MESSAGE_START_BYTE -> {
-                    int length = byteBuf.readInt() - PostgresProtocolGeneralConstants.MESSAGE_LENGTH_BYTES_COUNT;
+                    int length = byteBuf.readInt() - PostgresProtocolGeneralConstants.MESSAGE_MARKER_LENGTH_BYTES_COUNT;
                     String sqlStatement = byteBuf.toString(byteBuf.readerIndex(), length, StandardCharsets.UTF_8);
                     log.debug("SQL in simple query is {}", sqlStatement);
                 }
                 case PostgresProtocolGeneralConstants.PARSE_MESSAGE_START_BYTE -> {
-                    int length = byteBuf.readInt() - PostgresProtocolGeneralConstants.MESSAGE_LENGTH_BYTES_COUNT;
+                    int length = byteBuf.readInt() - PostgresProtocolGeneralConstants.MESSAGE_MARKER_LENGTH_BYTES_COUNT;
 
                     String name = DecoderUtils.readNextNullTerminatedString(byteBuf);
                     String sqlStatement = DecoderUtils.readNextNullTerminatedString(byteBuf);
