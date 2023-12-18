@@ -2,13 +2,17 @@ package com.lantromipis.postgresprotocol.utils;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
+import com.lantromipis.postgresprotocol.model.protocol.DataRow;
+import com.lantromipis.postgresprotocol.model.protocol.RowDescription;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 
 @Slf4j
 public class DecoderUtils {
@@ -210,6 +214,38 @@ public class DecoderUtils {
 
         return leftovers;
 
+    }
+
+    public static Map<RowDescription.FieldDescription, byte[]> mapDataRowColumnDescriptionByContent(RowDescription rowDescription, DataRow dataRow) {
+        Map<RowDescription.FieldDescription, byte[]> ret = new HashMap<>();
+
+        int size = dataRow.getColumns().size();
+        for (int i = 0; i < size; i++) {
+            byte[] column = dataRow.getColumns().get(i);
+            RowDescription.FieldDescription columDescription = rowDescription.getFieldDescriptions().get(i);
+
+            ret.put(columDescription, column);
+        }
+
+        return ret;
+    }
+
+    public static Map<String, String> mapDataRowColumnNameByContent(RowDescription rowDescription, DataRow dataRow) {
+        Map<String, String> ret = new HashMap<>();
+
+        int size = dataRow.getColumns().size();
+        for (int i = 0; i < size; i++) {
+            byte[] column = dataRow.getColumns().get(i);
+            RowDescription.FieldDescription columDescription = rowDescription.getFieldDescriptions().get(i);
+
+            if (column == null) {
+                ret.put(columDescription.getFieldName(), null);
+            } else {
+                ret.put(columDescription.getFieldName(), new String(column, StandardCharsets.UTF_8));
+            }
+        }
+
+        return ret;
     }
 
     private DecoderUtils() {

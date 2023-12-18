@@ -67,14 +67,13 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
                 pgMessageInfo = pgMessageInfos.poll();
             }
 
+            ctx.channel().pipeline().remove(this);
             callbackFunction.accept(new PgChannelAuthResult(containsAuthOk, pgMessageInfos));
 
             if (leftovers != null) {
                 leftovers.release();
             }
             DecoderUtils.freeMessageInfos(pgMessageInfos);
-
-            ctx.channel().pipeline().remove(this);
             return;
         }
 

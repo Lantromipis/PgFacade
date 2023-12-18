@@ -11,6 +11,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ScramPgAuthInfo implements PgAuthInfo {
+    private boolean passwordKnown;
+
+    // when password is known
+    private String password;
+
+    // when password is NOT known
     private byte[] clientKey;
     private String storedKeyBase64;
 

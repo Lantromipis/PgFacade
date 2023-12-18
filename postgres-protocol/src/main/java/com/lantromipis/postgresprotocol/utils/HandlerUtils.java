@@ -31,4 +31,23 @@ public class HandlerUtils {
         Map<String, ChannelHandler> handlers = channel.pipeline().toMap();
         handlers.forEach((key, value) -> channel.pipeline().remove(value));
     }
+
+    public static int availableBytesInByteBuf(ByteBuf byteBuf) {
+        return byteBuf.writerIndex() - byteBuf.readerIndex();
+    }
+
+    public static boolean readFromBufUntilFilled(ByteBuf dest, ByteBuf src, int requiredBytes) {
+        int alreadyRead = dest.readableBytes();
+        if (alreadyRead >= requiredBytes) {
+            return true;
+        }
+
+        int canRead = src.readableBytes();
+        int needToRead = requiredBytes - alreadyRead;
+        int willRead = Math.min(needToRead, canRead);
+
+        dest.writeBytes(src, willRead);
+
+        return dest.readableBytes() >= requiredBytes;
+    }
 }

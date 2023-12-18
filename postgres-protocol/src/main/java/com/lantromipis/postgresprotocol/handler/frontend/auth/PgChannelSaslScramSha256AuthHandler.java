@@ -18,6 +18,7 @@ import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -96,10 +97,35 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractPgFrontendChann
             String authMessage = clientFirstMessageBare + "," + saslContinue.getSaslMechanismSpecificData() + "," + clientFinalMessageWithoutProof;
             byte[] authMessageBytes = authMessage.getBytes(StandardCharsets.US_ASCII);
 
-            byte[] clientKey = scramAuthInfo.getClientKey();
-            byte[] storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
+            byte[] clientKey;
+            byte[] storedKey;
 
-            byte[] clientSignature = ScramUtils.computeHmac(storedKey, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
+            if (scramAuthInfo.isPasswordKnown()) {
+                String salt = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_SALT_MATCHER_GROUP);
+                String iterations = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_ITERATION_COUNT_MATCHER_GROUP);
+
+                byte[] saltedPassword = ScramUtils.generateSaltedPassword(
+                        scramAuthInfo.getPassword(),
+                        Base64.getDecoder().decode(salt),
+                        Integer.parseInt(iterations),
+                        PostgresProtocolScramConstants.SHA256_HMAC_NAME);
+
+                clientKey = ScramUtils.computeHmac(
+                        saltedPassword,
+                        PostgresProtocolScramConstants.SHA256_HMAC_NAME,
+                        PostgresProtocolScramConstants.CLIENT_KEY_PHRASE.getBytes(StandardCharsets.US_ASCII)
+                );
+                storedKey = MessageDigest.getInstance(PostgresProtocolScramConstants.SHA256_DIGEST_NAME).digest(clientKey);
+            } else {
+                clientKey = scramAuthInfo.getClientKey();
+                storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
+            }
+
+            byte[] clientSignature = ScramUtils.computeHmac(
+                    storedKey,
+                    PostgresProtocolScramConstants.SHA256_HMAC_NAME,
+                    authMessageBytes
+            );
 
             byte[] clientProof = clientKey.clone();
             for (int i = 0; i < clientProof.length; i++) {

@@ -173,6 +173,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
 
         return ScramPgAuthInfo
                 .builder()
+                .passwordKnown(false)
                 .clientKey(computedClientKey)
                 .storedKeyBase64(storedKey)
                 .build();

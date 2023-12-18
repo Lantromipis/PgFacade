@@ -7,6 +7,9 @@ public class PostgresProtocolScramConstants {
     public static final String SHA256_DIGEST_NAME = "SHA-256";
     public static final String SHA256_HMAC_NAME = "HmacSHA256";
 
+    public static final String CLIENT_KEY_PHRASE = "Client Key";
+    public static final String SERVER_KEY_PHRASE = "Server Key";
+
     //for proxy auth
     public static final Pattern CLIENT_FIRST_MESSAGE_PATTERN = Pattern.compile("^(([pny])=?([^,]*),([^,]*),)(m?=?[^,]*,?n=([^,]*),r=([^,]*),?.*)$");
     public static final int CLIENT_FIRST_MESSAGE_GS2_HEADER_MATCHER_GROUP = 1;

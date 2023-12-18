@@ -10,13 +10,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class TempFastThreadLocalStorageUtils {
 
-    private static final int BYTE_TEMP_ARRAY_SIZE = 65535;
-    private static final int BYTE_BUF_SIZE = 65535;
+    private static final int TEMP_BYTE_ARRAY_SIZE = 65537;
+    private static final int BYTE_BUF_SIZE = 65537;
 
     private static final FastThreadLocal<byte[]> BYTE_ARRAY = new FastThreadLocal<byte[]>() {
         @Override
         protected byte[] initialValue() throws Exception {
-            return new byte[BYTE_TEMP_ARRAY_SIZE];
+            return new byte[TEMP_BYTE_ARRAY_SIZE];
         }
     };
 
@@ -44,6 +44,12 @@ public class TempFastThreadLocalStorageUtils {
 
     public static byte[] getThreadLocalByteArray() {
         return BYTE_ARRAY.get();
+    }
+
+    public static byte[] getThreadLocalByteArray(int expectedSize) {
+        return expectedSize <= TEMP_BYTE_ARRAY_SIZE
+                ? BYTE_ARRAY.get()
+                : new byte[expectedSize];
     }
 
     public static ByteBuf getThreadLocalByteBuf() {
