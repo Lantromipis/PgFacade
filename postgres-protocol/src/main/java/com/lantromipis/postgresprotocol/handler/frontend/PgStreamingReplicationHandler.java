@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 @Slf4j
@@ -42,6 +43,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private PgLogSequenceNumber lastAppliedLsn = PgLogSequenceNumber.INVALID_LSN;
 
     private String timeline;
+    private String slotName;
+    private long updateIntervalMs;
 
     private ByteBuf internalByteBuf;
 
@@ -79,6 +82,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     public void startPhysicalReplication(final String slotName,
                                          final String startLsn,
                                          final String timeline,
+                                         final long updateIntervalMs,
                                          final Consumer<ReplicationStartResult> startedCallback,
                                          final Consumer<ReplicationErrorResult> errorCallback,
                                          final Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback) {
@@ -86,6 +90,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         this.errorCallback = errorCallback;
         this.walFragmentReceivedCallback = walFragmentReceivedCallback;
         this.timeline = timeline;
+        this.slotName = slotName;
+        this.updateIntervalMs = updateIntervalMs;
 
         StringBuilder query = new StringBuilder("START_REPLICATION");
 
@@ -107,6 +113,16 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
         initialChannelHandlerContext.channel().writeAndFlush(startReplicationQuery, initialChannelHandlerContext.voidPromise());
         initialChannelHandlerContext.channel().read();
+
+        initialChannelHandlerContext.channel().eventLoop().scheduleAtFixedRate(
+                () -> {
+                    ByteBuf response = createStandbyStatusUpdateMessageInCopyDataMessage(initialChannelHandlerContext.alloc(), false);
+                    initialChannelHandlerContext.channel().writeAndFlush(response, initialChannelHandlerContext.voidPromise());
+                },
+                updateIntervalMs,
+                updateIntervalMs,
+                TimeUnit.MILLISECONDS
+        );
     }
 
     public void confirmProcessedLsn(PgLogSequenceNumber processed) {
@@ -263,7 +279,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
             // skip marker and preamble
             int xLogDataMessageContentSize = currentCopyDataMessageLength - 1 - PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_PREAMBLE_LENGTH;
-            
+
             lastFragmentStartLsn = PgLogSequenceNumber.valueOf(walDataStartPoint);
             lastReceivedLsn = PgLogSequenceNumber.valueOf(walDataStartPoint + xLogDataMessageContentSize);
 
@@ -320,7 +336,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         if (replyAsSoonAsPossible == 1) {
             ByteBuf response = createStandbyStatusUpdateMessageInCopyDataMessage(ctx.alloc(), false);
             ctx.channel().writeAndFlush(response, ctx.voidPromise());
-            log.info("Responded to keepalive");
         }
     }
 
