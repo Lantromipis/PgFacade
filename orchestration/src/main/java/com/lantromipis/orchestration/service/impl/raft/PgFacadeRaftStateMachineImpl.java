@@ -80,7 +80,6 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                             new String(data),
                             RaftFileBasedStorage.POSTGRES_SETTING_INFO_TYPE_REF
                     );
-                    raftStorage.savePostgresSettingsInfos(persistedSettingsInfos);
                     raftCommitUtils.processCommittedPostgresSettingsInfoCommand(persistedSettingsInfos);
                 }
                 case NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED -> {
@@ -112,6 +111,8 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
         } catch (JsonProcessingException e) {
             // Corner case. Leader must serialize object, before appending it to Raft log.
             log.warn("Failed to save committed operation!", e);
+        } catch (Exception e) {
+            log.error("Failed to apply committed Raft operation!", e);
         }
 
         lastCommitIdx.getAndSet(commitIndex);

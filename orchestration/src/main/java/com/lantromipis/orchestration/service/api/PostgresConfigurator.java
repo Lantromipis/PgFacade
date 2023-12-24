@@ -13,11 +13,6 @@ import java.util.Map;
 public interface PostgresConfigurator {
 
     /**
-     * Method used to initialize configurator service. This method must load some important runtime properties based on current primary configuration (like max_connections)
-     */
-    void initialize();
-
-    /**
      * Method is used to validate settings and check if new settings require restart.
      *
      * @param settingsToCheck map of settings that will be checked. Key is setting name, value is setting value

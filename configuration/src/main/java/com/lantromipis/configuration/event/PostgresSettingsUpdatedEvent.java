@@ -5,5 +5,5 @@ import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
-public class MaxConnectionsChangedEvent {
+public class PostgresSettingsUpdatedEvent {
 }

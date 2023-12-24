@@ -1,11 +1,10 @@
 package com.lantromipis.orchestration.util;
 
-import com.lantromipis.configuration.event.MaxConnectionsChangedEvent;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
@@ -35,13 +34,13 @@ public class RaftCommitUtils {
     ClusterRuntimeProperties clusterRuntimeProperties;
 
     @Inject
-    Event<MaxConnectionsChangedEvent> maxConnectionsChangedEvent;
-
-    @Inject
     Event<SwitchoverStartedEvent> switchoverStartedEvent;
 
     @Inject
     Event<SwitchoverCompletedEvent> switchoverCompletedEvent;
+
+    @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
 
     @Inject
     RaftStorage raftStorage;
@@ -135,12 +134,8 @@ public class RaftCommitUtils {
                 .forEach((uuid, instanceInfo) -> orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(uuid));
     }
 
-    public void processCommittedPostgresSettingsInfoCommand(Map<String, String> committedSettings) {
-        String maxConnections = committedSettings.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME);
-        if (maxConnections != null) {
-            int maxConnectionsInt = Integer.parseInt(maxConnections);
-            clusterRuntimeProperties.setMaxPostgresConnections(maxConnectionsInt);
-            maxConnectionsChangedEvent.fire(new MaxConnectionsChangedEvent());
-        }
+    public void processCommittedPostgresSettingsInfoCommand(Map<String, String> committedSettings) throws Exception {
+        raftStorage.savePostgresSettingsInfos(committedSettings);
+        postgresSettingsRuntimeProperties.reload();
     }
 }

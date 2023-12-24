@@ -1,10 +1,10 @@
 package com.lantromipis.orchestration.util;
 
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
+import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
-import com.lantromipis.orchestration.constant.PostgresConstants;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 

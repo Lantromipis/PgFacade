@@ -4,12 +4,13 @@ import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
+import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.*;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
@@ -81,6 +82,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
+    @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
+
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
@@ -93,10 +97,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final Map<UUID, Instant> newlyCreatedStartingStandbys = new ConcurrentHashMap<>();
 
     @Override
-    public void initializeFastWhenClusterRunning() {
+    public void initializeFastWhenClusterRunning() throws Exception {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
-            postgresConfigurator.initialize();
+            postgresSettingsRuntimeProperties.reload();
 
             if (archivingProperties.enabled()) {
                 postgresArchiver.initialize();
@@ -119,10 +123,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Override
-    public void initializeFull() throws NoPrimaryException, InitializationException {
+    public void initializeFull() throws Exception {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
-            postgresConfigurator.initialize();
+            postgresSettingsRuntimeProperties.reload();
             return;
         }
 
@@ -227,7 +231,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .filter(info -> postgresHealthcheckService.get().isHealthyWithoutAuth(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
                 .forEach(orchestratorUtils::addInstanceToRuntimePropertiesAndNotifyAllIfStandby);
 
-        postgresConfigurator.initialize();
+        postgresSettingsRuntimeProperties.reload();
 
         validateDefaultSettingsPresence();
 
@@ -454,7 +458,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void validateDefaultSettingsPresence() {
-        Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(clusterRuntimeProperties.getPostgresVersion());
+        Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(postgresSettingsRuntimeProperties.getPostgresVersion());
 
         Map<String, String> persistedSettings = raftFunctionalityCombinator.getPostgresSettingInfos();
         Map<String, String> mergedSettings = new HashMap<>(persistedSettings);

@@ -3,10 +3,19 @@ package com.lantromipis.proxy.service.impl;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.connectionpool.handler.EmptyHandler;
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.handler.frontend.PgChannelSimpleQueryExecutorHandler;
 import com.lantromipis.postgresprotocol.handler.frontend.PgStreamingReplicationHandler;
+import com.lantromipis.postgresprotocol.model.internal.PgLogSequenceNumber;
+import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
+import com.lantromipis.postgresprotocol.model.protocol.DataRow;
+import com.lantromipis.postgresprotocol.model.protocol.RowDescription;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
+import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.proxy.initializer.PooledProxyChannelInitializer;
 import com.lantromipis.proxy.initializer.UnpooledProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
@@ -25,9 +34,11 @@ import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.RandomAccessFile;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @ApplicationScoped
@@ -54,6 +65,9 @@ public class PgProxyServiceImpl implements PgProxyService {
 
     @Inject
     PgFrontendChannelHandlerProducer pgFrontendChannelHandlerProducer;
+
+    @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
 
     private ChannelFuture primaryProxyChannelFuture, standbyProxyChannelFuture;
 
@@ -144,6 +158,7 @@ public class PgProxyServiceImpl implements PgProxyService {
         parameters.put("replication", "true");
         parameters.put("client_encoding", "UTF8");
 
+
         channelFuture.addListener((ChannelFutureListener) future -> {
             if (future.isSuccess()) {
                 Channel channel = future.channel();
@@ -160,37 +175,85 @@ public class PgProxyServiceImpl implements PgProxyService {
                                         log.info("Failed to acquired connection for replication");
                                     }
 
+                                    //                                            postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes(),
+                                    //                                            "E:\\Dev\\wal_test",
+
+                                    AtomicReference<PgLogSequenceNumber> processedLsn = new AtomicReference<>(null);
+                                    AtomicReference<RandomAccessFile> currentFile = new AtomicReference<>(null);
+
                                     PgStreamingReplicationHandler streamingReplicationHandler = new PgStreamingReplicationHandler();
                                     channel.pipeline().addLast(streamingReplicationHandler);
-                                    streamingReplicationHandler.startPhysicalReplication(null, "0/33000000", "00000001", str -> {
-                                    });
+                                    streamingReplicationHandler.startPhysicalReplication(
+                                            "slot1",
+                                            "0/01000000",
+                                            "00000001",
+                                            startResult -> {
+                                            },
+                                            errorResult -> {
 
-/*                                    PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();
-                                    channel.pipeline().addLast(queryExecutor);
+                                            },
+                                            walFragmentResult -> {
+                                                PgLogSequenceNumber newLsn = walFragmentResult.getFragmentStartLsn();
+                                                PgLogSequenceNumber currentLsn = processedLsn.get();
 
-                                    queryExecutor.executeQuery(
-                                            "IDENTIFY_SYSTEM",
-                                            0,
-                                            pgMessageInfos -> {
-                                                PgMessageInfo pgMessageInfo = pgMessageInfos.poll();
-                                                RowDescription rowDescription = null;
-                                                while (pgMessageInfo != null) {
-
-                                                    if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.ROW_DESCRIPTION_START_CHAR) {
-                                                        rowDescription = ServerPostgresProtocolMessageDecoder.decodeRowDescriptionMessage(pgMessageInfo.getEntireMessage());
-                                                    } else if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.DATA_ROW_START_CHAR) {
-                                                        DataRow dataRow = ServerPostgresProtocolMessageDecoder.decodeDataRowMessage(pgMessageInfo.getEntireMessage());
-                                                        Map<String, String> row = DecoderUtils.mapDataRowColumnNameByContent(rowDescription, dataRow);
-                                                        int a = 1;
+                                                try {
+                                                    RandomAccessFile file;
+                                                    if (newLsn.compareIfBelongsToSameWal(currentLsn)) {
+                                                        file = currentFile.get();
+                                                    } else {
+                                                        if (currentFile.get() != null) {
+                                                            currentFile.get().close();
+                                                        }
+                                                        if (processedLsn.get() != null) {
+                                                            streamingReplicationHandler.confirmProcessedLsn(processedLsn.get());
+                                                        }
+                                                        String filePath = "E:\\Dev\\wal_test" + "\\" + newLsn.toWalName("00000001");
+                                                        file = new RandomAccessFile(filePath, "rw");
+                                                        //file.setLength(16 * 1024 * 1024);
+                                                        file.seek(0);
+                                                        currentFile.set(file);
+                                                        log.info("Switched LSN file to {}!", filePath);
                                                     }
-
-                                                    pgMessageInfo.getEntireMessage().release();
-                                                    pgMessageInfo = pgMessageInfos.poll();
+                                                    long fp = file.getFilePointer();
+                                                    file.write(walFragmentResult.getFragment(), 0, walFragmentResult.getFragmentLength());
+                                                    //log.info("Written {} bytes for old fp {} to new fp {}", walFragmentResult.getFragmentLength(), fp, file.getFilePointer());
+                                                } catch (Exception e) {
+                                                    throw new RuntimeException(e);
                                                 }
 
-                                                DecoderUtils.freeMessageInfos(pgMessageInfos);
-                                            }
-                                    );*/
+                                                processedLsn.set(walFragmentResult.getFragmentStartLsn());
+
+                                            });
+
+                                    PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();
+                                    channel.pipeline().addLast(queryExecutor);
+
+                                    // IDENTIFY_SYSTEM
+                                    if (false) {
+                                        queryExecutor.executeQuery(
+                                                "SHOW wal_segment_size",
+                                                0,
+                                                pgMessageInfos -> {
+                                                    PgMessageInfo pgMessageInfo = pgMessageInfos.poll();
+                                                    RowDescription rowDescription = null;
+                                                    while (pgMessageInfo != null) {
+
+                                                        if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.ROW_DESCRIPTION_START_CHAR) {
+                                                            rowDescription = ServerPostgresProtocolMessageDecoder.decodeRowDescriptionMessage(pgMessageInfo.getEntireMessage());
+                                                        } else if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.DATA_ROW_START_CHAR) {
+                                                            DataRow dataRow = ServerPostgresProtocolMessageDecoder.decodeDataRowMessage(pgMessageInfo.getEntireMessage());
+                                                            Map<String, String> row = DecoderUtils.mapDataRowColumnNameByContent(rowDescription, dataRow);
+                                                            int a = 1;
+                                                        }
+
+                                                        pgMessageInfo.getEntireMessage().release();
+                                                        pgMessageInfo = pgMessageInfos.poll();
+                                                    }
+
+                                                    DecoderUtils.freeMessageInfos(pgMessageInfos);
+                                                }
+                                        );
+                                    }
                                 }
                         )
                 );

@@ -72,32 +72,33 @@ public class PgLogSequenceNumber implements Comparable<PgLogSequenceNumber> {
      * up to 8 digits each, separated by a slash. For example {@code 16/3002D50}, {@code 0/15D68C50}
      */
     public String asString() {
-        ByteBuffer buf = ByteBuffer.allocate(8);
-        buf.putLong(value);
-        buf.position(0);
+        ByteBuf buf = Unpooled.buffer(8);
+        buf.writeLong(value);
+        buf.readerIndex(0);
 
-        int logicalXlog = buf.getInt();
-        int segment = buf.getInt();
-        return String.format("%08X/%X", logicalXlog, segment);
+        int logicalXlog = buf.readInt();
+        int segment = buf.readInt();
+
+        return String.format("%X/%X", logicalXlog, segment);
     }
 
     public String toWalName(String timeline) {
-        String lsn = asString();
+        ByteBuf buf = Unpooled.buffer(8);
+        buf.writeLong(value);
 
-        String[] split = lsn.split("/");
-        String lsnHigher = split[0];
-        String lsnLower = split[1];
+        int logicalXlog = buf.readInt();
+        byte segmentHighestByte = buf.readByte();
 
-        return timeline
-                + lsnHigher
-                + "000000"
-                + lsnLower.substring(
-                0,
-                2
-        );
+        buf.release();
+
+        return String.format("%s%08X000000%02X", timeline, logicalXlog, segmentHighestByte);
     }
 
     public boolean compareIfBelongsToSameWal(PgLogSequenceNumber other) {
+        if (other == null) {
+            return false;
+        }
+
         ByteBuf buf1 = Unpooled.buffer(8);
         buf1.writeLong(value);
 

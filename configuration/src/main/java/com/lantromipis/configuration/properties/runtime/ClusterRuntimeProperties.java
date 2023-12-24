@@ -16,16 +16,7 @@ import java.util.concurrent.ConcurrentMap;
 @ApplicationScoped
 //TODO scheduler to check actual properties
 public class ClusterRuntimeProperties {
-
-    private double postgresVersion = 15.1;
-    private int maxPostgresConnections = 100;
     private ConcurrentMap<UUID, RuntimePostgresInstanceInfo> allPostgresInstancesInfos = new ConcurrentHashMap<>();
-
-    public void setMaxPostgresConnections(int maxPostgresConnections) {
-        this.maxPostgresConnections = maxPostgresConnections;
-        log.info("Setting max pool connection limit per instance to {} (max_connections - superuser_reserved_connections)", this.maxPostgresConnections);
-    }
-
 
     public RuntimePostgresInstanceInfo getPrimaryInstanceInfo() {
         return allPostgresInstancesInfos.values()
