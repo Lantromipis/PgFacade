@@ -8,6 +8,7 @@ import com.lantromipis.postgresprotocol.model.internal.PgLogSequenceNumber;
 import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresTimeUtils;
+import com.lantromipis.postgresprotocol.utils.TempFastThreadLocalStorageUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
@@ -18,6 +19,7 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -45,6 +47,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private String timeline;
     private String slotName;
     private long updateIntervalMs;
+    private ScheduledFuture<?> keepaliveFuture;
 
     private ByteBuf internalByteBuf;
 
@@ -114,7 +117,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         initialChannelHandlerContext.channel().writeAndFlush(startReplicationQuery, initialChannelHandlerContext.voidPromise());
         initialChannelHandlerContext.channel().read();
 
-        initialChannelHandlerContext.channel().eventLoop().scheduleAtFixedRate(
+        keepaliveFuture = initialChannelHandlerContext.channel().eventLoop().scheduleAtFixedRate(
                 () -> {
                     ByteBuf response = createStandbyStatusUpdateMessageInCopyDataMessage(initialChannelHandlerContext.alloc(), false);
                     initialChannelHandlerContext.channel().writeAndFlush(response, initialChannelHandlerContext.voidPromise());
@@ -292,7 +295,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         int bytesInMessage = message.readableBytes();
         int bytesToRead = Math.min(leftToReadFromCopyData, bytesInMessage);
 
-        byte[] byteArrayBuf = new byte[bytesToRead];
+        byte[] byteArrayBuf = TempFastThreadLocalStorageUtils.getThreadLocalByteArray(bytesToRead);
         message.readBytes(byteArrayBuf, 0, bytesToRead);
         leftToReadFromCopyData = leftToReadFromCopyData - bytesToRead;
 
@@ -374,16 +377,19 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         HandlerUtils.closeOnFlush(ctx.channel());
+        keepaliveFuture.cancel(true);
         super.channelInactive(ctx);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log.error("Exception in physical streaming replication handler!", cause);
-        handleErrorSafe(ReplicationErrorResult
-                .builder()
-                .exception(true)
-                .build()
+        keepaliveFuture.cancel(true);
+        handleErrorSafe(
+                ReplicationErrorResult
+                        .builder()
+                        .exception(true)
+                        .build()
         );
         HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }

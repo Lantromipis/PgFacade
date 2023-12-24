@@ -7,6 +7,9 @@ pg-facade:
     follower-startup-healthcheck:
       interval-ms: 100
       timeout: PT60S
+  buffers:
+    thread-local-byte-array-size: 65537
+    thread-local-byte-buf-size: 65537
   shutdown:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-

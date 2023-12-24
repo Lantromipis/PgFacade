@@ -4,14 +4,22 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.concurrent.FastThreadLocal;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.microprofile.config.ConfigProvider;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class TempFastThreadLocalStorageUtils {
 
-    private static final int TEMP_BYTE_ARRAY_SIZE = 65537;
-    private static final int BYTE_BUF_SIZE = 65537;
+    private static final String TEMP_BYTE_ARRAY_SIZE_SETTING_NAME = "pg-facade.buffers.thread-local-byte-array-size";
+    private static final String TEMP_BYTE_BUF_SIZE_SETTING_NAME = "pg-facade.buffers.thread-local-byte-buf-size";
+
+    private static final int TEMP_BYTE_ARRAY_SIZE = ConfigProvider.getConfig()
+            .getOptionalValue(TEMP_BYTE_ARRAY_SIZE_SETTING_NAME, Integer.class)
+            .orElse(65537);
+    private static final int BYTE_BUF_SIZE = ConfigProvider.getConfig()
+            .getOptionalValue(TEMP_BYTE_BUF_SIZE_SETTING_NAME, Integer.class)
+            .orElse(65537);
 
     private static final FastThreadLocal<byte[]> BYTE_ARRAY = new FastThreadLocal<byte[]>() {
         @Override
@@ -47,9 +55,19 @@ public class TempFastThreadLocalStorageUtils {
     }
 
     public static byte[] getThreadLocalByteArray(int expectedSize) {
-        return expectedSize <= TEMP_BYTE_ARRAY_SIZE
-                ? BYTE_ARRAY.get()
-                : new byte[expectedSize];
+        if (expectedSize <= TEMP_BYTE_ARRAY_SIZE) {
+            return BYTE_ARRAY.get();
+        } else {
+            log.warn(
+                    "Requested temp byte array buf with size {} when configured size is {}. " +
+                            "Allocating new byte array! " +
+                            "Consider increasing setting {} to improve performance and memory consumption! ",
+                    expectedSize,
+                    TEMP_BYTE_ARRAY_SIZE,
+                    TEMP_BYTE_ARRAY_SIZE_SETTING_NAME
+            );
+            return new byte[expectedSize];
+        }
     }
 
     public static ByteBuf getThreadLocalByteBuf() {

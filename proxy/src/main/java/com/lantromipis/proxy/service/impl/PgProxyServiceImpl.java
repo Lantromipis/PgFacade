@@ -210,14 +210,12 @@ public class PgProxyServiceImpl implements PgProxyService {
                                                         }
                                                         String filePath = "E:\\Dev\\wal_test" + "\\" + newLsn.toWalName("00000001");
                                                         file = new RandomAccessFile(filePath, "rw");
-                                                        //file.setLength(16 * 1024 * 1024);
+                                                        file.setLength(16 * 1024 * 1024);
                                                         file.seek(0);
                                                         currentFile.set(file);
                                                         log.info("Switched LSN file to {}!", filePath);
                                                     }
-                                                    long fp = file.getFilePointer();
                                                     file.write(walFragmentResult.getFragment(), 0, walFragmentResult.getFragmentLength());
-                                                    //log.info("Written {} bytes for old fp {} to new fp {}", walFragmentResult.getFragmentLength(), fp, file.getFilePointer());
                                                 } catch (Exception e) {
                                                     throw new RuntimeException(e);
                                                 }
@@ -229,10 +227,9 @@ public class PgProxyServiceImpl implements PgProxyService {
                                     PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();
                                     channel.pipeline().addLast(queryExecutor);
 
-                                    // IDENTIFY_SYSTEM
                                     if (false) {
                                         queryExecutor.executeQuery(
-                                                "SHOW wal_segment_size",
+                                                "IDENTIFY_SYSTEM",
                                                 0,
                                                 pgMessageInfos -> {
                                                     PgMessageInfo pgMessageInfo = pgMessageInfos.poll();
