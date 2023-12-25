@@ -9,12 +9,16 @@ public abstract class AbstractPgFrontendChannelHandler extends ChannelInboundHan
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        super.handlerAdded(ctx);
         initialChannelHandlerContext = ctx;
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         ctx.channel().read();
+    }
+
+    @Override
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        // only one handler allowed
     }
 }

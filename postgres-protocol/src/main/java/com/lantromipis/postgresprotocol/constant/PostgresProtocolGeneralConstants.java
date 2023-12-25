@@ -29,6 +29,7 @@ public class PostgresProtocolGeneralConstants {
     public static final byte COPY_BOTH_RESPONSE_START_CHAR = 'W';
 
     public static final byte COPY_DATA_START_CHAR = 'd';
+    public static final byte COPY_DONE_START_CHAR = 'c';
 
     public static final byte QUERY_MESSAGE_START_BYTE = 'Q';
     public static final byte PARSE_MESSAGE_START_BYTE = 'P';

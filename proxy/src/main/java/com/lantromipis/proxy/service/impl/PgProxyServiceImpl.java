@@ -29,6 +29,8 @@ import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -142,7 +144,13 @@ public class PgProxyServiceImpl implements PgProxyService {
         primaryBootstrapThread.start();
         standbyBootstrapThread.start();
 
-        Bootstrap primaryBootstrap = createInstanceBootstrap(clusterRuntimeProperties.getPrimaryInstanceInfo());
+        Bootstrap primaryBootstrap = createInstanceBootstrap(RuntimePostgresInstanceInfo
+                .builder()
+                .primary(true)
+                .address("localhost")
+                .port(5442)
+                .build()
+        );
         ChannelFuture channelFuture = primaryBootstrap.connect();
 
         ScramPgAuthInfo pgAuthInfo = ScramPgAuthInfo
@@ -164,7 +172,7 @@ public class PgProxyServiceImpl implements PgProxyService {
                 Channel channel = future.channel();
                 channel.pipeline().remove(EmptyHandler.class);
                 channel.pipeline().addLast(
-                        //new LoggingHandler(this.getClass(), LogLevel.DEBUG),
+                        new LoggingHandler(this.getClass(), LogLevel.DEBUG),
                         pgFrontendChannelHandlerProducer.createNewChannelStartupHandler(
                                 pgAuthInfo,
                                 parameters,
@@ -185,7 +193,7 @@ public class PgProxyServiceImpl implements PgProxyService {
                                     channel.pipeline().addLast(streamingReplicationHandler);
                                     streamingReplicationHandler.startPhysicalReplication(
                                             "slot1",
-                                            "0/01000000",
+                                            "0/05000000",
                                             "00000001",
                                             500,
                                             startResult -> {
