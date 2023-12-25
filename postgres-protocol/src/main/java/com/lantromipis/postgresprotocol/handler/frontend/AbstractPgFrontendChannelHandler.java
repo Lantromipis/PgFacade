@@ -19,6 +19,6 @@ public abstract class AbstractPgFrontendChannelHandler extends ChannelInboundHan
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        // only one handler allowed
+        // only one handler can read message
     }
 }

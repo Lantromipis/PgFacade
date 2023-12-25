@@ -4,8 +4,11 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolStreamingReplicationConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.PgResultSet;
 import com.lantromipis.postgresprotocol.model.internal.PgLogSequenceNumber;
+import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
+import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresTimeUtils;
 import com.lantromipis.postgresprotocol.utils.TempFastThreadLocalStorageUtils;
@@ -19,6 +22,8 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,7 +38,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private Consumer<ReplicationStartResult> startedCallback;
     private Consumer<ReplicationErrorResult> errorCallback;
     private Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback;
-    private Runnable streamingCompleted;
+    private Consumer<StreamingCompletedResult> streamingCompletedCallback;
 
     private boolean readingCopyDataMessage = false;
     private byte currentCopyDataMessageStartByte = FAKE_COPY_DATA_MESSAGE_START_BYTE;
@@ -52,9 +57,11 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private ScheduledFuture<?> keepaliveFuture;
 
     private ByteBuf internalByteBuf;
+    private Deque<PgMessageInfo> messageInfos = new ArrayDeque<>();
+    private ByteBuf leftovers;
 
     private AtomicBoolean resourcesFreed;
-    private boolean copyDone;
+    private boolean streamingCompleted;
 
     @Data
     @Builder
@@ -86,6 +93,14 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         private int fragmentLength;
     }
 
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StreamingCompletedResult {
+        private String nextTimeline;
+        private String nextTimelineStartLsn;
+    }
 
     public void startPhysicalReplication(final String slotName,
                                          final String startLsn,
@@ -94,7 +109,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                                          final Consumer<ReplicationStartResult> startedCallback,
                                          final Consumer<ReplicationErrorResult> errorCallback,
                                          final Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback,
-                                         final Runnable streamingCompleted) {
+                                         final Consumer<StreamingCompletedResult> streamingCompleted) {
         internalByteBuf = initialChannelHandlerContext.alloc().buffer(2048);
         resourcesFreed = new AtomicBoolean(false);
 
@@ -104,8 +119,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         this.timeline = timeline;
         this.slotName = slotName;
         this.updateIntervalMs = updateIntervalMs;
-        this.streamingCompleted = streamingCompleted;
-        this.copyDone = false;
+        this.streamingCompletedCallback = streamingCompleted;
+        this.streamingCompleted = false;
 
         StringBuilder query = new StringBuilder("START_REPLICATION");
 
@@ -137,6 +152,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                 updateIntervalMs,
                 TimeUnit.MILLISECONDS
         );
+
+        DecoderUtils.freeMessageInfos(messageInfos);
     }
 
     public void confirmProcessedLsn(PgLogSequenceNumber processed) {
@@ -155,11 +172,37 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        super.channelRead(ctx, msg);
         ByteBuf message = (ByteBuf) msg;
 
-        if (copyDone) {
+        if (streamingCompleted) {
+            ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos, ctx.alloc());
+            if (leftovers != null) {
+                leftovers.release();
+            }
+            leftovers = newLeftovers;
+
+            // if not found ready for query, retry
+            if (!DecoderUtils.containsMessageOfTypeReversed(messageInfos, PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR)) {
+                ctx.channel().read();
+                return;
+            }
+
+            PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(messageInfos);
+            PgResultSet.PgRow row = resultSet.getRow(0);
+
+            String nextTimeline = new String(row.getCellValueByIdx(0));
+            String nextTimelineStartLsn = new String(row.getCellValueByIdx(1));
+
+            streamingCompletedCallback.accept(
+                    StreamingCompletedResult
+                            .builder()
+                            .nextTimeline(nextTimeline)
+                            .nextTimelineStartLsn(nextTimelineStartLsn)
+                            .build()
+            );
+
             cleanUp();
-            streamingCompleted.run();
         } else {
             while (message.readerIndex() < message.writerIndex()) {
                 if (!readingCopyDataMessage) {
@@ -186,7 +229,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                         case PostgresProtocolGeneralConstants.COPY_DONE_START_CHAR -> {
                             ByteBuf copyDoneMessage = ClientPostgresProtocolMessageEncoder.encodeCopyDoneMessage(ctx.alloc());
                             ctx.channel().writeAndFlush(copyDoneMessage);
-                            copyDone = true;
+                            streamingCompleted = true;
                         }
                         default ->
                                 throw new RuntimeException("Unknown message '" + (char) marker + "' during streaming replication! Expected only 'E', 'W' or 'd'!");
@@ -209,10 +252,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                     }
                 }
             }
+            ctx.channel().read();
         }
-
-        ctx.channel().read();
-        super.channelRead(ctx, msg);
     }
 
     private void handleErrorResponseMessage(ByteBuf message, int length) {
@@ -392,6 +433,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         if (resourcesFreed.compareAndSet(false, true)) {
             keepaliveFuture.cancel(true);
             internalByteBuf.release();
+            DecoderUtils.freeMessageInfos(messageInfos);
         }
     }
 

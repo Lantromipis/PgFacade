@@ -1,6 +1,8 @@
 package com.lantromipis.postgresprotocol.utils;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.model.PgResultSet;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.protocol.DataRow;
 import com.lantromipis.postgresprotocol.model.protocol.RowDescription;
@@ -9,10 +11,9 @@ import io.netty.buffer.ByteBufAllocator;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 @Slf4j
 public class DecoderUtils {
@@ -216,22 +217,22 @@ public class DecoderUtils {
 
     }
 
-    public static Map<RowDescription.FieldDescription, byte[]> mapDataRowColumnDescriptionByContent(RowDescription rowDescription, DataRow dataRow) {
-        Map<RowDescription.FieldDescription, byte[]> ret = new HashMap<>();
+    public static LinkedHashMap<String, byte[]> mapDataRowColumnNameByByteContent(RowDescription rowDescription, DataRow dataRow) {
+        LinkedHashMap<String, byte[]> ret = new LinkedHashMap<>();
 
         int size = dataRow.getColumns().size();
         for (int i = 0; i < size; i++) {
             byte[] column = dataRow.getColumns().get(i);
             RowDescription.FieldDescription columDescription = rowDescription.getFieldDescriptions().get(i);
 
-            ret.put(columDescription, column);
+            ret.put(columDescription.getFieldName(), column);
         }
 
         return ret;
     }
 
-    public static Map<String, String> mapDataRowColumnNameByContent(RowDescription rowDescription, DataRow dataRow) {
-        Map<String, String> ret = new HashMap<>();
+    public static LinkedHashMap<String, String> mapDataRowColumnNameByContent(RowDescription rowDescription, DataRow dataRow) {
+        LinkedHashMap<String, String> ret = new LinkedHashMap<>();
 
         int size = dataRow.getColumns().size();
         for (int i = 0; i < size; i++) {
@@ -246,6 +247,63 @@ public class DecoderUtils {
         }
 
         return ret;
+    }
+
+    public static void processSplitMessages(Deque<PgMessageInfo> messageInfos, Function<PgMessageInfo, Boolean> processor) {
+        PgMessageInfo pgMessageInfo = messageInfos.poll();
+        while (pgMessageInfo != null) {
+            Boolean finish = processor.apply(pgMessageInfo);
+
+            pgMessageInfo.getEntireMessage().release();
+            pgMessageInfo = messageInfos.poll();
+
+            if (finish) {
+                break;
+            }
+        }
+    }
+
+    public static PgResultSet extractResultSetFromMessages(Deque<PgMessageInfo> messageInfos) {
+        AtomicReference<RowDescription> rowDescription = new AtomicReference<>(null);
+        List<PgResultSet.PgRow> rows = new ArrayList<>();
+
+        processSplitMessages(
+                messageInfos,
+                messageInfo -> {
+                    if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.ROW_DESCRIPTION_START_CHAR) {
+                        rowDescription.set(ServerPostgresProtocolMessageDecoder.decodeRowDescriptionMessage(messageInfo.getEntireMessage()));
+                    } else if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.DATA_ROW_START_CHAR) {
+                        DataRow dataRow = ServerPostgresProtocolMessageDecoder.decodeDataRowMessage(messageInfo.getEntireMessage());
+                        LinkedHashMap<String, byte[]> row = DecoderUtils.mapDataRowColumnNameByByteContent(rowDescription.get(), dataRow);
+                        rows.add(new PgResultSet.PgRow(row));
+                    } else {
+                        return messageInfo.getStartByte() == PostgresProtocolGeneralConstants.COMMAND_COMPLETE_START_CHAR
+                                || messageInfo.getStartByte() == PostgresProtocolGeneralConstants.READY_FOR_QUERY_MESSAGE_START_CHAR;
+                    }
+                    return false;
+                }
+        );
+
+        return PgResultSet
+                .builder()
+                .rows(rows)
+                .build();
+    }
+
+    public static DataRow extractSingleDataRowFromMessages(Deque<PgMessageInfo> messageInfos) {
+        AtomicReference<DataRow> dataRow = new AtomicReference<>(null);
+        DecoderUtils.processSplitMessages(
+                messageInfos,
+                messageInfo -> {
+                    if (messageInfo.getStartByte() == PostgresProtocolGeneralConstants.DATA_ROW_START_CHAR) {
+                        dataRow.set(ServerPostgresProtocolMessageDecoder.decodeDataRowMessage(messageInfo.getEntireMessage()));
+                        return true;
+                    }
+                    return false;
+                }
+        );
+
+        return dataRow.get();
     }
 
     private DecoderUtils() {

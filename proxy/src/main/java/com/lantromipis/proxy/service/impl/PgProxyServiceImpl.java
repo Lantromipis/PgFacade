@@ -5,15 +5,11 @@ import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.connectionpool.handler.EmptyHandler;
-import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
-import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.handler.frontend.PgChannelSimpleQueryExecutorHandler;
 import com.lantromipis.postgresprotocol.handler.frontend.PgStreamingReplicationHandler;
+import com.lantromipis.postgresprotocol.model.PgResultSet;
 import com.lantromipis.postgresprotocol.model.internal.PgLogSequenceNumber;
-import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
-import com.lantromipis.postgresprotocol.model.protocol.DataRow;
-import com.lantromipis.postgresprotocol.model.protocol.RowDescription;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.proxy.initializer.PooledProxyChannelInitializer;
@@ -183,19 +179,19 @@ public class PgProxyServiceImpl implements PgProxyService {
                                         log.info("Failed to acquired connection for replication");
                                     }
 
-                                    //                                            postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes(),
-                                    //                                            "E:\\Dev\\wal_test",
-
                                     AtomicReference<PgLogSequenceNumber> processedLsn = new AtomicReference<>(null);
                                     AtomicReference<RandomAccessFile> currentFile = new AtomicReference<>(null);
 
+                                    PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();
+                                    channel.pipeline().addLast(queryExecutor);
                                     PgStreamingReplicationHandler streamingReplicationHandler = new PgStreamingReplicationHandler();
                                     channel.pipeline().addLast(streamingReplicationHandler);
+
                                     streamingReplicationHandler.startPhysicalReplication(
                                             "slot1",
                                             "0/05000000",
                                             "00000001",
-                                            500,
+                                            3000,
                                             startResult -> {
                                             },
                                             errorResult -> {
@@ -230,36 +226,21 @@ public class PgProxyServiceImpl implements PgProxyService {
 
                                                 processedLsn.set(walFragmentResult.getFragmentStartLsn());
 
-                                            });
-
-                                    PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();
-                                    channel.pipeline().addLast(queryExecutor);
-
-                                    if (false) {
-                                        queryExecutor.executeQuery(
-                                                "IDENTIFY_SYSTEM",
-                                                0,
-                                                pgMessageInfos -> {
-                                                    PgMessageInfo pgMessageInfo = pgMessageInfos.poll();
-                                                    RowDescription rowDescription = null;
-                                                    while (pgMessageInfo != null) {
-
-                                                        if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.ROW_DESCRIPTION_START_CHAR) {
-                                                            rowDescription = ServerPostgresProtocolMessageDecoder.decodeRowDescriptionMessage(pgMessageInfo.getEntireMessage());
-                                                        } else if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.DATA_ROW_START_CHAR) {
-                                                            DataRow dataRow = ServerPostgresProtocolMessageDecoder.decodeDataRowMessage(pgMessageInfo.getEntireMessage());
-                                                            Map<String, String> row = DecoderUtils.mapDataRowColumnNameByContent(rowDescription, dataRow);
-                                                            int a = 1;
+                                            },
+                                            streamingCompletedResult -> {
+                                                queryExecutor.executeQuery(
+                                                        "TIMELINE_HISTORY 2",
+                                                        -1,
+                                                        pgMessageInfos -> {
+                                                            PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(pgMessageInfos.getMessageInfos());
+                                                            int a = 0;
+                                                            int b = a;
                                                         }
+                                                );
 
-                                                        pgMessageInfo.getEntireMessage().release();
-                                                        pgMessageInfo = pgMessageInfos.poll();
-                                                    }
 
-                                                    DecoderUtils.freeMessageInfos(pgMessageInfos);
-                                                }
-                                        );
-                                    }
+                                                log.info("Streaming completed! Next timeline is {} and next timeline start lsn is {}", streamingCompletedResult.getNextTimeline(), streamingCompletedResult.getNextTimelineStartLsn());
+                                            });
                                 }
                         )
                 );
