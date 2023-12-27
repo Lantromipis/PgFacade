@@ -27,7 +27,7 @@ public class PostgresConstants {
     public static final String SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME = "superuser_reserved_connections";
     public static final String WAL_KEEP_SIZE_SETTING_NAME = "wal_keep_size";
     public static final String WAL_KEEP_SEGMENTS_SETTING_NAME = "wal_keep_segments";
-    public static final String SERVER_VERSION_SETTING_NAME = "server_version";
+    public static final String SERVER_VERSION_NUM_SETTING_NAME = "server_version_num";
     public static final String WAL_SEGMENT_SIZE_SETTING_NAME = "wal_segment_size";
 
     public static final List<String> FORBIDDEN_TO_CHANGE_SETTINGS_NAMES = List.of(

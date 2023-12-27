@@ -21,6 +21,7 @@ import com.lantromipis.orchestration.util.OrchestratorUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import io.quarkus.scheduler.Scheduled;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -398,6 +399,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Scheduled(every = "${pg-facade.orchestration.common.standby.count-check-interval}")
+    @Blocking
     public void checkStandbyCount() {
         if (orchestratorReady.get() && !primaryUnhealthy.get() && !switchoverInProgress.get() && standbyCountCheckInProgress.compareAndSet(false, true)) {
             try {

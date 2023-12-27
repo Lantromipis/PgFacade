@@ -6,8 +6,8 @@ import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEnc
 import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
-import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -180,6 +180,6 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
     }
 
     private void forceCloseConnectionWithAuthError(Channel channel) {
-        HandlerUtils.closeOnFlush(channel, ErrorMessageUtils.getAuthFailedForUserErrorMessage(username, channel.alloc()));
+        HandlerUtils.closeOnFlush(channel, PostgresErrorMessageUtils.getAuthFailedForUserErrorMessage(username, channel.alloc()));
     }
 }

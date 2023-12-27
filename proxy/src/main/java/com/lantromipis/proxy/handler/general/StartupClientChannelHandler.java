@@ -5,8 +5,8 @@ import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDec
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
-import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.proxy.auth.ProxyAuthProcessor;
 import com.lantromipis.proxy.auth.ScramSha256AuthProcessor;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
@@ -131,7 +131,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     private void forceCloseConnectionWithAuthError(String username) {
         ChannelHandlerContext ctx = getInitialChannelHandlerContext();
-        HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username, ctx.alloc()));
+        HandlerUtils.closeOnFlush(ctx.channel(), PostgresErrorMessageUtils.getAuthFailedForUserErrorMessage(username, ctx.alloc()));
         setActive(false);
     }
 

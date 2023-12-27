@@ -6,8 +6,8 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.proxy.model.FrontendConnectionState;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
@@ -50,7 +50,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (primaryConnectionWrapper == null) {
             setInitialChannelHandlerContext(ctx);
-            HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getTooManyConnectionsErrorMessage(ctx.alloc()));
+            HandlerUtils.closeOnFlush(ctx.channel(), PostgresErrorMessageUtils.getTooManyConnectionsErrorMessage(ctx.alloc()));
             freeResources();
             return;
         }

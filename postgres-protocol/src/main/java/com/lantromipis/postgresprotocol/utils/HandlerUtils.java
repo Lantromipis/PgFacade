@@ -13,6 +13,10 @@ public class HandlerUtils {
      * Closes the specified channel after all queued write requests are flushed.
      */
     public static void closeOnFlush(Channel channel) {
+        if (channel == null) {
+            return;
+        }
+
         if (channel.isActive()) {
             channel.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
         }
@@ -22,8 +26,14 @@ public class HandlerUtils {
      * Closes the specified channel after all queued write requests are flushed.
      */
     public static void closeOnFlush(Channel channel, ByteBuf message) {
+        if (channel == null) {
+            return;
+        }
+
         if (channel.isActive()) {
             channel.writeAndFlush(message).addListener(ChannelFutureListener.CLOSE);
+        } else {
+            message.release();
         }
     }
 

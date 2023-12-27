@@ -1,10 +1,8 @@
 package com.lantromipis.configuration.producers;
 
 import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
-import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 
@@ -16,8 +14,6 @@ import java.nio.file.Paths;
 @Slf4j
 @ApplicationScoped
 public class FilesPathsProducer {
-    @Inject
-    OrchestrationProperties orchestrationProperties;
 
     // TODO implement by some identifier and adapter
     @PostConstruct
@@ -25,7 +21,6 @@ public class FilesPathsProducer {
         try {
             Files.createDirectories(Paths.get(getPersistedPropertiesDirPath()));
             Files.createDirectories(Paths.get(getPostgresWalStreamReceiverDirectoryPath()));
-            Files.createDirectories(Paths.get(getPostgresWalStreamUploaderDirectoryPath()));
             File raftDir = new File(getRaftDirPath());
             if (raftDir.exists()) {
                 FileUtils.forceDelete(raftDir);
@@ -52,12 +47,6 @@ public class FilesPathsProducer {
         return getLocalFilesDirPath()
                 + "/"
                 + PgFacadeConstants.POSTGRES_WAL_STREAM_DIRECTORY_NAME;
-    }
-
-    public String getPostgresWalStreamUploaderDirectoryPath() {
-        return getLocalFilesDirPath()
-                + "/"
-                + PgFacadeConstants.POSTGRES_WAL_UPLOAD_DIRECTORY_NAME;
     }
 
     public String getPostgresNodesInfosFilePath() {

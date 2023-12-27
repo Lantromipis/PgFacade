@@ -321,7 +321,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
     }
 
     @Override
-    public void uploadWalFile(File file, Instant createdWhen) throws UploadException {
+    public void uploadWalFile(File file) throws UploadException {
         try {
             String key = String.format(ArchiverConstants.S3_WAL_FILE_KEY_FORMAT, file.getName());
 

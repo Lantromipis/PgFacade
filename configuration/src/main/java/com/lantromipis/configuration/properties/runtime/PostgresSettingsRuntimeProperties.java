@@ -27,7 +27,7 @@ public class PostgresSettingsRuntimeProperties {
     @Inject
     Event<PostgresSettingsUpdatedEvent> postgresSettingsUpdatedEvent;
 
-    private double postgresVersion = 15.1;
+    private int postgresVersion = 150005;
     private int maxPostgresConnections = 100;
     private long walSegmentSizeInBytes = 16777216;
 
@@ -58,8 +58,8 @@ public class PostgresSettingsRuntimeProperties {
             int superuserReservedConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME).getSettingValue());
             maxPostgresConnections = maxConnections - superuserReservedConnections;
 
-            // set version
-            postgresVersion = Double.parseDouble(settingNameToValue.get(PostgresConstants.SERVER_VERSION_SETTING_NAME).getSettingValue());
+            // set version in format 150005
+            postgresVersion = Integer.parseInt(settingNameToValue.get(PostgresConstants.SERVER_VERSION_NUM_SETTING_NAME).getSettingValue());
 
             // set wal segment size
             PgSetting walSegmentSizeSetting = settingNameToValue.get(PostgresConstants.WAL_SEGMENT_SIZE_SETTING_NAME);

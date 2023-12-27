@@ -1,6 +1,7 @@
 package com.lantromipis.postgresprotocol.utils;
 
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import org.apache.commons.lang3.StringUtils;
@@ -10,7 +11,20 @@ import java.util.Map;
 
 import static com.lantromipis.postgresprotocol.constant.PostgresProtocolErrorAndNoticeConstant.*;
 
-public class ErrorMessageUtils {
+public class PostgresErrorMessageUtils {
+
+    public static String getLoggableErrorMessageFromErrorResponse(ErrorResponse errorResponse) {
+        if (errorResponse == null) {
+            return null;
+        }
+
+        if (errorResponse.getMessage() == null) {
+            return "no message";
+        }
+
+        return errorResponse.getMessage();
+    }
+
     public static ByteBuf getAuthFailedForUserErrorMessage(String username, ByteBufAllocator allocator) {
         if (StringUtils.isEmpty(username)) {
             username = StringUtils.EMPTY;

@@ -7,7 +7,7 @@ import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
@@ -66,7 +66,7 @@ public class RaftFunctionalityCombinator {
         );
     }
 
-    public void saveArchiveInfoInRaft(PostgresPersistedArchiveInfo archiveInfo) throws RaftException {
+    public void saveArchiverInfoInRaft(PostgresPersistedArchiverInfo archiveInfo) throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 SAVE_POSTGRES_ARCHIVE_INFO,
                 writeAsBytesSafe(archiveInfo),
@@ -74,7 +74,7 @@ public class RaftFunctionalityCombinator {
         );
     }
 
-    public PostgresPersistedArchiveInfo getArchiveInfo() throws PropertyReadException {
+    public PostgresPersistedArchiverInfo getArchiveInfo() throws PropertyReadException {
         return raftStorage.getArchiveInfo();
     }
 

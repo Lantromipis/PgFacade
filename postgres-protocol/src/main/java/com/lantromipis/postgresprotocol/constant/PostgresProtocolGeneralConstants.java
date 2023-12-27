@@ -15,6 +15,7 @@ public class PostgresProtocolGeneralConstants {
     public static final byte[] ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE = "N".getBytes();
     public static final String STARTUP_PARAMETER_USER = "user";
     public static final String STARTUP_PARAMETER_DATABASE = "database";
+    public static final String STARTUP_PARAMETER_REPLICATION = "replication";
 
     //message start chars
     public static final byte AUTH_REQUEST_START_CHAR = 'R';

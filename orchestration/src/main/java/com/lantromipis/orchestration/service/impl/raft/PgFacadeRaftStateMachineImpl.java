@@ -8,7 +8,7 @@ import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
@@ -94,7 +94,7 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                     // do nothing...
                 }
                 case SAVE_POSTGRES_ARCHIVE_INFO -> {
-                    PostgresPersistedArchiveInfo archiveInfo = objectMapper.readValue(new String(data), PostgresPersistedArchiveInfo.class);
+                    PostgresPersistedArchiverInfo archiveInfo = objectMapper.readValue(new String(data), PostgresPersistedArchiverInfo.class);
                     raftCommitUtils.processArchiveInfoSave(archiveInfo);
                 }
                 case SAVE_PGFACADE_LOAD_BALANCER_INFO -> {

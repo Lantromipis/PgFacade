@@ -46,7 +46,7 @@ public class PostgresUtils {
                 + "chmod 700 " + pgDataDirPath;
     }
 
-    public Map<String, String> getDefaultSettings(double version) {
+    public Map<String, String> getDefaultSettings(int version) {
         Map<String, String> settings = new HashMap<>();
 
         addWalKepSetting(settings, version, postgresProperties.defaultSettings().maxWalKeepCount());
@@ -54,8 +54,8 @@ public class PostgresUtils {
         return settings;
     }
 
-    public void addWalKepSetting(Map<String, String> settings, double version, int walKeepCount) {
-        if (version >= 13) {
+    public void addWalKepSetting(Map<String, String> settings, int version, int walKeepCount) {
+        if (version >= 130000) {
             settings.put(
                     PostgresConstants.WAL_KEEP_SIZE_SETTING_NAME,
                     walKeepCount * 16 + "MB"

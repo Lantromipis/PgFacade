@@ -17,8 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -50,6 +52,32 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         SERVER_ERROR,
         CLIENT_ERROR,
         TIMEOUT
+    }
+
+    public CommandExecutionResult executeQueryBlocking(String query, int timeoutMs) {
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+        AtomicReference<CommandExecutionResult> ret = new AtomicReference<>();
+
+        executeQuery(
+                query,
+                timeoutMs,
+                result -> {
+                    ret.set(result);
+                    countDownLatch.countDown();
+                }
+        );
+
+        try {
+            countDownLatch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.info("Thread interrupted", e);
+            return CommandExecutionResult
+                    .builder()
+                    .status(CommandExecutionResultStatus.CLIENT_ERROR)
+                    .build();
+        }
+        return ret.get();
     }
 
     public void executeQuery(String query, int timeoutMs, Consumer<CommandExecutionResult> callback) {

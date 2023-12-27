@@ -5,8 +5,8 @@ import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
+import com.lantromipis.configuration.utils.EmptyNettyHandler;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.EmptyHandler;
 import com.lantromipis.connectionpool.model.*;
 import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
@@ -224,7 +224,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
             if (future.isSuccess()) {
                 Channel channel = future.channel();
 
-                channel.pipeline().remove(EmptyHandler.class);
+                channel.pipeline().remove(EmptyNettyHandler.class);
                 AtomicBoolean finished = new AtomicBoolean(false);
 
                 ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
@@ -442,7 +442,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         bootstrap.group(workerGroup)
                 .channel(Epoll.isAvailable() ? EpollSocketChannel.class : NioSocketChannel.class)
                 .option(ChannelOption.AUTO_READ, false)
-                .handler(new EmptyHandler())
+                .handler(new EmptyNettyHandler())
                 .remoteAddress(
                         instanceInfo.getAddress(),
                         instanceInfo.getPort()

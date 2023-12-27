@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PostgresPersistedArchiveInfo {
+public class PostgresPersistedArchiverInfo {
     private String lastUploadedWal;
     private String nextWal;
 }

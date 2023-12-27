@@ -5,13 +5,9 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolStreamingReplic
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.PgResultSet;
-import com.lantromipis.postgresprotocol.model.internal.PgLogSequenceNumber;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
-import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
-import com.lantromipis.postgresprotocol.utils.PostgresTimeUtils;
-import com.lantromipis.postgresprotocol.utils.TempFastThreadLocalStorageUtils;
+import com.lantromipis.postgresprotocol.utils.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
@@ -34,7 +30,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     private static final byte FAKE_COPY_DATA_MESSAGE_START_BYTE = 0;
 
-    private boolean replicationStarted = false;
+    private AtomicBoolean replicationRunning;
     private Consumer<ReplicationStartResult> startedCallback;
     private Consumer<ReplicationErrorResult> errorCallback;
     private Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback;
@@ -46,10 +42,10 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private int leftToReadFromCopyData = 0;
     private boolean finishedReadingCopyDataMessageStartInfo = false;
 
-    private PgLogSequenceNumber lastFragmentStartLsn = PgLogSequenceNumber.INVALID_LSN;
-    private PgLogSequenceNumber lastReceivedLsn = PgLogSequenceNumber.INVALID_LSN;
-    private PgLogSequenceNumber lastFlushedLsn = PgLogSequenceNumber.INVALID_LSN;
-    private PgLogSequenceNumber lastAppliedLsn = PgLogSequenceNumber.INVALID_LSN;
+    private long lastFragmentStartLsn = LogSequenceNumberUtils.INVALID_LSN;
+    private long lastReceivedLsn = LogSequenceNumberUtils.INVALID_LSN;
+    private long lastFlushedLsn = LogSequenceNumberUtils.INVALID_LSN;
+    private long lastAppliedLsn = LogSequenceNumberUtils.INVALID_LSN;
 
     private String timeline;
     private String slotName;
@@ -57,7 +53,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private ScheduledFuture<?> keepaliveFuture;
 
     private ByteBuf internalByteBuf;
-    private Deque<PgMessageInfo> messageInfos = new ArrayDeque<>();
+    private Deque<PgMessageInfo> messageInfos;
     private ByteBuf leftovers;
 
     private AtomicBoolean resourcesFreed;
@@ -68,9 +64,15 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ReplicationStartResult {
-        private boolean success;
-        private boolean serverError;
+        private StartResultStatus status;
         private ErrorResponse errorResponse;
+        private Throwable throwable;
+
+        public enum StartResultStatus {
+            SUCCESS,
+            SERVER_ERROR,
+            CLIENT_ERROR
+        }
     }
 
     @Data
@@ -78,9 +80,14 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ReplicationErrorResult {
-        private boolean serverError;
-        private boolean exception;
+        private ErrorType errorType;
         private ErrorResponse errorResponse;
+        private Throwable throwable;
+
+        public enum ErrorType {
+            SERVER_ERROR,
+            CLIENT_ERROR
+        }
     }
 
     @Data
@@ -88,7 +95,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     @NoArgsConstructor
     @AllArgsConstructor
     public static class WalFragmentReceivedResult {
-        private PgLogSequenceNumber fragmentStartLsn;
+        private long fragmentStartLsn;
+        private long fragmentEndLsn;
         private byte[] fragment;
         private int fragmentLength;
     }
@@ -102,6 +110,12 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         private String nextTimelineStartLsn;
     }
 
+    public PgStreamingReplicationHandler() {
+        resourcesFreed = new AtomicBoolean(true);
+        messageInfos = new ArrayDeque<>();
+        replicationRunning = new AtomicBoolean(false);
+    }
+
     public void startPhysicalReplication(final String slotName,
                                          final String startLsn,
                                          final String timeline,
@@ -110,6 +124,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                                          final Consumer<ReplicationErrorResult> errorCallback,
                                          final Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback,
                                          final Consumer<StreamingCompletedResult> streamingCompleted) {
+        cleanUp();
+
         internalByteBuf = initialChannelHandlerContext.alloc().buffer(2048);
         resourcesFreed = new AtomicBoolean(false);
 
@@ -130,7 +146,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
         query.append(" ").append("PHYSICAL");
         query.append(" ").append(startLsn);
-        lastReceivedLsn = PgLogSequenceNumber.valueOf(startLsn);
+        lastReceivedLsn = LogSequenceNumberUtils.StringToLsn(startLsn);
         lastAppliedLsn = lastReceivedLsn;
         lastFlushedLsn = lastReceivedLsn;
 
@@ -156,8 +172,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         DecoderUtils.freeMessageInfos(messageInfos);
     }
 
-    public void confirmProcessedLsn(PgLogSequenceNumber processed) {
-        if (processed.compareTo(lastAppliedLsn) < 0 || processed.compareTo(lastFlushedLsn) < 0) {
+    public void confirmProcessedLsn(long processed) {
+        if (LogSequenceNumberUtils.compareTwoLsn(lastAppliedLsn, processed) < 0 || LogSequenceNumberUtils.compareTwoLsn(lastFlushedLsn, processed) < 0) {
             throw new IllegalArgumentException("Confirmed LSN can not be less that already confirmed!");
         }
         lastAppliedLsn = processed;
@@ -166,7 +182,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
-        super.handlerRemoved(ctx);
         cleanUp();
     }
 
@@ -269,21 +284,20 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         internalByteBuf.readerIndex(0);
         ErrorResponse errorResponse = ServerPostgresProtocolMessageDecoder.decodeErrorResponse(internalByteBuf);
 
-        if (!replicationStarted) {
+        if (!replicationRunning.get()) {
             // fail start callback
             startedCallback.accept(
                     ReplicationStartResult
                             .builder()
-                            .success(false)
-                            .serverError(true)
+                            .status(ReplicationStartResult.StartResultStatus.SERVER_ERROR)
                             .errorResponse(errorResponse)
                             .build()
             );
         } else {
-            handleErrorSafe(
+            errorCallback.accept(
                     ReplicationErrorResult
                             .builder()
-                            .serverError(true)
+                            .errorType(ReplicationErrorResult.ErrorType.SERVER_ERROR)
                             .errorResponse(errorResponse)
                             .build()
             );
@@ -295,17 +309,23 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     }
 
     private void handleCopyBothResponseMessage(ByteBuf message, int length) {
-        replicationStarted = true;
         // need to read full message
         boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
         if (!readMessage) {
             // failed to read entire message
             // reset index to keep marker and length
             internalByteBuf.readerIndex(0);
+            return;
         }
         // just skip message because it's useless
         // message processed
         internalByteBuf.clear();
+        startedCallback.accept(ReplicationStartResult
+                .builder()
+                .status(ReplicationStartResult.StartResultStatus.SUCCESS)
+                .build()
+        );
+        replicationRunning.set(true);
     }
 
     private void handelCopyDataMessage(ByteBuf message, int length) {
@@ -337,8 +357,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
             // skip marker and preamble
             int xLogDataMessageContentSize = currentCopyDataMessageLength - 1 - PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_PREAMBLE_LENGTH;
 
-            lastFragmentStartLsn = PgLogSequenceNumber.valueOf(walDataStartPoint);
-            lastReceivedLsn = PgLogSequenceNumber.valueOf(walDataStartPoint + xLogDataMessageContentSize);
+            lastFragmentStartLsn = walDataStartPoint;
+            lastReceivedLsn = walDataStartPoint + xLogDataMessageContentSize;
 
             finishedReadingCopyDataMessageStartInfo = true;
             leftToReadFromCopyData = leftToReadFromCopyData - PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_PREAMBLE_LENGTH;
@@ -353,6 +373,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         message.readBytes(byteArrayBuf, 0, bytesToRead);
         leftToReadFromCopyData = leftToReadFromCopyData - bytesToRead;
 
+        long fragmentEndLsn = lastFragmentStartLsn + bytesToRead;
+
         // callback
         walFragmentReceivedCallback.accept(
                 WalFragmentReceivedResult
@@ -360,10 +382,11 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                         .fragmentStartLsn(lastFragmentStartLsn)
                         .fragment(byteArrayBuf)
                         .fragmentLength(bytesToRead)
+                        .fragmentEndLsn(fragmentEndLsn)
                         .build()
         );
 
-        lastFragmentStartLsn = PgLogSequenceNumber.valueOf(lastFragmentStartLsn.asLong() + bytesToRead);
+        lastFragmentStartLsn = fragmentEndLsn;
 
         if (leftToReadFromCopyData == 0) {
             readingCopyDataMessage = false;
@@ -406,9 +429,9 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         // standby update
         ret.writeByte(PostgresProtocolStreamingReplicationConstants.STANDBY_STATUS_UPDATE_MESSAGE_START_CHAR);
 
-        ret.writeLong(lastReceivedLsn.asLong());
-        ret.writeLong(lastFlushedLsn.asLong());
-        ret.writeLong(lastAppliedLsn.asLong());
+        ret.writeLong(lastReceivedLsn);
+        ret.writeLong(lastFlushedLsn);
+        ret.writeLong(lastAppliedLsn);
         ret.writeLong(PostgresTimeUtils.getNowInPostgresTime());
 
         if (ping) {
@@ -418,15 +441,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         }
 
         return ret;
-    }
-
-    private void handleErrorSafe(ReplicationErrorResult replicationErrorResult) {
-        try {
-            errorCallback.accept(replicationErrorResult);
-            HandlerUtils.closeOnFlush(initialChannelHandlerContext.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(initialChannelHandlerContext.alloc()));
-        } catch (Exception e) {
-            log.error("Error during calling error callback for streaming replication handler!");
-        }
     }
 
     private void cleanUp() {
@@ -439,21 +453,36 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        HandlerUtils.closeOnFlush(ctx.channel());
         cleanUp();
-        super.channelInactive(ctx);
+        HandlerUtils.closeOnFlush(ctx.channel());
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        log.error("Exception in physical streaming replication handler!", cause);
+        try {
+            if (!replicationRunning.get()) {
+                // fail start callback
+                startedCallback.accept(
+                        ReplicationStartResult
+                                .builder()
+                                .status(ReplicationStartResult.StartResultStatus.CLIENT_ERROR)
+                                .throwable(cause)
+                                .build()
+                );
+            } else {
+                errorCallback.accept(
+                        ReplicationErrorResult
+                                .builder()
+                                .errorType(ReplicationErrorResult.ErrorType.CLIENT_ERROR)
+                                .throwable(cause)
+                                .build()
+                );
+            }
+        } catch (Throwable t) {
+            log.error("Error in streaming replication handler!", cause);
+        }
+
         cleanUp();
-        handleErrorSafe(
-                ReplicationErrorResult
-                        .builder()
-                        .exception(true)
-                        .build()
-        );
         HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
 }

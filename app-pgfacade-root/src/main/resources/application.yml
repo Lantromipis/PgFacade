@@ -93,8 +93,8 @@ pg-facade:
         keep-old-interval: PT180M
         remove-old-wal-files-when-removing: true
     wal-streaming:
-      upload-wal-retries: 5
-      retry-upload-wal-files-interval: PT1M
+      keepalive-interval: PT3S
+      initial-delay: PT3S
       fault-tolerance:
         streaming-active-check-interval: PT3S
         max-unsuccessful-retries-before-force-restart: 5 # rarely pg_receivewal stuck after switchover, because new primary did not receive last WAL, but pg_receivewal did. Because of that PgFacade clears WAL streaming directory and restarts WAL streaming. All files (even not saved) are removed! Recommended to use with move-wal-after-completion = true
