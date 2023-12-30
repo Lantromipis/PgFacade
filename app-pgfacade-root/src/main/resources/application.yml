@@ -86,11 +86,11 @@ pg-facade:
     enabled: true
     adapter: s3
     basebackup:
-      create-interval: PT60M
-      list-backups-interval: PT1M
+      create-interval: PT12H
+      list-backups-interval: PT5M
       clean-up:
         remove-old: true
-        keep-old-interval: PT180M
+        keep-old-interval: PT24H
         remove-old-wal-files-when-removing: true
     wal-streaming:
       keepalive-interval: PT5S
@@ -158,6 +158,8 @@ quarkus:
         "com.lantromipis.configuration":
           level: DEBUG
         "com.lantromipis.orchestration":
+          level: DEBUG
+        "com.lantromipis.postgresprotocol":
           level: DEBUG
         "com.lantromipis.proxy.initializer":
           min-level: TRACE

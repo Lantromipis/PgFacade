@@ -9,6 +9,7 @@ import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.concurrent.ScheduledFuture;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -36,6 +37,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
 
     private Consumer<CommandExecutionResult> responseCallback = null;
     private AtomicBoolean responseFulfilled = null;
+    private ScheduledFuture<?> cancelFuture = null;
 
     @Data
     @Builder
@@ -84,6 +86,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
     public void executeQuery(String query, long timeoutMs, Consumer<CommandExecutionResult> callback) {
         responseFulfilled = new AtomicBoolean(false);
         responseCallback = callback;
+        cancelFuture = null;
 
         DecoderUtils.freeMessageInfos(messageInfos);
         if (leftovers != null && leftovers.refCnt() > 0) {
@@ -95,13 +98,16 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         initialChannelHandlerContext.channel().read();
 
         if (timeoutMs > 0) {
-            initialChannelHandlerContext.executor().schedule(
-                    () -> invokeCallback(
-                            CommandExecutionResult
-                                    .builder()
-                                    .status(CommandExecutionResultStatus.TIMEOUT)
-                                    .build()
-                    ),
+            cancelFuture = initialChannelHandlerContext.executor().schedule(
+                    () -> {
+                        log.debug("Canceling query '{}' execution due to timeout!", query);
+                        invokeCallback(
+                                CommandExecutionResult
+                                        .builder()
+                                        .status(CommandExecutionResultStatus.TIMEOUT)
+                                        .build()
+                        );
+                    },
                     timeoutMs,
                     TimeUnit.MILLISECONDS
             );
@@ -112,6 +118,9 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         if (responseCallback != null && responseFulfilled != null && responseFulfilled.compareAndSet(false, true)) {
             responseCallback.accept(commandExecutionResult);
             responseCallback = null;
+            if (cancelFuture != null) {
+                cancelFuture.cancel(false);
+            }
             return true;
         }
 

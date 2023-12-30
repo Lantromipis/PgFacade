@@ -96,7 +96,7 @@ public class DecoderUtils {
 
         while (true) {
             // mark message beginning
-            packet.markReaderIndex();
+            int initialReaderIndex = packet.readerIndex();
             byte startByte = packet.readByte();
 
             if (startByte == 0) {
@@ -110,7 +110,7 @@ public class DecoderUtils {
             }
 
             // reset to message beginning
-            packet.resetReaderIndex();
+            packet.readerIndex(initialReaderIndex);
 
             int entireMessageLength = length + 1;
 
@@ -142,8 +142,6 @@ public class DecoderUtils {
                 break;
             }
         }
-
-        packet.readerIndex(0);
 
         return leftovers;
     }

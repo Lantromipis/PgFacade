@@ -25,6 +25,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.io.File;
 import java.io.IOException;
@@ -53,6 +54,9 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
     @Inject
     ArchivingProperties archivingProperties;
+
+    @Inject
+    ManagedExecutor managedExecutor;
 
     private final AtomicBoolean replicationActive = new AtomicBoolean(false);
 
@@ -149,6 +153,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             currentWalRandomAccessFile = null;
             currentWalFile = null;
             lastWrittenToDiskLsnStart = LogSequenceNumberUtils.INVALID_LSN;
+            lastWrittenToDiskLsnEnd = LogSequenceNumberUtils.INVALID_LSN;
 
             if (walUploaderExecutor != null) {
                 walUploaderExecutor.shutdownNow();
@@ -172,7 +177,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
                                 postgresPersistedArchiverInfo.setLastUploadedWal(file.getName());
                                 postgresPersistedArchiverInfo.setWalSegmentSizeInBytes(postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes());
-                                
+
                                 raftFunctionalityCombinator.saveArchiverInfoInRaft(postgresPersistedArchiverInfo);
                                 log.debug("Confirmed uploading WAL file with name {} to remote storage in Raft.", file.getName());
                             } else {
@@ -277,9 +282,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
             // extract first lsn of current WAL file
             String serverFlushLsnStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_X_LOG_POS_COLUMN_NAME));
-            long serverFlushLsn = LogSequenceNumberUtils.stringToLsn(serverFlushLsnStr);
             startLsn = LogSequenceNumberUtils.getFirstLsnInWalFileWithProvidedLsn(
-                    serverFlushLsn,
+                    LogSequenceNumberUtils.stringToLsn(serverFlushLsnStr),
                     postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
             );
         } catch (Exception e) {
@@ -346,49 +350,97 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     }
 
     private void replicationForTimelineCompletedCallback(PgStreamingReplicationHandler.StreamingCompletedResult result) {
-        PgChannelSimpleQueryExecutorHandler.CommandExecutionResult timelineHistoryResult = queryExecutor.executeQueryBlocking(
-                buildTimelineHistoryQueryString(result.getNextTimeline()),
-                archivingProperties.walStreaming().queryTimeout().toMillis()
+        // async to prevent netty thread from blocking
+        managedExecutor.runAsync(
+                () -> switchTimelineAsync(result)
         );
+    }
 
-        switch (timelineHistoryResult.getStatus()) {
-            case SUCCESS -> {
-                try {
-                    PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(timelineHistoryResult.getMessageInfos());
-                    PgResultSet.PgRow row = resultSet.getRow(0);
+    private void switchTimelineAsync(PgStreamingReplicationHandler.StreamingCompletedResult result) {
+        try {
+            log.info("Replication for timeline completed. Next timeline is {} and next timeline start LSN is {}", result.getNextTimeline(), result.getNextTimelineStartLsn());
 
-                    String timelineFileName = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_FILENAME_COLUMN_NAME));
-                    byte[] timelineFileContent = row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_CONTENT_COLUMN_NAME);
+            timeline = Long.parseUnsignedLong(result.getNextTimeline());
 
-                    File timelineFile = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + timelineFileName);
-
-                    RandomAccessFile timelineRandomAccessFile = new RandomAccessFile(timelineFile, "rw");
-
-                    timelineRandomAccessFile.seek(0);
-                    timelineRandomAccessFile.write(timelineFileContent);
-                    timelineRandomAccessFile.close();
-
-                    uploadCompletedFile(timelineFile);
-                    // restart replication
-                    startStreamingReplication();
-                } catch (Exception e) {
-                    log.error("Error while trying to write timeline history file!", e);
-                    stopContinuousArchiving();
-                }
-            }
-            case SERVER_ERROR -> log.error(
-                    "Unexpected server error while trying to execute TIMELINE_HISTORY query to continue continuous WAL archiving! Message from server: {}",
-                    PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(timelineHistoryResult.getErrorResponse())
+            PgChannelSimpleQueryExecutorHandler.CommandExecutionResult timelineHistoryResult = queryExecutor.executeQueryBlocking(
+                    buildTimelineHistoryQueryString(timeline),
+                    archivingProperties.walStreaming().queryTimeout().toMillis()
             );
-            case TIMEOUT ->
-                    log.error("Timeout reached while trying to execute TIMELINE_HISTORY query to start continue WAL archiving!");
-            case CLIENT_ERROR ->
-                    log.error("Unexpected client error while trying to execute TIMELINE_HISTORY query to continue WAL archiving!", timelineHistoryResult.getThrowable());
-            default ->
-                    log.error("Unexpected client error while trying to execute TIMELINE_HISTORY query to continue WAL archiving!");
-        }
 
-        if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(timelineHistoryResult.getStatus())) {
+            switch (timelineHistoryResult.getStatus()) {
+                case SUCCESS -> {
+                    // skip
+                }
+                case SERVER_ERROR -> log.error(
+                        "Unexpected server error while trying to execute TIMELINE_HISTORY query to continue continuous WAL archiving! Message from server: {}",
+                        PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(timelineHistoryResult.getErrorResponse())
+                );
+                case TIMEOUT ->
+                        log.error("Timeout reached while trying to execute TIMELINE_HISTORY query to start continue WAL archiving!");
+                case CLIENT_ERROR ->
+                        log.error("Unexpected client error while trying to execute TIMELINE_HISTORY query to continue WAL archiving!", timelineHistoryResult.getThrowable());
+                default ->
+                        log.error("Unexpected client error while trying to execute TIMELINE_HISTORY query to continue WAL archiving!");
+            }
+
+            if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(timelineHistoryResult.getStatus())) {
+                stopContinuousArchiving();
+                return;
+            }
+
+            try {
+                PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(timelineHistoryResult.getMessageInfos());
+                PgResultSet.PgRow row = resultSet.getRow(0);
+
+                String timelineFileName = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_FILENAME_COLUMN_NAME));
+                byte[] timelineFileContent = row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_CONTENT_COLUMN_NAME);
+
+                File timelineFile = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + timelineFileName);
+
+                RandomAccessFile timelineRandomAccessFile = new RandomAccessFile(timelineFile, "rw");
+
+                timelineRandomAccessFile.seek(0);
+                timelineRandomAccessFile.write(timelineFileContent);
+                timelineRandomAccessFile.close();
+
+                uploadCompletedFile(timelineFile);
+            } catch (Exception e) {
+                log.error("Error while trying to write timeline history file!", e);
+                stopContinuousArchiving();
+                return;
+            }
+
+            try {
+                if (currentWalRandomAccessFile != null) {
+                    currentWalRandomAccessFile.close();
+                    uploadCompletedFile(currentWalFile);
+
+                    currentWalRandomAccessFile = null;
+                }
+
+                currentWalFile = null;
+                lastWrittenToDiskLsnStart = LogSequenceNumberUtils.INVALID_LSN;
+                lastWrittenToDiskLsnEnd = LogSequenceNumberUtils.INVALID_LSN;
+            } catch (Exception e) {
+                log.error("Error while trying to change timeline for continuous archiving!", e);
+                stopContinuousArchiving();
+                return;
+            }
+
+            startLsn = LogSequenceNumberUtils.getFirstLsnInWalFileWithProvidedLsn(
+                    LogSequenceNumberUtils.stringToLsn(result.getNextTimelineStartLsn()),
+                    postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
+            );
+            // restart replication
+
+            boolean success = startStreamingReplication();
+            if (!success) {
+                log.error("Failed to restart replication for new timeline {}!", LogSequenceNumberUtils.timelineToStr(timeline));
+            } else {
+                log.info("Successfully restarted replication for new timeline {}", LogSequenceNumberUtils.timelineToStr(timeline));
+            }
+        } catch (Throwable t) {
+            log.error("Failed to restart replication for new timeline!", t);
             stopContinuousArchiving();
         }
     }
@@ -413,7 +465,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 archivingProperties.walStreaming().keepaliveInterval().toMillis(),
                 startedCallback -> {
                     switch (startedCallback.getStatus()) {
-                        case SUCCESS -> success.set(true);
+                        case SUCCESS, SUCCESS_END_OF_TIMELINE -> success.set(true);
                         case SERVER_ERROR ->
                                 log.error("Failed to start streaming replication due to error response from Postgres! Error message: {}",
                                         PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(startedCallback.getErrorResponse())
@@ -433,9 +485,11 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         try {
             boolean awaitSuccess = streamingStartLatch.await(archivingProperties.walStreaming().initialDelay().toMillis(), TimeUnit.MILLISECONDS);
             if (!awaitSuccess && !success.get()) {
+                log.error("Timeout reached for replication to start!");
                 success.set(false);
             }
-        } catch (InterruptedException ignored) {
+        } catch (InterruptedException interruptedException) {
+            log.error("Interrupted while waiting for streaming replication to start!", interruptedException);
             Thread.currentThread().interrupt();
             return false;
         }
@@ -443,8 +497,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         return success.get();
     }
 
-    private String buildTimelineHistoryQueryString(String timeline) {
-        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + timeline;
+    private String buildTimelineHistoryQueryString(long timeline) {
+        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + LogSequenceNumberUtils.timelineToStr(timeline);
     }
 
     private String buildReadReplicationSlotQueryString(String slotName) {
