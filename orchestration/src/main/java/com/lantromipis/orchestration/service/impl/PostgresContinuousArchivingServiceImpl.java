@@ -63,6 +63,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     private PgStreamingReplicationHandler streamingReplicationHandler = null;
 
     private long lastWrittenToDiskLsnStart = LogSequenceNumberUtils.INVALID_LSN;
+    private long lastWrittenToDiskLsnEnd = LogSequenceNumberUtils.INVALID_LSN;
     private RandomAccessFile currentWalRandomAccessFile = null;
     private File currentWalFile = null;
 
@@ -88,6 +89,13 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
             streamingReplicationHandler = new PgStreamingReplicationHandler();
             primaryChannel.pipeline().addLast(streamingReplicationHandler);
+
+            long startTime = System.currentTimeMillis();
+
+            // hack to 'wait' until ChannelHandlerContext is added to handlers, because it is Async and sometimes causes NPE
+            while ((!streamingReplicationHandler.isAdded() || !queryExecutor.isAdded()) && startTime + 10 < System.currentTimeMillis()) {
+                log.debug("AWAITING");
+            }
 
             //primaryChannel.pipeline().addFirst(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
 
@@ -117,7 +125,9 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
     private void cleanUp() {
         synchronized (this) {
-            HandlerUtils.closeOnFlush(primaryChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(primaryChannel.alloc()));
+            if (primaryChannel != null) {
+                HandlerUtils.closeOnFlush(primaryChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(primaryChannel.alloc()));
+            }
 
             primaryChannel = null;
             queryExecutor = null;
@@ -277,12 +287,13 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 if (currentWalRandomAccessFile != null) {
                     currentWalRandomAccessFile.close();
 
+                    long lastWrittenToDiskLsnEndTemp = lastWrittenToDiskLsnEnd;
                     uploadCompletedFile(currentWalFile)
                             .thenRun(
                                     () -> {
                                         if (streamingReplicationHandler != null) {
-                                            streamingReplicationHandler.confirmProcessedLsn(result.getFragmentEndLsn());
-                                            log.debug("Confirmed flushed/applied LSN {} because WAL with such LSN was uploaded.", LogSequenceNumberUtils.lsnToString(result.getFragmentEndLsn()));
+                                            streamingReplicationHandler.confirmProcessedLsn(lastWrittenToDiskLsnEndTemp);
+                                            log.debug("Confirmed flushed/applied LSN {} because WAL with such LSN was uploaded.", LogSequenceNumberUtils.lsnToString(lastWrittenToDiskLsnEndTemp));
                                         }
                                     }
                             );
@@ -302,8 +313,9 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 log.debug("Switched streaming replication WAL file to {}", walFileName);
             }
 
-            currentWalRandomAccessFile.write(result.getFragment());
+            currentWalRandomAccessFile.write(result.getFragment(), 0, result.getFragmentLength());
             lastWrittenToDiskLsnStart = result.getFragmentStartLsn();
+            lastWrittenToDiskLsnEnd = result.getFragmentEndLsn();
         } catch (Exception e) {
             log.error("Failed to save WAL fragment to file!", e);
             stopContinuousArchiving();
@@ -358,6 +370,10 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         }
     }
 
+    private void postgresTimeout() {
+        stopContinuousArchiving();
+    }
+
     private boolean startStreamingReplication() {
         CountDownLatch streamingStartLatch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
@@ -382,7 +398,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 },
                 this::replicationErrorCallback,
                 this::replicationNewWalFragmentReceivedCallback,
-                this::replicationForTimelineCompletedCallback
+                this::replicationForTimelineCompletedCallback,
+                this::postgresTimeout
         );
 
         try {

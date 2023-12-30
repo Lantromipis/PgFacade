@@ -194,8 +194,14 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         );
 
         if (!invoked) {
-            log.error("Exception in PgChannelSimpleQueryExecutorHandler ", cause);
+            if (ctx.pipeline().toMap().size() == 1) {
+                log.error("Exception in PgChannelSimpleQueryExecutorHandler ", cause);
+                HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
+            } else {
+                super.exceptionCaught(ctx, cause);
+            }
+        } else {
+            HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
         }
-        HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
 }

@@ -35,6 +35,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private Consumer<ReplicationErrorResult> errorCallback;
     private Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback;
     private Consumer<StreamingCompletedResult> streamingCompletedCallback;
+    private Runnable serverTimeout;
 
     private boolean readingCopyDataMessage = false;
     private byte currentCopyDataMessageStartByte = FAKE_COPY_DATA_MESSAGE_START_BYTE;
@@ -58,6 +59,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     private AtomicBoolean resourcesFreed;
     private boolean streamingCompleted;
+    private AtomicBoolean replicating;
 
     @Data
     @Builder
@@ -114,6 +116,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         resourcesFreed = new AtomicBoolean(true);
         messageInfos = new ArrayDeque<>();
         replicationRunning = new AtomicBoolean(false);
+        replicating = new AtomicBoolean(false);
     }
 
     public void startPhysicalReplication(final String slotName,
@@ -123,7 +126,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                                          final Consumer<ReplicationStartResult> startedCallback,
                                          final Consumer<ReplicationErrorResult> errorCallback,
                                          final Consumer<WalFragmentReceivedResult> walFragmentReceivedCallback,
-                                         final Consumer<StreamingCompletedResult> streamingCompleted) {
+                                         final Consumer<StreamingCompletedResult> streamingCompleted,
+                                         final Runnable serverTimeout) {
         cleanUp();
 
         this.internalByteBuf = initialChannelHandlerContext.alloc().buffer(2048);
@@ -137,6 +141,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         this.slotName = slotName;
         this.updateIntervalMs = updateIntervalMs;
         this.streamingCompletedCallback = streamingCompleted;
+        this.serverTimeout = serverTimeout;
         this.streamingCompleted = false;
 
         StringBuilder query = new StringBuilder("START_REPLICATION");
@@ -157,6 +162,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
         initialChannelHandlerContext.channel().writeAndFlush(startReplicationQuery, initialChannelHandlerContext.voidPromise());
         initialChannelHandlerContext.channel().read();
+        this.replicating.set(true);
 
         keepaliveFuture = initialChannelHandlerContext.channel().eventLoop().scheduleAtFixedRate(
                 () -> {
@@ -302,6 +308,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
             );
         }
 
+        replicating.set(false);
         // message processed
         internalByteBuf.clear();
     }
@@ -456,9 +463,11 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        if (replicating.compareAndSet(true, false)) {
+            serverTimeout.run();
+        }
         cleanUp();
         HandlerUtils.closeOnFlush(ctx.channel());
-        log.info("REPLICATION CHANNEL INACTIVE");
     }
 
     @Override
@@ -486,6 +495,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
             log.error("Error in streaming replication handler!", cause);
         }
 
+        replicating.set(false);
         cleanUp();
         HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
