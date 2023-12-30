@@ -30,6 +30,9 @@ public class PostgresConstants {
     public static final String SERVER_VERSION_NUM_SETTING_NAME = "server_version_num";
     public static final String WAL_SEGMENT_SIZE_SETTING_NAME = "wal_segment_size";
 
+    public static final int PG_VERSION_13_NUM = 130000;
+    public static final int PG_VERSION_15_NUM = 150000;
+
     public static final List<String> FORBIDDEN_TO_CHANGE_SETTINGS_NAMES = List.of(
             PRIMARY_CONN_INFO_SETTING_NAME,
             "wal_level",

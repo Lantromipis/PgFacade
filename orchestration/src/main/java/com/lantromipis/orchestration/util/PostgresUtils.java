@@ -55,7 +55,7 @@ public class PostgresUtils {
     }
 
     public void addWalKepSetting(Map<String, String> settings, int version, int walKeepCount) {
-        if (version >= 130000) {
+        if (version >= PostgresConstants.PG_VERSION_13_NUM) {
             settings.put(
                     PostgresConstants.WAL_KEEP_SIZE_SETTING_NAME,
                     walKeepCount * 16 + "MB"

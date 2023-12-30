@@ -23,7 +23,17 @@ public interface ArchivingProperties {
 
         Duration initialDelay();
 
+        Duration queryTimeout();
+
+        ReplicationSlotProperties replicationSlot();
+
         WalFaultToleranceProperties faultTolerance();
+
+        interface ReplicationSlotProperties {
+            boolean enabled();
+
+            String name();
+        }
 
         interface WalFaultToleranceProperties {
             Duration streamingActiveCheckInterval();

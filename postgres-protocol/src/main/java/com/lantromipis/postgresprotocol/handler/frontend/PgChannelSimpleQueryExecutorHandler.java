@@ -55,7 +55,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         TIMEOUT
     }
 
-    public CommandExecutionResult executeQueryBlocking(String query, int timeoutMs) {
+    public CommandExecutionResult executeQueryBlocking(String query, long timeoutMs) {
         CountDownLatch countDownLatch = new CountDownLatch(1);
         AtomicReference<CommandExecutionResult> ret = new AtomicReference<>();
 
@@ -72,7 +72,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
             countDownLatch.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.info("Thread interrupted", e);
+            log.info("Thread interrupted while waiting for query " + query + " to complete", e);
             return CommandExecutionResult
                     .builder()
                     .status(CommandExecutionResultStatus.CLIENT_ERROR)
@@ -81,7 +81,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         return ret.get();
     }
 
-    public void executeQuery(String query, int timeoutMs, Consumer<CommandExecutionResult> callback) {
+    public void executeQuery(String query, long timeoutMs, Consumer<CommandExecutionResult> callback) {
         responseFulfilled = new AtomicBoolean(false);
         responseCallback = callback;
 

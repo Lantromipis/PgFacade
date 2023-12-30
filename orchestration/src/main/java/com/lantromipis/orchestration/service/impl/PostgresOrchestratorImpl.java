@@ -460,7 +460,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     private void validateDefaultSettingsPresence() {
-        Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(postgresSettingsRuntimeProperties.getPostgresVersion());
+        Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(postgresSettingsRuntimeProperties.getPostgresVersionNum());
 
         Map<String, String> persistedSettings = raftFunctionalityCombinator.getPostgresSettingInfos();
         Map<String, String> mergedSettings = new HashMap<>(persistedSettings);

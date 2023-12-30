@@ -30,6 +30,16 @@ public class PgResultSet {
             return columns.get(name);
         }
 
+        public String getCellValueByNameAsString(String name) {
+            byte[] value = columns.get(name);
+
+            if (value == null) {
+                return null;
+            }
+
+            return new String(columns.get(name));
+        }
+
         public byte[] getCellValueByIdx(int idx) {
             String key = null;
             int counter = 0;

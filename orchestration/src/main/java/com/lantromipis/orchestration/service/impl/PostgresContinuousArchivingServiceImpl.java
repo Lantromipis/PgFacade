@@ -2,6 +2,7 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
+import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
@@ -77,10 +78,14 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     public boolean startContinuousArchiving(boolean forceUseLatestServerLsn) {
         // do not restart if already running
         if (replicationActive.get()) {
+            log.info("Continuous WAL archiving already running!");
             return true;
         }
 
         try {
+            log.info("Starting continuous WAL archiving!");
+            replicationActive.set(true);
+
             primaryChannel = runtimePostgresConnectionProducer.createNewNettyChannelToPrimaryForReplication();
             walUploaderExecutor = Executors.newSingleThreadExecutor();
 
@@ -94,11 +99,11 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
             // hack to 'wait' until ChannelHandlerContext is added to handlers, because it is Async and sometimes causes NPE
             while ((!streamingReplicationHandler.isAdded() || !queryExecutor.isAdded()) && startTime + 10 < System.currentTimeMillis()) {
-                log.debug("AWAITING");
             }
 
             //primaryChannel.pipeline().addFirst(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
 
+            ensureReplicationSlotPresence();
             extractTimelineAndLsn(forceUseLatestServerLsn);
             boolean successfullyStarted = startStreamingReplication();
             replicationActive.set(successfullyStarted);
@@ -111,15 +116,15 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             }
             return successfullyStarted;
         } catch (Exception e) {
+            stopContinuousArchiving();
             log.error("Error while initiating replication stream for WAL.", e);
-            cleanUp();
             return false;
         }
     }
 
     public void stopContinuousArchiving() {
-        replicationActive.set(false);
         cleanUp();
+        replicationActive.set(false);
         log.info("Continuous WAL archiving stopped!");
     }
 
@@ -164,8 +169,10 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
                             if (LogSequenceNumberUtils.isWalFileName(file.getName())) {
                                 PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
+
                                 postgresPersistedArchiverInfo.setLastUploadedWal(file.getName());
                                 postgresPersistedArchiverInfo.setWalSegmentSizeInBytes(postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes());
+                                
                                 raftFunctionalityCombinator.saveArchiverInfoInRaft(postgresPersistedArchiverInfo);
                                 log.debug("Confirmed uploading WAL file with name {} to remote storage in Raft.", file.getName());
                             } else {
@@ -198,6 +205,44 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         );
     }
 
+    private void ensureReplicationSlotPresence() throws PostgresContinuousArchivingException {
+        if (!archivingProperties.walStreaming().replicationSlot().enabled()) {
+            return;
+        }
+
+        PgChannelSimpleQueryExecutorHandler.CommandExecutionResult readReplicationSlotResult = executeQueryAndThrowExceptionIfFailed(
+                buildReadReplicationSlotQueryString(archivingProperties.walStreaming().replicationSlot().name())
+        );
+
+        PgResultSet readReplicationSlotResultSet = DecoderUtils.extractResultSetFromMessages(readReplicationSlotResult.getMessageInfos());
+        PgResultSet.PgRow readReplicationSlotRow = readReplicationSlotResultSet.getRow(0);
+
+        String slotType = readReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.READ_REPLICATION_SLOT_SLOT_TYPE_COLUMN_NAME);
+        String restartLsn = readReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.READ_REPLICATION_SLOT_RESTART_LSN_COLUMN_NAME);
+        String restartTli = readReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.READ_REPLICATION_SLOT_RESTART_TLI_COLUMN_NAME);
+
+        boolean slotDoesNotExist = slotType == null && restartLsn == null && restartTli == null;
+
+        if (!slotDoesNotExist && !"physical".equalsIgnoreCase(slotType)) {
+            log.error("Found that slot with name {} is not a physical replication slot! Either change slot name in PgFacade properties or drop it!", archivingProperties.walStreaming().replicationSlot().name());
+        }
+
+        if (slotDoesNotExist) {
+            PgChannelSimpleQueryExecutorHandler.CommandExecutionResult createReplicationSlotResult = executeQueryAndThrowExceptionIfFailed(
+                    buildCreateReplicationSlotQueryString(archivingProperties.walStreaming().replicationSlot().name(), true)
+            );
+
+            PgResultSet createReplicationSlotResultSet = DecoderUtils.extractResultSetFromMessages(createReplicationSlotResult.getMessageInfos());
+            PgResultSet.PgRow createReplicationSlotRow = createReplicationSlotResultSet.getRow(0);
+
+            String slotName = createReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_SLOT_NAME_COLUMN_NAME);
+            String consistentPoint = createReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_CONSISTENT_POINT_COLUMN_NAME);
+            log.debug("Created physical replication slot with name {} and consistent point {}", slotName, consistentPoint);
+        } else {
+            log.debug("Detected existing replication slot with name {}, restart LSN {} and restart tli {}", archivingProperties.walStreaming().replicationSlot().name(), restartLsn, restartTli);
+        }
+    }
+
     private void extractTimelineAndLsn(boolean forceUseLatestServerLsn) throws PostgresContinuousArchivingException {
         if (!forceUseLatestServerLsn) {
             PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
@@ -219,49 +264,27 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         }
 
         // extract using IDENTIFY_SYSTEM
-        PgChannelSimpleQueryExecutorHandler.CommandExecutionResult identifySystemResult = queryExecutor.executeQueryBlocking(
-                "IDENTIFY_SYSTEM",
-                -1
+        PgChannelSimpleQueryExecutorHandler.CommandExecutionResult identifySystemResult = executeQueryAndThrowExceptionIfFailed(
+                PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_QUERY
         );
 
-        switch (identifySystemResult.getStatus()) {
-            case SUCCESS -> {
-                try {
-                    PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(identifySystemResult.getMessageInfos());
-                    PgResultSet.PgRow row = resultSet.getRow(0);
+        try {
+            PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(identifySystemResult.getMessageInfos());
+            PgResultSet.PgRow row = resultSet.getRow(0);
 
-                    String timelineStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
-                    timeline = Long.parseLong(timelineStr, 16);
+            String timelineStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
+            timeline = Long.parseLong(timelineStr, 16);
 
-                    // extract first lsn of current WAL file
-                    String serverFlushLsnStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_X_LOG_POS_COLUMN_NAME));
-                    long serverFlushLsn = LogSequenceNumberUtils.stringToLsn(serverFlushLsnStr);
-                    long serverFlushWalFileFirstLsn = LogSequenceNumberUtils.getFirstLsnInWalFileWithProvidedLsn(
-                            serverFlushLsn,
-                            postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
-                    );
-                    startLsn = serverFlushWalFileFirstLsn;
-                } catch (Exception e) {
-                    log.error("Exception while trying to extract timeline and latest LSN from Postgres server!", e);
-                    stopContinuousArchiving();
-                }
-            }
-            case SERVER_ERROR ->
-                    log.error("Unexpected server error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving! Message from server: {}",
-                            PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(identifySystemResult.getErrorResponse())
-                    );
-            case TIMEOUT ->
-                    log.error("Timeout reached while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!");
-            case CLIENT_ERROR ->
-                    log.error("Unexpected client error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!", identifySystemResult.getThrowable());
-            default ->
-                    log.error("Unexpected client error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!");
+            // extract first lsn of current WAL file
+            String serverFlushLsnStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_X_LOG_POS_COLUMN_NAME));
+            long serverFlushLsn = LogSequenceNumberUtils.stringToLsn(serverFlushLsnStr);
+            startLsn = LogSequenceNumberUtils.getFirstLsnInWalFileWithProvidedLsn(
+                    serverFlushLsn,
+                    postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
+            );
+        } catch (Exception e) {
+            throw new PostgresContinuousArchivingException("Exception while trying to extract timeline and latest LSN from Postgres server!", e);
         }
-
-        if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(identifySystemResult.getStatus())) {
-            stopContinuousArchiving();
-        }
-
     }
 
     private void replicationErrorCallback(PgStreamingReplicationHandler.ReplicationErrorResult result) {
@@ -324,8 +347,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
     private void replicationForTimelineCompletedCallback(PgStreamingReplicationHandler.StreamingCompletedResult result) {
         PgChannelSimpleQueryExecutorHandler.CommandExecutionResult timelineHistoryResult = queryExecutor.executeQueryBlocking(
-                "TIMELINE_HISTORY " + result.getNextTimeline(),
-                -1
+                buildTimelineHistoryQueryString(result.getNextTimeline()),
+                archivingProperties.walStreaming().queryTimeout().toMillis()
         );
 
         switch (timelineHistoryResult.getStatus()) {
@@ -378,8 +401,13 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         CountDownLatch streamingStartLatch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
+        String replicationSlot = null;
+        if (archivingProperties.walStreaming().replicationSlot().enabled()) {
+            replicationSlot = archivingProperties.walStreaming().replicationSlot().name();
+        }
+
         streamingReplicationHandler.startPhysicalReplication(
-                null,
+                replicationSlot,
                 startLsn,
                 timeline,
                 archivingProperties.walStreaming().keepaliveInterval().toMillis(),
@@ -413,5 +441,58 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         }
 
         return success.get();
+    }
+
+    private String buildTimelineHistoryQueryString(String timeline) {
+        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + timeline;
+    }
+
+    private String buildReadReplicationSlotQueryString(String slotName) {
+        return PostgresProtocolStreamingReplicationConstants.READ_REPLICATION_SLOT_QUERY + " " + slotName;
+    }
+
+    private String buildCreateReplicationSlotQueryString(String slotName, boolean reserveWal) {
+        StringBuilder s = new StringBuilder(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY);
+
+        s.append(" ").append(slotName);
+        s.append(" ").append(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY_OPTION_PHYSICAL);
+
+        if (reserveWal) {
+            if (postgresSettingsRuntimeProperties.getPostgresVersionNum() >= PostgresConstants.PG_VERSION_15_NUM) {
+                s.append(" ").append(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY_OPTION_RESERVE_WAL_ABOVE_PG_15);
+            } else {
+                s.append(" ").append(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY_OPTION_RESERVE_WAL_BELOW_PG_15);
+            }
+        }
+
+        return s.toString();
+    }
+
+    private PgChannelSimpleQueryExecutorHandler.CommandExecutionResult executeQueryAndThrowExceptionIfFailed(String sqlQuery) {
+        PgChannelSimpleQueryExecutorHandler.CommandExecutionResult readReplicationSlotResult = queryExecutor.executeQueryBlocking(
+                sqlQuery,
+                archivingProperties.walStreaming().queryTimeout().toMillis()
+        );
+
+        switch (readReplicationSlotResult.getStatus()) {
+            case SUCCESS -> {
+                return readReplicationSlotResult;
+            }
+            case SERVER_ERROR ->
+                    throw new PostgresContinuousArchivingException("Unexpected server error while trying to execute " + sqlQuery + " query to start continuous WAL archiving! Message from server: " +
+                            PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(readReplicationSlotResult.getErrorResponse())
+                    );
+            case TIMEOUT ->
+                    throw new PostgresContinuousArchivingException("Timeout reached while trying to execute " + sqlQuery + " query to start continuous WAL archiving!");
+            case CLIENT_ERROR -> {
+                if (readReplicationSlotResult.getThrowable() == null) {
+                    throw new PostgresContinuousArchivingException("Unexpected client error while trying to execute " + sqlQuery + " query to start continuous WAL archiving!");
+                } else {
+                    throw new PostgresContinuousArchivingException("Unexpected client error while trying to execute " + sqlQuery + " query to start continuous WAL archiving!", readReplicationSlotResult.getThrowable());
+                }
+            }
+            default ->
+                    throw new PostgresContinuousArchivingException("Unexpected client error while trying to execute " + sqlQuery + " query to start continuous WAL archiving!");
+        }
     }
 }

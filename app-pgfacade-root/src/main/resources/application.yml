@@ -93,11 +93,15 @@ pg-facade:
         keep-old-interval: PT180M
         remove-old-wal-files-when-removing: true
     wal-streaming:
-      keepalive-interval: PT3S
+      keepalive-interval: PT5S
       initial-delay: PT3S
+      query-timeout: PT5S
+      replication-slot:
+        enabled: true
+        name: pgfacade
       fault-tolerance:
-        streaming-active-check-interval: PT3S
-        max-unsuccessful-retries-before-force-restart: 5 # rarely pg_receivewal stuck after switchover, because new primary did not receive last WAL, but pg_receivewal did. Because of that PgFacade clears WAL streaming directory and restarts WAL streaming. All files (even not saved) are removed! Recommended to use with move-wal-after-completion = true
+        streaming-active-check-interval: PT5S
+        max-unsuccessful-retries-before-force-restart: 5 # Force restart streaming using latest  Recommended to use with move-wal-after-completion = true
         create-new-backup-in-case-of-force-retry: true
     s3:
       protocol: http
@@ -110,7 +114,7 @@ pg-facade:
       wal-bucket: pgfacade
   postgres:
     default-settings:
-      max-wal-keep-count: 32  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
+      max-wal-keep-count: 8  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       pg-facade:
         username: pgfacade
