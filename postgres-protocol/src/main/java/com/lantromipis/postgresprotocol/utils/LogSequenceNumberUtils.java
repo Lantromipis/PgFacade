@@ -11,50 +11,71 @@ public class LogSequenceNumberUtils {
     public static final long INVALID_LSN = 0;
     public static final Pattern WAL_PATTERN = Pattern.compile("^(.{8})(.{8})000000(.{2})$");
 
+    private static long xLogSegmentsPerXLogId(long walSegmentSize) {
+        return 0x100000000L / walSegmentSize;
+    }
+
+    public static long extractTimelineFromWalFileName(String walFileName) {
+        Matcher matcher = WAL_PATTERN.matcher(walFileName);
+        matcher.matches();
+
+        return Long.parseUnsignedLong(matcher.group(1), 16);
+    }
+
+    public static String timelineToStr(long timeline) {
+        return String.format("%08X", timeline);
+    }
+
     public static boolean isWalFileName(String fileName) {
         Matcher matcher = WAL_PATTERN.matcher(fileName);
         return matcher.matches();
     }
 
-    public static String extractTimelineFromWalFileName(String walFileName) {
+    public static long getWalFileFirstLsn(String walFileName, long walSegmentSize) {
         Matcher matcher = WAL_PATTERN.matcher(walFileName);
         matcher.matches();
 
-        return matcher.group(1);
+        String xLogIdStr = matcher.group(2);
+        String xLogSegmentNoStr = matcher.group(3);
+
+        int xLogId = Integer.parseUnsignedInt(xLogIdStr, 16);
+        int xLogSegmentNo = Integer.parseUnsignedInt(xLogSegmentNoStr, 16);
+
+        return (xLogSegmentsPerXLogId(walSegmentSize) * xLogId + xLogSegmentNo) * walSegmentSize;
     }
 
-    public static long getWalFileFirstLsn(String walFileName) {
-        Matcher matcher = WAL_PATTERN.matcher(walFileName);
-        matcher.matches();
-
-        String lsnHigherPartStr = matcher.group(2);
-        String lsnLowerPartStr = matcher.group(3);
-
-        int lsnHigherPart = Integer.parseInt(lsnHigherPartStr, 16);
-        int lsnLowerPart = Integer.parseInt(lsnLowerPartStr, 16);
-
-        ByteBuf byteBuf = Unpooled.buffer(8);
-        byteBuf.writeInt(lsnHigherPart);
-        byteBuf.writeInt(lsnLowerPart);
-
-        byteBuf.readerIndex(0);
-        long value = byteBuf.readLong();
-        byteBuf.release();
-
-        return value;
+    public static String getWalFileFirstLsnAsString(String walFileName, long walSegmentSize) {
+        return lsnToString(getWalFileFirstLsn(walFileName, walSegmentSize));
     }
 
-    public static String getWalFileFirstLsnAsString(String walFileName) {
-        Matcher matcher = WAL_PATTERN.matcher(walFileName);
-        matcher.matches();
+    public static String getWalFileNameForLsn(long timeline, long lsn, long walSegmentSize) {
+        long logSegmentNo = Long.divideUnsigned(lsn, walSegmentSize);
+        long xLogSegmentsPerXLogId = xLogSegmentsPerXLogId(walSegmentSize);
 
-        String lsnHigherPartStr = matcher.group(2);
-        String lsnLowerPartStr = matcher.group(3);
+        return String.format(
+                "%08X%08X%08X",
+                timeline,
+                logSegmentNo / xLogSegmentsPerXLogId,
+                logSegmentNo % xLogSegmentsPerXLogId
+        );
+    }
 
-        int lsnHigherPart = Integer.parseInt(lsnHigherPartStr, 16);
-        int lsnLowerPart = Integer.parseInt(lsnLowerPartStr, 16);
+    public static boolean compareIfBelongsToSameWal(long lsn1, long lsn2, long walSegmentSize) {
+        long logSegmentNo1 = Long.divideUnsigned(lsn1, walSegmentSize);
+        long logSegmentNo2 = Long.divideUnsigned(lsn2, walSegmentSize);
 
-        return String.format("%X/%X", lsnHigherPart, lsnLowerPart);
+        return logSegmentNo1 == logSegmentNo2;
+    }
+
+    public static long getFirstLsnInWalFileWithProvidedLsn(long lsn, long walSegmentSize) {
+        long logSegmentNo = Long.divideUnsigned(lsn, walSegmentSize);
+        return logSegmentNo * walSegmentSize;
+    }
+
+    public static long getNextWalFileStartLsn(String currentWalFileName, long walSegmentSize) {
+        long currentFileFirstLsn = getWalFileFirstLsn(currentWalFileName, walSegmentSize);
+        long currentFileFirstLsnLogSegNo = Long.divideUnsigned(currentFileFirstLsn, walSegmentSize);
+        return (currentFileFirstLsnLogSegNo + 1) * walSegmentSize;
     }
 
     public static String lsnToString(long lsn) {
@@ -68,7 +89,7 @@ public class LogSequenceNumberUtils {
         return String.format("%X/%X", logicalXlog, segment);
     }
 
-    public static long StringToLsn(String strValue) {
+    public static long stringToLsn(String strValue) {
         int slashIndex = strValue.lastIndexOf('/');
 
         if (slashIndex <= 0) {
@@ -76,9 +97,9 @@ public class LogSequenceNumberUtils {
         }
 
         String logicalXLogStr = strValue.substring(0, slashIndex);
-        int logicalXlog = (int) Long.parseLong(logicalXLogStr, 16);
+        int logicalXlog = Integer.parseUnsignedInt(logicalXLogStr, 16);
         String segmentStr = strValue.substring(slashIndex + 1);
-        int segment = (int) Long.parseLong(segmentStr, 16);
+        int segment = Integer.parseUnsignedInt(segmentStr, 16);
 
         ByteBuf byteBuf = Unpooled.buffer(8);
         byteBuf.writeInt(logicalXlog);
@@ -87,61 +108,6 @@ public class LogSequenceNumberUtils {
         byteBuf.readerIndex(0);
         long value = byteBuf.readLong();
         byteBuf.release();
-
-        return value;
-    }
-
-    public static String getWalFileNameForLsn(long lsn, String timeline) {
-        ByteBuf buf = Unpooled.buffer(8);
-        buf.writeLong(lsn);
-
-        int logicalXlog = buf.readInt();
-        byte segmentHighestByte = buf.readByte();
-
-        buf.release();
-
-        return String.format("%s%08X000000%02X", timeline, logicalXlog, segmentHighestByte);
-    }
-
-    public static boolean compareIfBelongsToSameWal(long lsn1, long lsn2) {
-        ByteBuf buf1 = Unpooled.buffer(8);
-        buf1.writeLong(lsn1);
-
-        ByteBuf buf2 = Unpooled.buffer(8);
-        buf2.writeLong(lsn2);
-
-        int logicalXlog1 = buf1.readInt();
-        int logicalXlog2 = buf2.readInt();
-
-        byte segmentHighestByte1 = buf1.readByte();
-        byte segmentHighestByte2 = buf2.readByte();
-
-        buf1.release();
-        buf2.release();
-
-        return logicalXlog1 == logicalXlog2 && segmentHighestByte1 == segmentHighestByte2;
-    }
-
-    public static long getFirstLsnInWalFileWithProvidedLsn(long lsn) {
-        ByteBuf buf = Unpooled.buffer(8);
-        buf.writeLong(lsn);
-
-        int logicalXlog = buf.readInt();
-        byte segmentHighestByte = buf.readByte();
-
-        buf.release();
-
-        ByteBuf retBuf = Unpooled.buffer(8);
-        retBuf.writeInt(logicalXlog);
-        retBuf.writeByte(segmentHighestByte);
-        // 3 zero bytes
-        retBuf.writeByte(0);
-        retBuf.writeByte(0);
-        retBuf.writeByte(0);
-
-        retBuf.readerIndex(0);
-        long value = retBuf.readLong();
-        retBuf.release();
 
         return value;
     }

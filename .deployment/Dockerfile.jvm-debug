@@ -30,7 +30,7 @@ COPY --chown=pgfacade target/quarkus-app/quarkus/ /deployments/quarkus/
 # docker.sock permission denied. To fix that, id of users in host and container must match
 USER root
 
-ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Dquarkus.package.type=mutable-jar -Dquarkus.live-reload.password=123"
+ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Dquarkus.package.type=mutable-jar -Dquarkus.live-reload.password=123 -Dquarkus.analytics.disabled=true"
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
 ENV QUARKUS_LAUNCH_DEVMODE=true

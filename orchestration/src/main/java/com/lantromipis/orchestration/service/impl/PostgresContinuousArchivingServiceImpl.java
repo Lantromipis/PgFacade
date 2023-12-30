@@ -55,14 +55,14 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
     private final AtomicBoolean replicationActive = new AtomicBoolean(false);
 
-    private String timeline;
-    private String startLsn;
+    private long timeline;
+    private long startLsn;
 
     private Channel primaryChannel = null;
     private PgChannelSimpleQueryExecutorHandler queryExecutor = null;
     private PgStreamingReplicationHandler streamingReplicationHandler = null;
 
-    private long lastWrittenToDiskLsn = LogSequenceNumberUtils.INVALID_LSN;
+    private long lastWrittenToDiskLsnStart = LogSequenceNumberUtils.INVALID_LSN;
     private RandomAccessFile currentWalRandomAccessFile = null;
     private File currentWalFile = null;
 
@@ -89,12 +89,17 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             streamingReplicationHandler = new PgStreamingReplicationHandler();
             primaryChannel.pipeline().addLast(streamingReplicationHandler);
 
+            //primaryChannel.pipeline().addFirst(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
+
             extractTimelineAndLsn(forceUseLatestServerLsn);
             boolean successfullyStarted = startStreamingReplication();
             replicationActive.set(successfullyStarted);
 
             if (!successfullyStarted) {
                 cleanUp();
+                log.info("Failed to start continuous WAL archiving!");
+            } else {
+                log.info("Continuous WAL archiving started successfully!");
             }
             return successfullyStarted;
         } catch (Exception e) {
@@ -107,6 +112,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     public void stopContinuousArchiving() {
         replicationActive.set(false);
         cleanUp();
+        log.info("Continuous WAL archiving stopped!");
     }
 
     private void cleanUp() {
@@ -127,7 +133,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
             currentWalRandomAccessFile = null;
             currentWalFile = null;
-            lastWrittenToDiskLsn = LogSequenceNumberUtils.INVALID_LSN;
+            lastWrittenToDiskLsnStart = LogSequenceNumberUtils.INVALID_LSN;
 
             if (walUploaderExecutor != null) {
                 walUploaderExecutor.shutdownNow();
@@ -149,8 +155,9 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                             if (LogSequenceNumberUtils.isWalFileName(file.getName())) {
                                 PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
                                 postgresPersistedArchiverInfo.setLastUploadedWal(file.getName());
+                                postgresPersistedArchiverInfo.setWalSegmentSizeInBytes(postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes());
                                 raftFunctionalityCombinator.saveArchiverInfoInRaft(postgresPersistedArchiverInfo);
-                                log.debug("Updated archiver info in Raft for file {}.", file.getName());
+                                log.debug("Confirmed uploading WAL file with name {} to remote storage in Raft.", file.getName());
                             } else {
                                 log.debug("Will not update archiver info in Raft for file {} because it is not WAL file.", file.getName());
                             }
@@ -165,6 +172,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                             } catch (InterruptedException interruptedException) {
                                 // interrupt only if executor service is shutdown
                                 if (executorService == null || executorService.isShutdown()) {
+                                    log.warn("Interrupting WAL file {} uploading because executor service is shutdown", file.getName());
                                     Thread.currentThread().interrupt();
                                     break;
                                 }
@@ -181,71 +189,110 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     }
 
     private void extractTimelineAndLsn(boolean forceUseLatestServerLsn) throws PostgresContinuousArchivingException {
-        PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
+        if (!forceUseLatestServerLsn) {
+            PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
+            if (postgresPersistedArchiverInfo != null && StringUtils.isNotEmpty(postgresPersistedArchiverInfo.getLastUploadedWal())) {
+                if (postgresPersistedArchiverInfo.getWalSegmentSizeInBytes() != postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()) {
+                    log.warn("Detected that previous WAL segment size was {} while new WAL segment size is {}. " +
+                                    "This most likely means that WAL segment size was changed. " +
+                                    "Will use latest server LSN and restart wal streaming! New backup creation is recommended!",
+                            postgresPersistedArchiverInfo.getWalSegmentSizeInBytes(),
+                            postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
+                    );
+                } else {
+                    long nextWalStartLsn = LogSequenceNumberUtils.getNextWalFileStartLsn(postgresPersistedArchiverInfo.getLastUploadedWal(), postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes());
+                    timeline = LogSequenceNumberUtils.extractTimelineFromWalFileName(postgresPersistedArchiverInfo.getLastUploadedWal());
+                    startLsn = nextWalStartLsn;
+                    return;
+                }
+            }
+        }
 
-        if (!forceUseLatestServerLsn && postgresPersistedArchiverInfo != null && StringUtils.isNotEmpty(postgresPersistedArchiverInfo.getNextWal())) {
-            timeline = LogSequenceNumberUtils.extractTimelineFromWalFileName(postgresPersistedArchiverInfo.getNextWal());
-            startLsn = LogSequenceNumberUtils.getWalFileFirstLsnAsString(postgresPersistedArchiverInfo.getNextWal());
-        } else {
-            PgChannelSimpleQueryExecutorHandler.CommandExecutionResult identifySystemResult = queryExecutor.executeQueryBlocking(
-                    "IDENTIFY_SYSTEM",
-                    -1
-            );
+        // extract using IDENTIFY_SYSTEM
+        PgChannelSimpleQueryExecutorHandler.CommandExecutionResult identifySystemResult = queryExecutor.executeQueryBlocking(
+                "IDENTIFY_SYSTEM",
+                -1
+        );
 
-            switch (identifySystemResult.getStatus()) {
-                case SUCCESS -> {
+        switch (identifySystemResult.getStatus()) {
+            case SUCCESS -> {
+                try {
                     PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(identifySystemResult.getMessageInfos());
                     PgResultSet.PgRow row = resultSet.getRow(0);
 
-                    timeline = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
+                    String timelineStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
+                    timeline = Long.parseLong(timelineStr, 16);
 
                     // extract first lsn of current WAL file
                     String serverFlushLsnStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_X_LOG_POS_COLUMN_NAME));
-                    long serverFlushLsn = LogSequenceNumberUtils.StringToLsn(serverFlushLsnStr);
-                    long serverFlushWalFileFirstLsn = LogSequenceNumberUtils.getFirstLsnInWalFileWithProvidedLsn(serverFlushLsn);
-                    startLsn = LogSequenceNumberUtils.lsnToString(serverFlushWalFileFirstLsn);
+                    long serverFlushLsn = LogSequenceNumberUtils.stringToLsn(serverFlushLsnStr);
+                    long serverFlushWalFileFirstLsn = LogSequenceNumberUtils.getFirstLsnInWalFileWithProvidedLsn(
+                            serverFlushLsn,
+                            postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
+                    );
+                    startLsn = serverFlushWalFileFirstLsn;
+                } catch (Exception e) {
+                    log.error("Exception while trying to extract timeline and latest LSN from Postgres server!", e);
+                    stopContinuousArchiving();
                 }
-                case SERVER_ERROR ->
-                        log.error("Unexpected server error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving! Message from server: {}",
-                                PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(identifySystemResult.getErrorResponse())
-                        );
-                case TIMEOUT ->
-                        log.error("Timeout reached while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!");
-                default ->
-                        log.error("Unexpected client error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!");
             }
+            case SERVER_ERROR ->
+                    log.error("Unexpected server error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving! Message from server: {}",
+                            PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(identifySystemResult.getErrorResponse())
+                    );
+            case TIMEOUT ->
+                    log.error("Timeout reached while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!");
+            case CLIENT_ERROR ->
+                    log.error("Unexpected client error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!", identifySystemResult.getThrowable());
+            default ->
+                    log.error("Unexpected client error while trying to execute IDENTIFY_SYSTEM query to start continuous WAL archiving!");
         }
+
+        if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(identifySystemResult.getStatus())) {
+            stopContinuousArchiving();
+        }
+
     }
 
     private void replicationErrorCallback(PgStreamingReplicationHandler.ReplicationErrorResult result) {
         switch (result.getErrorType()) {
-            case SERVER_ERROR ->
-                    log.error("Unexpected server error during continuous WAL archiving! Message from server: {}",
-                            PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(result.getErrorResponse())
-                    );
+            case SERVER_ERROR -> log.error(
+                    "Unexpected server error during continuous WAL archiving! Message from server: {}",
+                    PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(result.getErrorResponse())
+            );
             case CLIENT_ERROR -> log.error("Unexpected error during continuous WAL archiving!", result.getThrowable());
         }
+        stopContinuousArchiving();
     }
 
     private void replicationNewWalFragmentReceivedCallback(PgStreamingReplicationHandler.WalFragmentReceivedResult result) {
         try {
-            if (!LogSequenceNumberUtils.compareIfBelongsToSameWal(lastWrittenToDiskLsn, result.getFragmentStartLsn())) {
+            boolean newFragmentBelongsToSameWal = LogSequenceNumberUtils.compareIfBelongsToSameWal(
+                    lastWrittenToDiskLsnStart,
+                    result.getFragmentStartLsn(),
+                    postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
+            );
+            // if NOT belongs to same WAL, switch WAL
+            if (!newFragmentBelongsToSameWal) {
                 if (currentWalRandomAccessFile != null) {
                     currentWalRandomAccessFile.close();
 
-                    long lastFileLsn = lastWrittenToDiskLsn;
                     uploadCompletedFile(currentWalFile)
                             .thenRun(
                                     () -> {
                                         if (streamingReplicationHandler != null) {
-                                            streamingReplicationHandler.confirmProcessedLsn(lastFileLsn);
-                                            log.debug("Confirmed uploading LSN {}. Current LSN is {}", lastFileLsn, lastWrittenToDiskLsn);
+                                            streamingReplicationHandler.confirmProcessedLsn(result.getFragmentEndLsn());
+                                            log.debug("Confirmed flushed/applied LSN {} because WAL with such LSN was uploaded.", LogSequenceNumberUtils.lsnToString(result.getFragmentEndLsn()));
                                         }
                                     }
                             );
                 }
 
-                String walFileName = LogSequenceNumberUtils.getWalFileNameForLsn(result.getFragmentStartLsn(), timeline);
+                String walFileName = LogSequenceNumberUtils.getWalFileNameForLsn(
+                        timeline,
+                        result.getFragmentStartLsn(),
+                        postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes()
+                );
 
                 currentWalFile = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + walFileName);
                 currentWalRandomAccessFile = new RandomAccessFile(currentWalFile, "rw");
@@ -256,9 +303,10 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             }
 
             currentWalRandomAccessFile.write(result.getFragment());
-            lastWrittenToDiskLsn = result.getFragmentEndLsn();
+            lastWrittenToDiskLsnStart = result.getFragmentStartLsn();
         } catch (Exception e) {
-            throw new PostgresContinuousArchivingException("Failed to save WAL fragment to file!", e);
+            log.error("Failed to save WAL fragment to file!", e);
+            stopContinuousArchiving();
         }
     }
 
@@ -270,14 +318,15 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
         switch (timelineHistoryResult.getStatus()) {
             case SUCCESS -> {
-                PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(timelineHistoryResult.getMessageInfos());
-                PgResultSet.PgRow row = resultSet.getRow(0);
-
-                String timelineFileName = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_FILENAME_COLUMN_NAME));
-                byte[] timelineFileContent = row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_CONTENT_COLUMN_NAME);
-
-                File timelineFile = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + timelineFileName);
                 try {
+                    PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(timelineHistoryResult.getMessageInfos());
+                    PgResultSet.PgRow row = resultSet.getRow(0);
+
+                    String timelineFileName = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_FILENAME_COLUMN_NAME));
+                    byte[] timelineFileContent = row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_CONTENT_COLUMN_NAME);
+
+                    File timelineFile = new File(filesPathsProducer.getPostgresWalStreamReceiverDirectoryPath() + "/" + timelineFileName);
+
                     RandomAccessFile timelineRandomAccessFile = new RandomAccessFile(timelineFile, "rw");
 
                     timelineRandomAccessFile.seek(0);
@@ -285,22 +334,27 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                     timelineRandomAccessFile.close();
 
                     uploadCompletedFile(timelineFile);
-                } catch (IOException e) {
-                    throw new PostgresContinuousArchivingException("Error while trying to write timeline history file!");
+                    // restart replication
+                    startStreamingReplication();
+                } catch (Exception e) {
+                    log.error("Error while trying to write timeline history file!", e);
+                    stopContinuousArchiving();
                 }
             }
-            case SERVER_ERROR -> {
-                String serverMessage = "no message";
-                if (timelineHistoryResult.getErrorResponse() != null && timelineHistoryResult.getErrorResponse().getMessage() != null) {
-                    serverMessage = timelineHistoryResult.getErrorResponse().getMessage();
-                }
-                throw new PostgresContinuousArchivingException("Unexpected server error while trying to execute TIMELINE_HISTORY query to continue continuous WAL archiving! " +
-                        "Message from server: " + serverMessage);
-            }
+            case SERVER_ERROR -> log.error(
+                    "Unexpected server error while trying to execute TIMELINE_HISTORY query to continue continuous WAL archiving! Message from server: {}",
+                    PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(timelineHistoryResult.getErrorResponse())
+            );
             case TIMEOUT ->
-                    throw new PostgresContinuousArchivingException("Timeout reached while trying to execute TIMELINE_HISTORY query to start continue WAL archiving!");
+                    log.error("Timeout reached while trying to execute TIMELINE_HISTORY query to start continue WAL archiving!");
+            case CLIENT_ERROR ->
+                    log.error("Unexpected client error while trying to execute TIMELINE_HISTORY query to continue WAL archiving!", timelineHistoryResult.getThrowable());
             default ->
-                    throw new PostgresContinuousArchivingException("Unexpected client error while trying to execute TIMELINE_HISTORY query to start continue WAL archiving!");
+                    log.error("Unexpected client error while trying to execute TIMELINE_HISTORY query to continue WAL archiving!");
+        }
+
+        if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(timelineHistoryResult.getStatus())) {
+            stopContinuousArchiving();
         }
     }
 
@@ -332,7 +386,10 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         );
 
         try {
-            success.set(streamingStartLatch.await(archivingProperties.walStreaming().initialDelay().toMillis(), TimeUnit.MILLISECONDS));
+            boolean awaitSuccess = streamingStartLatch.await(archivingProperties.walStreaming().initialDelay().toMillis(), TimeUnit.MILLISECONDS);
+            if (!awaitSuccess && !success.get()) {
+                success.set(false);
+            }
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
             return false;

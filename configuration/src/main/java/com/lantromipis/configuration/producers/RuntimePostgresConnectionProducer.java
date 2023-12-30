@@ -8,13 +8,12 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.exception.PgConnectionInitializationException;
 import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
+import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -100,8 +99,8 @@ public class RuntimePostgresConnectionProducer {
 
         return createNewNettyChannelToInstance(
                 instanceId,
-                postgresProperties.users().pgFacade().username(),
-                postgresProperties.users().pgFacade().password(),
+                postgresProperties.users().replication().username(),
+                postgresProperties.users().replication().password(),
                 parameters
         );
     }
@@ -136,7 +135,6 @@ public class RuntimePostgresConnectionProducer {
                             Channel channel = future.channel();
                             channel.pipeline().remove(EmptyNettyHandler.class);
                             channel.pipeline().addLast(
-                                    new LoggingHandler(this.getClass(), LogLevel.DEBUG),
                                     pgFrontendChannelHandlerProducer.createNewChannelStartupHandler(
                                             pgAuthInfo,
                                             parameters,
@@ -144,6 +142,14 @@ public class RuntimePostgresConnectionProducer {
                                                 if (result.isSuccess()) {
                                                     ret.set(channel);
                                                     countDownLatch.countDown();
+                                                } else {
+                                                    if (result.getErrorResponse() != null) {
+                                                        log.error("Failed to acquire connection for Postgres using Netty! Received error from server: {}",
+                                                                PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(result.getErrorResponse())
+                                                        );
+                                                    } else {
+                                                        log.error("Failed to acquire connection for Postgres using Netty!");
+                                                    }
                                                 }
                                                 countDownLatch.countDown();
                                             }
@@ -160,12 +166,7 @@ public class RuntimePostgresConnectionProducer {
                     throw new PgConnectionInitializationException("Timeout reached while trying to acquire connection for Postgres using Netty!");
                 }
 
-                Channel channel = ret.get();
-                if (channel == null) {
-                    throw new PgConnectionInitializationException("Failed to acquire connection for Postgres using Netty!");
-                }
-
-                return channel;
+                return ret.get();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw e;

@@ -1,6 +1,7 @@
 package com.lantromipis.orchestration.service.impl.raft;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.exception.ConfigurationInitializationException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
@@ -51,6 +52,7 @@ public class RaftFileBasedStorage implements RaftStorage {
     public void init() {
         objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
@@ -143,7 +145,7 @@ public class RaftFileBasedStorage implements RaftStorage {
             if (postgresArchiveInfoFile.length() > 0) {
                 return objectMapper.readValue(postgresArchiveInfoFile, PostgresPersistedArchiverInfo.class);
             } else {
-                return new PostgresPersistedArchiverInfo();
+                return null;
             }
         } catch (Exception e) {
             throw new PropertyReadException("Error while reading archive info from file", e);

@@ -11,5 +11,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PostgresPersistedArchiverInfo {
     private String lastUploadedWal;
-    private String nextWal;
+    // to guarantee full restart of stream after pg_resetwal
+    private long walSegmentSizeInBytes;
 }

@@ -47,7 +47,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private long lastFlushedLsn = LogSequenceNumberUtils.INVALID_LSN;
     private long lastAppliedLsn = LogSequenceNumberUtils.INVALID_LSN;
 
-    private String timeline;
+    private long timeline;
     private String slotName;
     private long updateIntervalMs;
     private ScheduledFuture<?> keepaliveFuture;
@@ -117,8 +117,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     }
 
     public void startPhysicalReplication(final String slotName,
-                                         final String startLsn,
-                                         final String timeline,
+                                         final long startLsn,
+                                         final long timeline,
                                          final long updateIntervalMs,
                                          final Consumer<ReplicationStartResult> startedCallback,
                                          final Consumer<ReplicationErrorResult> errorCallback,
@@ -126,8 +126,9 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
                                          final Consumer<StreamingCompletedResult> streamingCompleted) {
         cleanUp();
 
-        internalByteBuf = initialChannelHandlerContext.alloc().buffer(2048);
-        resourcesFreed = new AtomicBoolean(false);
+        this.internalByteBuf = initialChannelHandlerContext.alloc().buffer(2048);
+        this.resourcesFreed = new AtomicBoolean(false);
+        this.replicationRunning = new AtomicBoolean(false);
 
         this.startedCallback = startedCallback;
         this.errorCallback = errorCallback;
@@ -145,14 +146,12 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         }
 
         query.append(" ").append("PHYSICAL");
-        query.append(" ").append(startLsn);
-        lastReceivedLsn = LogSequenceNumberUtils.StringToLsn(startLsn);
+        query.append(" ").append(LogSequenceNumberUtils.lsnToString(startLsn));
+        query.append(" ").append("TIMELINE").append(" ").append(LogSequenceNumberUtils.timelineToStr(timeline));
+
+        lastReceivedLsn = startLsn;
         lastAppliedLsn = lastReceivedLsn;
         lastFlushedLsn = lastReceivedLsn;
-
-        if (StringUtils.isNotEmpty(timeline)) {
-            query.append(" ").append("TIMELINE").append(" ").append(timeline);
-        }
 
         ByteBuf startReplicationQuery = ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage(query.toString(), initialChannelHandlerContext.alloc());
 
@@ -173,8 +172,8 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     }
 
     public void confirmProcessedLsn(long processed) {
-        if (LogSequenceNumberUtils.compareTwoLsn(lastAppliedLsn, processed) < 0 || LogSequenceNumberUtils.compareTwoLsn(lastFlushedLsn, processed) < 0) {
-            throw new IllegalArgumentException("Confirmed LSN can not be less that already confirmed!");
+        if (LogSequenceNumberUtils.compareTwoLsn(lastAppliedLsn, processed) > 0 || LogSequenceNumberUtils.compareTwoLsn(lastFlushedLsn, processed) > 0) {
+            return;
         }
         lastAppliedLsn = processed;
         lastFlushedLsn = processed;
@@ -305,7 +304,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
         // message processed
         internalByteBuf.clear();
-        log.error("Received error from remote during streaming replication! Code {}, message {}", errorResponse.getCode(), errorResponse.getMessage());
     }
 
     private void handleCopyBothResponseMessage(ByteBuf message, int length) {
@@ -320,12 +318,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         // just skip message because it's useless
         // message processed
         internalByteBuf.clear();
-        startedCallback.accept(ReplicationStartResult
-                .builder()
-                .status(ReplicationStartResult.StartResultStatus.SUCCESS)
-                .build()
-        );
-        replicationRunning.set(true);
     }
 
     private void handelCopyDataMessage(ByteBuf message, int length) {
@@ -334,6 +326,17 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         readingCopyDataMessage = true;
         currentCopyDataMessageStartByte = FAKE_COPY_DATA_MESSAGE_START_BYTE;
         finishedReadingCopyDataMessageStartInfo = false;
+
+        // Replication started normally when first CopyData received
+        if (replicationRunning.compareAndSet(false, true)) {
+            startedCallback.accept(
+                    ReplicationStartResult
+                            .builder()
+                            .status(ReplicationStartResult.StartResultStatus.SUCCESS)
+                            .build()
+            );
+        }
+
         // message processed
         internalByteBuf.clear();
     }
@@ -455,6 +458,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
         cleanUp();
         HandlerUtils.closeOnFlush(ctx.channel());
+        log.info("REPLICATION CHANNEL INACTIVE");
     }
 
     @Override

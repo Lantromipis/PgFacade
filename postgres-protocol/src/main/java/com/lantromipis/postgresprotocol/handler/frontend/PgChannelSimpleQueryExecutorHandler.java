@@ -45,6 +45,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         private CommandExecutionResultStatus status;
         private Deque<PgMessageInfo> messageInfos;
         private ErrorResponse errorResponse;
+        private Throwable throwable;
     }
 
     public enum CommandExecutionResultStatus {
@@ -107,11 +108,14 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         }
     }
 
-    private void invokeCallback(CommandExecutionResult commandExecutionResult) {
+    private boolean invokeCallback(CommandExecutionResult commandExecutionResult) {
         if (responseCallback != null && responseFulfilled != null && responseFulfilled.compareAndSet(false, true)) {
             responseCallback.accept(commandExecutionResult);
             responseCallback = null;
+            return true;
         }
+
+        return false;
     }
 
     @Override
@@ -181,14 +185,17 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        log.error("Exception in PgChannelSimpleQueryExecutorHandler ", cause);
-
-        invokeCallback(
+        boolean invoked = invokeCallback(
                 CommandExecutionResult
                         .builder()
                         .status(CommandExecutionResultStatus.CLIENT_ERROR)
+                        .throwable(cause)
                         .build()
         );
+
+        if (!invoked) {
+            log.error("Exception in PgChannelSimpleQueryExecutorHandler ", cause);
+        }
         HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
 }

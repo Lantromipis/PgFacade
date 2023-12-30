@@ -58,7 +58,8 @@ public class PgChannelStartupHandler extends AbstractPgFrontendChannelHandler {
         AuthenticationRequestMessage authenticationRequestMessage = ServerPostgresProtocolMessageDecoder.decodeAuthRequestMessage(message);
 
         if (!Objects.equals(authenticationRequestMessage.getMethod(), pgAuthInfo.getExpectedAuthMethod())) {
-            log.error("Can not create pooled connection. Expected auth method: " + pgAuthInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
+            log.error("Can not create new Postgres connection. Expected auth method: " + pgAuthInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
+            callbackFunction.accept(new PgChannelAuthResult(false));
             closeConnection(ctx);
             return;
         }
@@ -71,7 +72,6 @@ public class PgChannelStartupHandler extends AbstractPgFrontendChannelHandler {
         );
 
         ctx.channel().pipeline().remove(this);
-
         ctx.channel().read();
     }
 

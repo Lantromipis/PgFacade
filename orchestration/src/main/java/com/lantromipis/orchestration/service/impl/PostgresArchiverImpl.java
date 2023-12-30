@@ -5,10 +5,12 @@ import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.BackupCreationException;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
 import com.lantromipis.orchestration.service.api.PostgresArchiver;
 import com.lantromipis.orchestration.service.api.PostgresContinuousArchivingService;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
@@ -46,6 +48,9 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
     @Inject
     PostgresContinuousArchivingService postgresContinuousArchivingService;
+
+    @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
 
     private boolean archiverActiveAndIsLeader = false;
     private boolean archiverInitialized = false;
@@ -88,7 +93,10 @@ public class PostgresArchiverImpl implements PostgresArchiver {
             return;
         }
 
+        checkIfArchiverInfoExistsAndIsCorrect();
+
         postgresContinuousArchivingService.startContinuousArchiving(false);
+
         checkBackupsState();
 
         archiverActiveAndIsLeader = true;
@@ -223,7 +231,12 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         if (archivingProperties.walStreaming().faultTolerance().createNewBackupInCaseOfForceRetry()) {
             log.info("Force creating new backup because continuous WAL archiving was restarted for last known LSN");
-            // TODO create new backup
+            // TODO async + guarantee that backup will be created
+            try {
+                createAndUploadBackup();
+            } catch (Exception e) {
+                log.error("Failed to upload backup!");
+            }
         } else {
             log.warn("Restarted continuous WAL archiving using last known LSN, but configuration prohibits to create new backup. Data might be lost!");
         }
@@ -237,5 +250,21 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     public void listenToSwitchoverStartedEvent(@Observes SwitchoverCompletedEvent switchoverCompletedEvent) {
         switchoverInProgress.set(false);
         postgresContinuousArchivingService.startContinuousArchiving(false);
+    }
+
+    private void checkIfArchiverInfoExistsAndIsCorrect() {
+        PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
+
+        if (postgresPersistedArchiverInfo == null) {
+            postgresPersistedArchiverInfo = new PostgresPersistedArchiverInfo();
+            postgresPersistedArchiverInfo.setWalSegmentSizeInBytes(postgresPersistedArchiverInfo.getWalSegmentSizeInBytes());
+            raftFunctionalityCombinator.saveArchiverInfoInRaft(postgresPersistedArchiverInfo);
+            return;
+        }
+
+        if (postgresPersistedArchiverInfo.getWalSegmentSizeInBytes() == 0) {
+            postgresPersistedArchiverInfo.setWalSegmentSizeInBytes(postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes());
+            raftFunctionalityCombinator.saveArchiverInfoInRaft(postgresPersistedArchiverInfo);
+        }
     }
 }

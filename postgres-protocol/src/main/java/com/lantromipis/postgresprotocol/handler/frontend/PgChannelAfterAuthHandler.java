@@ -1,21 +1,30 @@
 package com.lantromipis.postgresprotocol.handler.frontend;
 
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
+import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.PgChannelAuthResult;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
+import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
+import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+@Slf4j
 public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler {
 
     private final Consumer<PgChannelAuthResult> callbackFunction;
     private final Deque<PgMessageInfo> pgMessageInfos;
     private ByteBuf leftovers = null;
+    private AtomicBoolean resourcesFreed = new AtomicBoolean(false);
 
     public PgChannelAfterAuthHandler(final Consumer<PgChannelAuthResult> callbackFunction) {
         this.callbackFunction = callbackFunction;
@@ -23,9 +32,20 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
     }
 
     @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        super.handlerRemoved(ctx);
+        if (resourcesFreed.compareAndSet(false, true)) {
+            if (leftovers != null) {
+                leftovers.release();
+            }
+            DecoderUtils.freeMessageInfos(pgMessageInfos);
+        }
+    }
+
+    @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        ctx.channel().read();
         super.handlerAdded(ctx);
+        ctx.channel().read();
     }
 
     @Override
@@ -40,7 +60,16 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
         leftovers = newLeftovers;
 
         if (DecoderUtils.containsMessageOfTypeReversed(pgMessageInfos, PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
-            callbackFunction.accept(new PgChannelAuthResult(false));
+            AtomicReference<ErrorResponse> errorResponse = new AtomicReference<>(null);
+            DecoderUtils.processSplitMessages(pgMessageInfos, pgMessageInfo -> {
+                        if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR) {
+                            errorResponse.set(ServerPostgresProtocolMessageDecoder.decodeErrorResponse(pgMessageInfo.getEntireMessage()));
+                            return true;
+                        }
+                        return false;
+                    }
+            );
+            callbackFunction.accept(new PgChannelAuthResult(errorResponse.get()));
             ctx.channel().pipeline().remove(this);
             return;
         }
@@ -69,14 +98,16 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
 
             ctx.channel().pipeline().remove(this);
             callbackFunction.accept(new PgChannelAuthResult(containsAuthOk, pgMessageInfos));
-
-            if (leftovers != null) {
-                leftovers.release();
-            }
-            DecoderUtils.freeMessageInfos(pgMessageInfos);
             return;
         }
 
         ctx.channel().read();
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.error("Exception during final stage of Postgres channel auth!", cause);
+        callbackFunction.accept(new PgChannelAuthResult(false));
+        HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
 }
