@@ -172,6 +172,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                             raftFunctionalityCombinator.testIfAbleToCommitToRaft();
                             archiverAdapter.get().uploadWalFile(file);
 
+                            log.info("WAL file with name {} was completed and uploaded to remote storage", file.getName());
+
                             if (LogSequenceNumberUtils.isWalFileName(file.getName())) {
                                 PostgresPersistedArchiverInfo postgresPersistedArchiverInfo = raftFunctionalityCombinator.getArchiveInfo();
 
@@ -337,7 +339,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 currentWalRandomAccessFile.setLength(postgresSettingsRuntimeProperties.getWalSegmentSizeInBytes());
                 currentWalRandomAccessFile.seek(0);
 
-                log.debug("Switched streaming replication WAL file to {}", walFileName);
+                log.info("Started streaming replication of WAL file {}", walFileName);
             }
 
             currentWalRandomAccessFile.write(result.getFragment(), 0, result.getFragmentLength());
