@@ -110,6 +110,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
                 frontendConnectionState.getPgMessageInfos(),
                 ctx.alloc()
         );
+        message.readerIndex(0);
         frontendConnectionState.replacePevMessageLeftovers(newLeftovers);
 
         PgMessageInfo pgMessageInfo = frontendConnectionState.getPgMessageInfos().poll();
