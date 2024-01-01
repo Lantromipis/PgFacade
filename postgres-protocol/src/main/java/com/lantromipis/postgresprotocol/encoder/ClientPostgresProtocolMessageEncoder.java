@@ -108,4 +108,13 @@ public class ClientPostgresProtocolMessageEncoder {
 
         return buf;
     }
+
+    public static ByteBuf encodeCopyDoneMessage(ByteBufAllocator allocator) {
+        ByteBuf ret = allocator.buffer(PostgresProtocolGeneralConstants.MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT);
+
+        ret.writeByte(PostgresProtocolGeneralConstants.COPY_DONE_START_CHAR);
+        ret.writeInt(PostgresProtocolGeneralConstants.MESSAGE_LENGTH_BYTES_COUNT);
+
+        return ret;
+    }
 }

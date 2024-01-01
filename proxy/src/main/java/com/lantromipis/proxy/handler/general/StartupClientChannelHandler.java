@@ -1,12 +1,12 @@
 package com.lantromipis.proxy.handler.general;
 
-import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.decoder.ClientPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
-import com.lantromipis.postgresprotocol.utils.ErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.proxy.auth.ProxyAuthProcessor;
 import com.lantromipis.proxy.auth.ScramSha256AuthProcessor;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
@@ -52,12 +52,12 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
             processMessageBeforeStartupMessage(ctx, message);
             ctx.channel().read();
         } else {
-            PoolAuthInfo poolAuthInfo = proxyAuthProcessor.processAuth(ctx, message);
+            PgAuthInfo pgAuthInfo = proxyAuthProcessor.processAuth(ctx, message);
 
-            if (poolAuthInfo != null) {
+            if (pgAuthInfo != null) {
                 proxyChannelHandlersProducer.getNewSessionPooledConnectionHandlerByCallback(
                         startupMessage,
-                        poolAuthInfo,
+                        pgAuthInfo,
                         handler -> {
                             ctx.channel().pipeline().addLast(handler);
                             ctx.channel().pipeline().remove(this);
@@ -131,7 +131,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     private void forceCloseConnectionWithAuthError(String username) {
         ChannelHandlerContext ctx = getInitialChannelHandlerContext();
-        HandlerUtils.closeOnFlush(ctx.channel(), ErrorMessageUtils.getAuthFailedForUserErrorMessage(username, ctx.alloc()));
+        HandlerUtils.closeOnFlush(ctx.channel(), PostgresErrorMessageUtils.getAuthFailedForUserErrorMessage(username, ctx.alloc()));
         setActive(false);
     }
 

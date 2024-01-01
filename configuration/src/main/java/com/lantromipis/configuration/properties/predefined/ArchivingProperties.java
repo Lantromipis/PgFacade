@@ -18,11 +18,22 @@ public interface ArchivingProperties {
     WalStreamingProperties walStreaming();
 
     interface WalStreamingProperties {
-        int uploadWalRetries();
 
-        Duration retryUploadWalFilesInterval();
+        Duration keepaliveInterval();
+
+        Duration initialDelay();
+
+        Duration queryTimeout();
+
+        ReplicationSlotProperties replicationSlot();
 
         WalFaultToleranceProperties faultTolerance();
+
+        interface ReplicationSlotProperties {
+            boolean enabled();
+
+            String name();
+        }
 
         interface WalFaultToleranceProperties {
             Duration streamingActiveCheckInterval();

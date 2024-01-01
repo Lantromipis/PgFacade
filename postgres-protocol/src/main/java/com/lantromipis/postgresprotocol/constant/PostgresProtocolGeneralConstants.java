@@ -15,6 +15,7 @@ public class PostgresProtocolGeneralConstants {
     public static final byte[] ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE = "N".getBytes();
     public static final String STARTUP_PARAMETER_USER = "user";
     public static final String STARTUP_PARAMETER_DATABASE = "database";
+    public static final String STARTUP_PARAMETER_REPLICATION = "replication";
 
     //message start chars
     public static final byte AUTH_REQUEST_START_CHAR = 'R';
@@ -23,6 +24,13 @@ public class PostgresProtocolGeneralConstants {
     public static final byte READY_FOR_QUERY_MESSAGE_START_CHAR = 'Z';
     public static final byte CLIENT_TERMINATION_MESSAGE_START_CHAR = 'X';
     public static final byte CLIENT_PASSWORD_RESPONSE_START_CHAR = 'p';
+    public static final byte ROW_DESCRIPTION_START_CHAR = 'T';
+    public static final byte DATA_ROW_START_CHAR = 'D';
+    public static final byte COMMAND_COMPLETE_START_CHAR = 'C';
+    public static final byte COPY_BOTH_RESPONSE_START_CHAR = 'W';
+
+    public static final byte COPY_DATA_START_CHAR = 'd';
+    public static final byte COPY_DONE_START_CHAR = 'c';
 
     public static final byte QUERY_MESSAGE_START_BYTE = 'Q';
     public static final byte PARSE_MESSAGE_START_BYTE = 'P';

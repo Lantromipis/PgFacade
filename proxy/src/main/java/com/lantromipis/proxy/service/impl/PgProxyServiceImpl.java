@@ -1,6 +1,9 @@
 package com.lantromipis.proxy.service.impl;
 
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
+import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
+import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
 import com.lantromipis.proxy.initializer.PooledProxyChannelInitializer;
 import com.lantromipis.proxy.initializer.UnpooledProxyChannelInitializer;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
@@ -40,6 +43,15 @@ public class PgProxyServiceImpl implements PgProxyService {
     @Inject
     @Named("boss")
     EventLoopGroup bossGroup;
+
+    @Inject
+    ClusterRuntimeProperties clusterRuntimeProperties;
+
+    @Inject
+    PgFrontendChannelHandlerProducer pgFrontendChannelHandlerProducer;
+
+    @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
 
     private ChannelFuture primaryProxyChannelFuture, standbyProxyChannelFuture;
 

@@ -4,14 +4,16 @@ import com.lantromipis.configuration.event.*;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
+import com.lantromipis.configuration.utils.EmptyNettyHandler;
 import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.common.EmptyHandler;
 import com.lantromipis.connectionpool.model.*;
-import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
+import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -52,7 +54,13 @@ public class ConnectionPoolImpl implements ConnectionPool {
     ClusterRuntimeProperties clusterRuntimeConfiguration;
 
     @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
+
+    @Inject
     ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
+
+    @Inject
+    PgFrontendChannelHandlerProducer pgFrontendChannelHandlerProducer;
 
     @Inject
     @Named("worker")
@@ -72,21 +80,21 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
     @Override
     public void initialize() {
-        primaryConnectionsStorage = new PostgresInstancePooledConnectionsStorage(clusterRuntimeConfiguration.getMaxPostgresConnections());
+        primaryConnectionsStorage = new PostgresInstancePooledConnectionsStorage(postgresSettingsRuntimeProperties.getMaxPostgresConnections());
         primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
         poolActive.set(true);
     }
 
     @Override
-    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, PoolAuthInfo poolAuthInfo, Consumer<PooledConnectionWrapper> readyCallback) {
+    public void getPostgresConnection(StartupMessageInfo startupMessageInfo, boolean primary, PgAuthInfo pgAuthInfo, Consumer<PooledConnectionWrapper> readyCallback) {
         if (primary) {
             log.debug("Primary connection requested.");
-            getConnection(startupMessageInfo, poolAuthInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
+            getConnection(startupMessageInfo, pgAuthInfo, primaryBootstrap, primaryConnectionsStorage, readyCallback);
         } else {
             log.debug("Standby connection requested.");
             StandbyPostgresPoolWrapper wrapper = getLeastLoadedStandbyStorage();
             if (wrapper != null) {
-                getConnection(startupMessageInfo, poolAuthInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
+                getConnection(startupMessageInfo, pgAuthInfo, wrapper.getStandbyBootstrap(), wrapper.getStorage(), readyCallback);
             } else {
                 readyCallback.accept(null);
             }
@@ -144,7 +152,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         }
     }
 
-    private void getConnection(StartupMessageInfo startupMessageInfo, PoolAuthInfo poolAuthInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
+    private void getConnection(StartupMessageInfo startupMessageInfo, PgAuthInfo pgAuthInfo, Bootstrap instanceBootstrap, PostgresInstancePooledConnectionsStorage storage, Consumer<PooledConnectionWrapper> readyCallback) {
         if (!poolActive.get()) {
             readyCallback.accept(null);
             return;
@@ -216,7 +224,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
             if (future.isSuccess()) {
                 Channel channel = future.channel();
 
-                channel.pipeline().remove(EmptyHandler.class);
+                channel.pipeline().remove(EmptyNettyHandler.class);
                 AtomicBoolean finished = new AtomicBoolean(false);
 
                 ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
@@ -235,9 +243,9 @@ public class ConnectionPoolImpl implements ConnectionPool {
 
                 channel.pipeline().addLast(
                         //new LoggingHandler(this.getClass(), LogLevel.DEBUG),
-                        connectionPoolChannelHandlerProducer.createNewChannelStartupHandler(
-                                poolAuthInfo,
-                                startupMessageInfo,
+                        pgFrontendChannelHandlerProducer.createNewChannelStartupHandler(
+                                pgAuthInfo,
+                                startupMessageInfo.getParameters(),
                                 result -> {
                                     if (finished.compareAndSet(false, true)) {
                                         cancelFuture.cancel(false);
@@ -290,11 +298,11 @@ public class ConnectionPoolImpl implements ConnectionPool {
         });
     }
 
-    public void listenToMaxConnectionsChangedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) MaxConnectionsChangedEvent maxConnectionsChangedEvent) {
+    public void listenToMaxConnectionsChangedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) PostgresSettingsUpdatedEvent postgresSettingsUpdatedEvent) {
         if (primaryConnectionsStorage == null) {
             return;
         }
-        primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
+        primaryConnectionsStorage.setMaxConnections(postgresSettingsRuntimeProperties.getMaxPostgresConnections());
     }
 
     public void listenToSwitchoverStartedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverStartedEvent switchoverStartedEvent) {
@@ -305,7 +313,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
     public void listenToSwitchoverCompletedEvent(@Observes(notifyObserver = Reception.IF_EXISTS) SwitchoverCompletedEvent switchoverCompletedEvent) {
         if (switchoverCompletedEvent.isSuccess()) {
             primaryBootstrap = createInstanceBootstrap(clusterRuntimeConfiguration.getPrimaryInstanceInfo());
-            primaryConnectionsStorage.setMaxConnections(clusterRuntimeConfiguration.getMaxPostgresConnections());
+            primaryConnectionsStorage.setMaxConnections(postgresSettingsRuntimeProperties.getMaxPostgresConnections());
         }
         primaryConnectionsStorage.removeAllConnections().forEach(HandlerUtils::closeOnFlush);
         switchoverInProgress.set(false);
@@ -323,7 +331,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 StandbyPostgresPoolWrapper
                         .builder()
                         .standbyBootstrap(createInstanceBootstrap(info))
-                        .storage(new PostgresInstancePooledConnectionsStorage(clusterRuntimeConfiguration.getMaxPostgresConnections()))
+                        .storage(new PostgresInstancePooledConnectionsStorage(postgresSettingsRuntimeProperties.getMaxPostgresConnections()))
                         .build()
         );
     }
@@ -434,7 +442,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
         bootstrap.group(workerGroup)
                 .channel(Epoll.isAvailable() ? EpollSocketChannel.class : NioSocketChannel.class)
                 .option(ChannelOption.AUTO_READ, false)
-                .handler(new EmptyHandler())
+                .handler(new EmptyNettyHandler())
                 .remoteAddress(
                         instanceInfo.getAddress(),
                         instanceInfo.getPort()

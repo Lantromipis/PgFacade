@@ -4,9 +4,9 @@ import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
+import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
 import com.lantromipis.proxy.handler.proxy.client.NoPoolProxyClientHandler;
@@ -49,7 +49,7 @@ public class ProxyChannelHandlersProducer {
     }
 
     public void getNewSessionPooledConnectionHandlerByCallback(StartupMessage startupMessage,
-                                                               PoolAuthInfo poolAuthInfo,
+                                                               PgAuthInfo pgAuthInfo,
                                                                Consumer<PooledFrontendProxyChannelHandler> createdCallback,
                                                                boolean primaryConnection
     ) {
@@ -63,7 +63,7 @@ public class ProxyChannelHandlersProducer {
         connectionPool.getPostgresConnection(
                 startupMessageInfo,
                 primaryConnection,
-                poolAuthInfo,
+                pgAuthInfo,
                 pooledConnectionWrapper -> {
                     PooledFrontendProxyChannelHandler handler = new PooledFrontendProxyChannelHandler(
                             pooledConnectionWrapper,

@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class MessageInfo {
+public class PgMessageInfo {
     private byte startByte;
     private ByteBuf entireMessage;
 

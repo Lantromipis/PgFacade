@@ -1,10 +1,9 @@
 package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
+import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
-import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.constant.PostgresConstants;
 import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
 import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
@@ -31,40 +30,8 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
     @Inject
     PlatformAdapter platformAdapter;
-
-    @Inject
-    ClusterRuntimeProperties clusterRuntimeProperties;
-
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
-
-    @Override
-    public void initialize() {
-        try {
-            Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary();
-            ResultSet pgSettingsResultSet = connection.createStatement().executeQuery("SELECT name, setting, context FROM pg_settings");
-
-            Map<String, String> settingNameToValue = new HashMap<>();
-
-            while (pgSettingsResultSet.next()) {
-                String settingName = pgSettingsResultSet.getString("name");
-                String settingValue = pgSettingsResultSet.getString("setting");
-
-                settingNameToValue.put(settingName, settingValue);
-            }
-
-            // set connection limit
-            int maxConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME));
-            int superuserReservedConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME));
-            clusterRuntimeProperties.setMaxPostgresConnections(maxConnections - superuserReservedConnections);
-
-            clusterRuntimeProperties.setPostgresVersion(extractPostgresVersion(connection));
-
-            connection.close();
-        } catch (Exception e) {
-            log.error("Error during configurator initialization.", e);
-        }
-    }
 
     @Override
     public boolean validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck) throws PostgresConfigurationCheckException {
@@ -261,15 +228,5 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
         resultSet.next();
 
         return resultSet.getString(1) + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
-    }
-
-    private double extractPostgresVersion(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("show server_version");
-        resultSet.next();
-        String showVersionResult = resultSet.getString(1);
-        Matcher matcher = PostgresConstants.SHOW_SERVER_VERSION_PATTERN.matcher(showVersionResult);
-        matcher.matches();
-
-        return Double.parseDouble(matcher.group(1).trim());
     }
 }

@@ -1,6 +1,6 @@
 package com.lantromipis.proxy.auth;
 
-import com.lantromipis.connectionpool.model.auth.PoolAuthInfo;
+import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 
@@ -13,5 +13,5 @@ public interface ProxyAuthProcessor {
      * @return object containing info for pool to authenticate user or null if auth not completed
      * @throws Exception if something went wrong
      */
-    PoolAuthInfo processAuth(ChannelHandlerContext ctx, ByteBuf message) throws Exception;
+    PgAuthInfo processAuth(ChannelHandlerContext ctx, ByteBuf message) throws Exception;
 }

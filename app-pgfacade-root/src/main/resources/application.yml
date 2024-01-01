@@ -7,6 +7,9 @@ pg-facade:
     follower-startup-healthcheck:
       interval-ms: 100
       timeout: PT60S
+  buffers:
+    thread-local-byte-array-size: 65537
+    thread-local-byte-buf-size: 65537
   shutdown:
     await-clients: false
     wait-for-clients-duration: PT30S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
@@ -83,18 +86,22 @@ pg-facade:
     enabled: true
     adapter: s3
     basebackup:
-      create-interval: PT60M
-      list-backups-interval: PT1M
+      create-interval: PT12H
+      list-backups-interval: PT5M
       clean-up:
         remove-old: true
-        keep-old-interval: PT180M
+        keep-old-interval: PT24H
         remove-old-wal-files-when-removing: true
     wal-streaming:
-      upload-wal-retries: 5
-      retry-upload-wal-files-interval: PT1M
+      keepalive-interval: PT5S
+      initial-delay: PT3S
+      query-timeout: PT5S
+      replication-slot:
+        enabled: true
+        name: pgfacade
       fault-tolerance:
-        streaming-active-check-interval: PT3S
-        max-unsuccessful-retries-before-force-restart: 5 # rarely pg_receivewal stuck after switchover, because new primary did not receive last WAL, but pg_receivewal did. Because of that PgFacade clears WAL streaming directory and restarts WAL streaming. All files (even not saved) are removed! Recommended to use with move-wal-after-completion = true
+        streaming-active-check-interval: PT5S
+        max-unsuccessful-retries-before-force-restart: 5 # Force restart streaming using latest  Recommended to use with move-wal-after-completion = true
         create-new-backup-in-case-of-force-retry: true
     s3:
       protocol: http
@@ -107,7 +114,7 @@ pg-facade:
       wal-bucket: pgfacade
   postgres:
     default-settings:
-      max-wal-keep-count: 32  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
+      max-wal-keep-count: 8  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       pg-facade:
         username: pgfacade
@@ -148,7 +155,11 @@ quarkus:
   quarkus:
     log:
       category:
+        "com.lantromipis.configuration":
+          level: DEBUG
         "com.lantromipis.orchestration":
+          level: DEBUG
+        "com.lantromipis.postgresprotocol":
           level: DEBUG
         "com.lantromipis.proxy.initializer":
           min-level: TRACE

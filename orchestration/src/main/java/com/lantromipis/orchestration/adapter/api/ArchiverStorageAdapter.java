@@ -1,7 +1,7 @@
 package com.lantromipis.orchestration.adapter.api;
 
-import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.DownloadException;
+import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.UploadException;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.model.WalFileDownload;
@@ -15,7 +15,7 @@ import java.util.List;
  * Interface for any archiver storage adapter. Different implementations allow PgFacade to use different systems to store backups and WAL files.
  * For example, S3, FTP etc.
  * <p>
- * For easiness, PgFacade references backups by their creation Instance.
+ * For easiness, PgFacade references backups by their creation Instance and first required WAL.
  */
 public interface ArchiverStorageAdapter {
 
@@ -54,11 +54,10 @@ public interface ArchiverStorageAdapter {
     /**
      * Uploads WAL file to storage.
      *
-     * @param file        WAL file to upload. Will NOT be closed after completion.
-     * @param createdWhen timestamp of creation for point-in-time recovery
+     * @param file WAL file to upload. Will NOT be closed after completion.
      * @throws UploadException if something went wrong and upload failed
      */
-    void uploadWalFile(File file, Instant createdWhen) throws UploadException;
+    void uploadWalFile(File file) throws UploadException;
 
     /**
      * Downloads WAL file by its name

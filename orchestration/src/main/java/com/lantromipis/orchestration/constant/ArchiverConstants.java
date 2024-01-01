@@ -8,10 +8,6 @@ import java.util.regex.Pattern;
 public class ArchiverConstants {
     public static final Pattern WAL_FILE_NAME_PATTERN = Pattern.compile("[0-9a-fA-F]{24}");
 
-    public static final String PARTIAL_WAL_FILE_ENDING = ".partial";
-    public static final String TMP_HISTORY_FILE_ENDING = ".tmp";
-    public static final String HISTORY_FILE_ENDING = ".history";
-
     // S3
     public static final String S3_BACKUP_PREFIX = "backup";
     public static final String S3_WAL_PREFIX = "wal";

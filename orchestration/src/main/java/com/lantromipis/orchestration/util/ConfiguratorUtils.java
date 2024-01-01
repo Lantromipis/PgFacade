@@ -1,7 +1,7 @@
 package com.lantromipis.orchestration.util;
 
+import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.constant.PostgresConstants;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;

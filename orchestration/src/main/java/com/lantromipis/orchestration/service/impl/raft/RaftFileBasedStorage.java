@@ -1,13 +1,14 @@
 package com.lantromipis.orchestration.service.impl.raft;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.exception.ConfigurationInitializationException;
 import com.lantromipis.configuration.exception.PropertyModificationException;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiveInfo;
+import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import com.lantromipis.pgfacadeprotocol.model.api.SnapshotChunk;
@@ -51,6 +52,7 @@ public class RaftFileBasedStorage implements RaftStorage {
     public void init() {
         objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
         postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
@@ -137,13 +139,13 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
-    public PostgresPersistedArchiveInfo getArchiveInfo() throws PropertyReadException {
+    public PostgresPersistedArchiverInfo getArchiveInfo() throws PropertyReadException {
         try {
             postgresArchiveInfoFileModificationLock.lock();
             if (postgresArchiveInfoFile.length() > 0) {
-                return objectMapper.readValue(postgresArchiveInfoFile, PostgresPersistedArchiveInfo.class);
+                return objectMapper.readValue(postgresArchiveInfoFile, PostgresPersistedArchiverInfo.class);
             } else {
-                return new PostgresPersistedArchiveInfo();
+                return null;
             }
         } catch (Exception e) {
             throw new PropertyReadException("Error while reading archive info from file", e);
@@ -153,7 +155,7 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
-    public void saveArchiveInfo(PostgresPersistedArchiveInfo info) throws PropertyModificationException {
+    public void saveArchiveInfo(PostgresPersistedArchiverInfo info) throws PropertyModificationException {
         try {
             postgresArchiveInfoFileModificationLock.lock();
             objectMapper.writeValue(postgresArchiveInfoFile, info);

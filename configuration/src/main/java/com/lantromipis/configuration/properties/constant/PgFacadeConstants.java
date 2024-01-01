@@ -12,9 +12,7 @@ public class PgFacadeConstants {
 
     public static final String PG_FACADE_PERSISTED_PROPERTIES_DIR = "stored";
 
-    public static final String POSTGRES_WAL_STREAM_DIRECTORY_NAME = "wal-stream";
-
-    public static final String POSTGRES_WAL_UPLOAD_DIRECTORY_NAME = "wal-upload";
+    public static final String POSTGRES_WAL_STREAM_DIRECTORY_NAME = "wal-receiver";
 
     public static final String PG_FACADE_FILES_DIR = "/var/run/pgfacade";
     public static final String POSTGRES_NODE_INFO_FILE_NAME = "postgres-nodes-info.json";

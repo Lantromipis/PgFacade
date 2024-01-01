@@ -1,7 +1,7 @@
 package com.lantromipis.proxy.model;
 
 import com.lantromipis.connectionpool.model.PooledConnectionWrapper;
-import com.lantromipis.postgresprotocol.model.internal.MessageInfo;
+import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import lombok.AllArgsConstructor;
@@ -33,7 +33,7 @@ public class FrontendConnectionState {
     private Channel standbyChannel;
 
     private ByteBuf prevMessageLeftovers;
-    private Deque<MessageInfo> messageInfos;
+    private Deque<PgMessageInfo> pgMessageInfos;
 
     private ExtendedProtocolStage extendedProtocolStage;
 

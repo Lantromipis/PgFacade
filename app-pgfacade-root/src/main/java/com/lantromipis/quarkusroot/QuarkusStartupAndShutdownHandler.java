@@ -8,11 +8,11 @@ import com.lantromipis.configuration.properties.predefined.OrchestrationProperti
 import com.lantromipis.configuration.properties.predefined.ShutdownProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
-import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.proxy.service.impl.PgProxyServiceImpl;
 import com.lantromipis.quarkusroot.validator.ConfigurationValidator;
@@ -84,7 +84,7 @@ public class QuarkusStartupAndShutdownHandler {
     OrchestrationProperties orchestrationProperties;
 
     @Inject
-    PostgresConfigurator postgresConfigurator;
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
 
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
@@ -180,7 +180,7 @@ public class QuarkusStartupAndShutdownHandler {
         log.info("PgFacade was shut down.");
     }
 
-    private void initializeForNoAdapter() {
+    private void initializeForNoAdapter() throws Exception {
         UUID instanceId = UUID.randomUUID();
 
         // Add single Postgres instance to properties
@@ -196,7 +196,7 @@ public class QuarkusStartupAndShutdownHandler {
         );
 
         // Set runtime properties
-        postgresConfigurator.initialize();
+        postgresSettingsRuntimeProperties.reload();
         pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.RAFT_DISABLED);
 
         userAuthInfoProvider.initialize();

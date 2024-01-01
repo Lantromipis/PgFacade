@@ -1,17 +1,16 @@
-package com.lantromipis.connectionpool.handler.auth;
+package com.lantromipis.postgresprotocol.handler.frontend.auth;
 
-import com.lantromipis.connectionpool.handler.ConnectionPoolChannelHandlerProducer;
-import com.lantromipis.connectionpool.handler.common.AbstractConnectionPoolClientHandler;
-import com.lantromipis.connectionpool.model.PgChannelAuthResult;
-import com.lantromipis.connectionpool.model.StartupMessageInfo;
-import com.lantromipis.connectionpool.model.auth.ScramPoolAuthInfo;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolScramConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
+import com.lantromipis.postgresprotocol.handler.frontend.AbstractPgFrontendChannelHandler;
+import com.lantromipis.postgresprotocol.model.internal.PgChannelAuthResult;
+import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationSASLContinue;
 import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthenticationMethod;
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
+import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
 import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import io.netty.buffer.ByteBuf;
@@ -19,6 +18,7 @@ import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -26,7 +26,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
-public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolClientHandler {
+public class PgChannelSaslScramSha256AuthHandler extends AbstractPgFrontendChannelHandler {
 
     private enum SaslAuthStatus {
         NOT_STARTED,
@@ -34,27 +34,22 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
         LAST_CLIENT_MESSAGE_SENT
     }
 
-    private SaslAuthStatus saslAuthStatus = SaslAuthStatus.NOT_STARTED;
-
-    private String clientNonce;
+    private final String clientNonce;
     private String clientFirstMessageBare;
 
-    private ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer;
-    private ScramPoolAuthInfo scramAuthInfo;
-    private StartupMessageInfo startupMessageInfo;
-    private Consumer<PgChannelAuthResult> callbackFunction;
+    private final PgFrontendChannelHandlerProducer connectionPoolChannelHandlerProducer;
+    private final ScramPgAuthInfo scramAuthInfo;
+    private final Consumer<PgChannelAuthResult> callbackFunction;
 
     private SaslAuthStatus authStatus = SaslAuthStatus.NOT_STARTED;
 
-    public PgChannelSaslScramSha256AuthHandler(final ConnectionPoolChannelHandlerProducer connectionPoolChannelHandlerProducer,
-                                               final ScramPoolAuthInfo scramAuthInfo,
-                                               final StartupMessageInfo startupMessageInfo,
+    public PgChannelSaslScramSha256AuthHandler(final PgFrontendChannelHandlerProducer connectionPoolChannelHandlerProducer,
+                                               final ScramPgAuthInfo scramAuthInfo,
                                                final Consumer<PgChannelAuthResult> callbackFunction) {
         this.clientNonce = UUID.randomUUID().toString();
 
         this.connectionPoolChannelHandlerProducer = connectionPoolChannelHandlerProducer;
         this.scramAuthInfo = scramAuthInfo;
-        this.startupMessageInfo = startupMessageInfo;
         this.callbackFunction = callbackFunction;
     }
 
@@ -102,10 +97,35 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractConnectionPoolC
             String authMessage = clientFirstMessageBare + "," + saslContinue.getSaslMechanismSpecificData() + "," + clientFinalMessageWithoutProof;
             byte[] authMessageBytes = authMessage.getBytes(StandardCharsets.US_ASCII);
 
-            byte[] clientKey = scramAuthInfo.getClientKey();
-            byte[] storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
+            byte[] clientKey;
+            byte[] storedKey;
 
-            byte[] clientSignature = ScramUtils.computeHmac(storedKey, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
+            if (scramAuthInfo.isPasswordKnown()) {
+                String salt = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_SALT_MATCHER_GROUP);
+                String iterations = serverFirstMessageMatcher.group(PostgresProtocolScramConstants.SERVER_FIRST_MESSAGE_ITERATION_COUNT_MATCHER_GROUP);
+
+                byte[] saltedPassword = ScramUtils.generateSaltedPassword(
+                        scramAuthInfo.getPassword(),
+                        Base64.getDecoder().decode(salt),
+                        Integer.parseInt(iterations),
+                        PostgresProtocolScramConstants.SHA256_HMAC_NAME);
+
+                clientKey = ScramUtils.computeHmac(
+                        saltedPassword,
+                        PostgresProtocolScramConstants.SHA256_HMAC_NAME,
+                        PostgresProtocolScramConstants.CLIENT_KEY_PHRASE.getBytes(StandardCharsets.US_ASCII)
+                );
+                storedKey = MessageDigest.getInstance(PostgresProtocolScramConstants.SHA256_DIGEST_NAME).digest(clientKey);
+            } else {
+                clientKey = scramAuthInfo.getClientKey();
+                storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
+            }
+
+            byte[] clientSignature = ScramUtils.computeHmac(
+                    storedKey,
+                    PostgresProtocolScramConstants.SHA256_HMAC_NAME,
+                    authMessageBytes
+            );
 
             byte[] clientProof = clientKey.clone();
             for (int i = 0; i < clientProof.length; i++) {
