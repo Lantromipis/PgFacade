@@ -30,7 +30,7 @@
 
         <!--plugins versions-->
         <compiler-plugin.version>3.11.0</compiler-plugin.version>
-        <surefire-plugin.version>3.0.0</surefire-plugin.version>
+        <surefire-plugin.version>3.2.3</surefire-plugin.version>
         <jandex-plugin.version>3.1.6</jandex-plugin.version>
 
         <!--dependencies versions-->
@@ -38,13 +38,13 @@
         <lombok.version>1.18.30</lombok.version>
         <apache.commons.long3.version>3.14.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
-        <commons-io.version>2.11.0</commons-io.version>
+        <commons-io.version>2.15.1</commons-io.version>
         <netty.version>4.1.101.Final</netty.version>
-        <postgresql.driver.version>42.7.0</postgresql.driver.version>
+        <postgresql.driver.version>42.7.1</postgresql.driver.version>
         <docker.client.version>3.3.4</docker.client.version>
         <docker.client.transport.version>3.3.4</docker.client.transport.version>
-        <aws.sdk.s3.version>1.12.603</aws.sdk.s3.version>
-        <jakson.jsr310.version>2.16.0</jakson.jsr310.version>
+        <aws.sdk.s3.version>1.12.629</aws.sdk.s3.version>
+        <jakson.jsr310.version>2.16.1</jakson.jsr310.version>
         <jaxb-api.version>2.3.1</jaxb-api.version>
     </properties>
     <dependencyManagement>
