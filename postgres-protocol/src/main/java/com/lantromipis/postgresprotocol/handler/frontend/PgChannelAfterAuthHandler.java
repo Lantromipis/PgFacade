@@ -7,7 +7,7 @@ import com.lantromipis.postgresprotocol.model.internal.PgChannelAuthResult;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
@@ -108,6 +108,6 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("Exception during final stage of Postgres channel auth!", cause);
         callbackFunction.accept(new PgChannelAuthResult(false));
-        HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
+        PostgresHandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
 }

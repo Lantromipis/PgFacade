@@ -1,7 +1,10 @@
 package com.lantromipis.proxy.handler.proxy.database;
 
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
-import io.netty.channel.*;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 
 public class NoPoolProxyDatabaseChannelHandler extends ChannelInboundHandlerAdapter {
 
@@ -29,12 +32,12 @@ public class NoPoolProxyDatabaseChannelHandler extends ChannelInboundHandlerAdap
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        HandlerUtils.closeOnFlush(inboundChannel);
+        PostgresHandlerUtils.closeOnFlush(inboundChannel);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         cause.printStackTrace();
-        HandlerUtils.closeOnFlush(ctx.channel());
+        PostgresHandlerUtils.closeOnFlush(ctx.channel());
     }
 }

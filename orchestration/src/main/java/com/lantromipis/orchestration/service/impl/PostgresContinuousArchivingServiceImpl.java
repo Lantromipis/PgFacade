@@ -16,9 +16,9 @@ import com.lantromipis.postgresprotocol.handler.frontend.PgChannelSimpleQueryExe
 import com.lantromipis.postgresprotocol.handler.frontend.PgStreamingReplicationHandler;
 import com.lantromipis.postgresprotocol.model.PgResultSet;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.LogSequenceNumberUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.channel.Channel;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
@@ -91,6 +91,12 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             replicationActive.set(true);
 
             primaryChannel = runtimePostgresConnectionProducer.createNewNettyChannelToPrimaryForReplication();
+            if (primaryChannel == null) {
+                log.error("Failed to connect to Postgres to start continuous WAL archiving!");
+                stopContinuousArchiving();
+                return false;
+            }
+
             walUploaderExecutor = Executors.newSingleThreadExecutor();
 
             queryExecutor = new PgChannelSimpleQueryExecutorHandler();
@@ -135,7 +141,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     private void cleanUp() {
         synchronized (this) {
             if (primaryChannel != null) {
-                HandlerUtils.closeOnFlush(primaryChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(primaryChannel.alloc()));
+                PostgresHandlerUtils.closeOnFlush(primaryChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(primaryChannel.alloc()));
             }
 
             primaryChannel = null;
@@ -280,7 +286,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             PgResultSet.PgRow row = resultSet.getRow(0);
 
             String timelineStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
-            timeline = Long.parseLong(timelineStr, 16);
+            timeline = Long.parseUnsignedLong(timelineStr);
 
             // extract first lsn of current WAL file
             String serverFlushLsnStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_X_LOG_POS_COLUMN_NAME));
@@ -438,6 +444,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             boolean success = startStreamingReplication();
             if (!success) {
                 log.error("Failed to restart replication for new timeline {}!", LogSequenceNumberUtils.timelineToStr(timeline));
+                stopContinuousArchiving();
             } else {
                 log.info("Successfully restarted replication for new timeline {}", LogSequenceNumberUtils.timelineToStr(timeline));
             }
@@ -500,7 +507,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     }
 
     private String buildTimelineHistoryQueryString(long timeline) {
-        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + LogSequenceNumberUtils.timelineToStr(timeline);
+        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + timeline;
     }
 
     private String buildReadReplicationSlotQueryString(String slotName) {

@@ -8,7 +8,7 @@ import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
@@ -59,7 +59,6 @@ public class PgChannelStartupHandler extends AbstractPgFrontendChannelHandler {
 
         if (!Objects.equals(authenticationRequestMessage.getMethod(), pgAuthInfo.getExpectedAuthMethod())) {
             log.error("Can not create new Postgres connection. Expected auth method: " + pgAuthInfo.getExpectedAuthMethod() + " but actual auth method requested by Postgres '" + authenticationRequestMessage.getMethod() + "'");
-            callbackFunction.accept(new PgChannelAuthResult(false));
             closeConnection(ctx);
             return;
         }
@@ -77,12 +76,12 @@ public class PgChannelStartupHandler extends AbstractPgFrontendChannelHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        log.error(cause.getMessage(), cause);
+        log.error("Exception in Postgres startup channel handler!", cause);
         closeConnection(ctx);
     }
 
     private void closeConnection(ChannelHandlerContext ctx) {
         callbackFunction.accept(new PgChannelAuthResult(false));
-        HandlerUtils.closeOnFlush(ctx.channel());
+        PostgresHandlerUtils.closeOnFlush(ctx.channel());
     }
 }
