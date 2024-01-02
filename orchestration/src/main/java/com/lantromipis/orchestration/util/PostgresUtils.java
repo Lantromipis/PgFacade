@@ -1,6 +1,5 @@
 package com.lantromipis.orchestration.util;
 
-import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -8,13 +7,11 @@ import com.lantromipis.orchestration.constant.CommandsConstants;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 @ApplicationScoped
 public class PostgresUtils {
@@ -66,23 +63,6 @@ public class PostgresUtils {
                     String.valueOf(walKeepCount)
             );
         }
-    }
-
-    public BigInteger calculateDifferenceBetweenWalFiles(String firstWal, String secondWal) {
-        BigInteger firstWithoutTimeline = new BigInteger(firstWal.substring(8), 16);
-        BigInteger secondWithoutTimeline = new BigInteger(secondWal.substring(8), 16);
-
-        return firstWithoutTimeline.subtract(secondWithoutTimeline);
-    }
-
-    public Connection getConnectionToCurrentPrimary(String database, String username, String password) throws SQLException {
-        return getConnectionToDatabase(
-                clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress(),
-                clusterRuntimeProperties.getPrimaryInstanceInfo().getPort(),
-                database,
-                username,
-                password
-        );
     }
 
     public Connection getConnectionForPgFacadeUser(String address, int port) throws SQLException {
@@ -144,33 +124,6 @@ public class PostgresUtils {
                 + CommandsConstants.PG_BASE_BACKUP_COMMAND_TARGET_DIR_KEY + " " + backupPath
                 + " "
                 + CommandsConstants.PG_BASE_BACKUP_COMMAND_PASSWORD_KEY;
-    }
-
-    public String createPgReceiveWalCommand(UUID instanceId, String targetDir) {
-        RuntimePostgresInstanceInfo runtimePostgresInstanceInfo = clusterRuntimeProperties.getAllPostgresInstancesInfos().get(instanceId);
-
-        return CommandsConstants.PG_RECEIVE_WAL_COMMAND + " "
-                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_HOST_KEY + " " + runtimePostgresInstanceInfo.getAddress()
-                + " "
-                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_PORT_KEY + " " + runtimePostgresInstanceInfo.getPort()
-                + " "
-                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_USER_KEY + " " + postgresProperties.users().replication().username()
-                + " "
-                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_TARGET_DIR_KEY + " " + targetDir
-                + " "
-                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_PASSWORD_KEY
-                + " "
-                + CommandsConstants.PG_RECEIVE_WAL_COMMAND_NO_LOOP_KEY;
-    }
-
-    public String generatePgHbaConfLine(PostgresConstants.PgHbaConfHost hostType, String database, String user, String address, PostgresConstants.PgHbaConfAuthMethod authMethod) {
-        String realAddress = PostgresConstants.PgHbaConfHost.LOCAL.equals(hostType) ? "" : address + " ";
-
-        return hostType.getValue() + " "
-                + database + " "
-                + user + " "
-                + realAddress
-                + authMethod.getValue();
     }
 
     public String getPrimaryConnInfoSetting() {

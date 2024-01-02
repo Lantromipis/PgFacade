@@ -114,7 +114,7 @@ pg-facade:
       wal-bucket: pgfacade
   postgres:
     default-settings:
-      max-wal-keep-count: 8  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
+      max-wal-keep-count: 4  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       pg-facade:
         username: pgfacade
