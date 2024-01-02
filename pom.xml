@@ -34,12 +34,12 @@
         <jandex-plugin.version>3.1.6</jandex-plugin.version>
 
         <!--dependencies versions-->
-        <quarkus.platform.version>3.6.0</quarkus.platform.version>
+        <quarkus.platform.version>3.6.4</quarkus.platform.version>
         <lombok.version>1.18.30</lombok.version>
         <apache.commons.long3.version>3.14.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
         <commons-io.version>2.15.1</commons-io.version>
-        <netty.version>4.1.101.Final</netty.version>
+        <netty.version>4.1.104.Final</netty.version>
         <postgresql.driver.version>42.7.1</postgresql.driver.version>
         <docker.client.version>3.3.4</docker.client.version>
         <docker.client.transport.version>3.3.4</docker.client.transport.version>
