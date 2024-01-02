@@ -57,6 +57,14 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         TIMEOUT
     }
 
+    public PgChannelSimpleQueryExecutorHandler() {
+        super();
+    }
+
+    public PgChannelSimpleQueryExecutorHandler(CountDownLatch readyCountDownLatch) {
+        super(readyCountDownLatch);
+    }
+
     public CommandExecutionResult executeQueryBlocking(String query, long timeoutMs) {
         CountDownLatch countDownLatch = new CountDownLatch(1);
         AtomicReference<CommandExecutionResult> ret = new AtomicReference<>();

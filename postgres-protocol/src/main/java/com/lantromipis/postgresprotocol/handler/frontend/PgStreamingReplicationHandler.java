@@ -22,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -116,7 +117,18 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         private String nextTimelineStartLsn;
     }
 
+    public PgStreamingReplicationHandler(CountDownLatch readyCountDownLatch) {
+        super(readyCountDownLatch);
+
+        resourcesFreed = new AtomicBoolean(true);
+        messageInfos = new ArrayDeque<>();
+        replicationRunning = new AtomicBoolean(false);
+        active = new AtomicBoolean(false);
+    }
+
     public PgStreamingReplicationHandler() {
+        super();
+
         resourcesFreed = new AtomicBoolean(true);
         messageInfos = new ArrayDeque<>();
         replicationRunning = new AtomicBoolean(false);

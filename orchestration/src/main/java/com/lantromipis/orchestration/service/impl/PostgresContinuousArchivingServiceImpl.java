@@ -99,16 +99,18 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
             walUploaderExecutor = Executors.newSingleThreadExecutor();
 
-            queryExecutor = new PgChannelSimpleQueryExecutorHandler();
+            CountDownLatch handlersAddedLatch = new CountDownLatch(2);
+
+            queryExecutor = new PgChannelSimpleQueryExecutorHandler(handlersAddedLatch);
             primaryChannel.pipeline().addLast(queryExecutor);
 
-            streamingReplicationHandler = new PgStreamingReplicationHandler();
+            streamingReplicationHandler = new PgStreamingReplicationHandler(handlersAddedLatch);
             primaryChannel.pipeline().addLast(streamingReplicationHandler);
 
-            long startTime = System.currentTimeMillis();
-
-            // hack to 'wait' until ChannelHandlerContext is added to handlers, because it is Async and sometimes causes NPE
-            while ((!streamingReplicationHandler.isAdded() || !queryExecutor.isAdded()) && startTime + 10 < System.currentTimeMillis()) {
+            boolean handlersAddedWithoutTimeout = handlersAddedLatch.await(100, TimeUnit.MILLISECONDS);
+            if (!handlersAddedWithoutTimeout) {
+                log.warn("Failed to start Postgres continuous WAL archiving due to internal timeout!");
+                return true;
             }
 
             //primaryChannel.pipeline().addFirst(new LoggingHandler(this.getClass(), LogLevel.DEBUG));

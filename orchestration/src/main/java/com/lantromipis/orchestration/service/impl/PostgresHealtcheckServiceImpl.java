@@ -11,6 +11,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @ApplicationScoped
 public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService {
@@ -33,12 +36,19 @@ public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService
                 return false;
             }
 
-            PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler();
-            boolean handlerAdded = PostgresHandlerUtils.addHandlerLastAndAwaitActive(pgChannel.pipeline(), queryExecutor, 100);
+            CountDownLatch queryExecutorReadyLatch = new CountDownLatch(1);
+            PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler(queryExecutorReadyLatch);
+            long start = System.currentTimeMillis();
+            pgChannel.pipeline().addLast(queryExecutor);
 
-            if (!handlerAdded) {
-                log.error("Failed to execute " + SIMPLE_HEALTHCHECK_QUERY + " SQL query for Postgres liveliness check due to internal timeout!");
-                return false;
+            boolean handlerAddedWithoutTimeout = queryExecutorReadyLatch.await(100, TimeUnit.MILLISECONDS);
+            long end = System.currentTimeMillis();
+
+            log.debug("WAS WAITING FOR {} ms", end - start);
+
+            if (!handlerAddedWithoutTimeout) {
+                log.warn("Failed to execute " + SIMPLE_HEALTHCHECK_QUERY + " SQL query for Postgres liveliness check due to internal timeout!");
+                return true;
             }
 
             PgChannelSimpleQueryExecutorHandler.CommandExecutionResult executionResult = queryExecutor.executeQueryBlocking(SIMPLE_HEALTHCHECK_QUERY, timeout);
