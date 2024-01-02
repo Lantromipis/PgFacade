@@ -1,13 +1,16 @@
 package com.lantromipis.postgresprotocol.handler.frontend;
 
+import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.decoder.ServerPostgresProtocolMessageDecoder;
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.PgChannelAuthResult;
 import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.model.internal.auth.ScramPgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.AuthenticationRequestMessage;
+import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
+import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -54,6 +57,30 @@ public class PgChannelStartupHandler extends AbstractPgFrontendChannelHandler {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         ByteBuf message = (ByteBuf) msg;
+
+        byte messageMarker = message.readByte();
+        message.readerIndex(0);
+        switch (messageMarker) {
+            case PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR -> {
+                ErrorResponse errorResponse = ServerPostgresProtocolMessageDecoder.decodeErrorResponse(message);
+                log.error("Failed to initiate new Postgres connection due to error response from server. Error from server: {}", PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(errorResponse));
+                closeConnection(ctx);
+                return;
+            }
+            case PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR -> {
+                // skip
+            }
+            default -> {
+                log.error(
+                        "Received unexpected message during new Postgres connection initiation. Expected {} or {}, but for {}!",
+                        PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR,
+                        PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR,
+                        messageMarker
+                );
+                closeConnection(ctx);
+                return;
+            }
+        }
 
         AuthenticationRequestMessage authenticationRequestMessage = ServerPostgresProtocolMessageDecoder.decodeAuthRequestMessage(message);
 

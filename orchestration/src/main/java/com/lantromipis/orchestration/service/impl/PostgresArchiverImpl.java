@@ -209,7 +209,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
 
         int unsuccessfulRetries = streamingActiveUnsuccessfulRetries.incrementAndGet();
         if (unsuccessfulRetries < archivingProperties.walStreaming().faultTolerance().maxUnsuccessfulRetriesBeforeForceRestart()) {
-            log.info("Failed to restart continuous WAL archiving from last known LSN {} times. Will retry up to {}",
+            log.info("Failed to restart continuous WAL archiving from last known LSN {} times. Will retry up to {} times",
                     unsuccessfulRetries,
                     archivingProperties.walStreaming().faultTolerance().maxUnsuccessfulRetriesBeforeForceRestart()
             );
@@ -243,13 +243,15 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     }
 
     public void listenToSwitchoverStartedEvent(@Observes SwitchoverStartedEvent switchoverStartedEvent) {
+        log.info("Stopping continuous WAL archiving due to failover/switchover...");
         switchoverInProgress.set(true);
         postgresContinuousArchivingService.stopContinuousArchiving();
     }
 
     public void listenToSwitchoverStartedEvent(@Observes SwitchoverCompletedEvent switchoverCompletedEvent) {
-        switchoverInProgress.set(false);
+        log.info("Restarting continuous WAL archiving after failover/switchover...");
         postgresContinuousArchivingService.startContinuousArchiving(false);
+        switchoverInProgress.set(false);
     }
 
     private void checkIfArchiverInfoExistsAndIsCorrect() {

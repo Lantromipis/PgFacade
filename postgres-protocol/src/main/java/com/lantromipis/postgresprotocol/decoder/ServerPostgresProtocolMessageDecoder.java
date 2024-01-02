@@ -16,6 +16,11 @@ public class ServerPostgresProtocolMessageDecoder {
     public static AuthenticationRequestMessage decodeAuthRequestMessage(ByteBuf byteBuf) {
         try {
             byte marker = byteBuf.readByte();
+
+            if (marker != PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR) {
+                throw new MessageDecodingException("Received message with wrong start char.");
+            }
+
             int length = byteBuf.readInt();
             int methodMarker = byteBuf.readInt();
 

@@ -38,13 +38,9 @@ public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService
 
             CountDownLatch queryExecutorReadyLatch = new CountDownLatch(1);
             PgChannelSimpleQueryExecutorHandler queryExecutor = new PgChannelSimpleQueryExecutorHandler(queryExecutorReadyLatch);
-            long start = System.currentTimeMillis();
             pgChannel.pipeline().addLast(queryExecutor);
 
             boolean handlerAddedWithoutTimeout = queryExecutorReadyLatch.await(100, TimeUnit.MILLISECONDS);
-            long end = System.currentTimeMillis();
-
-            log.debug("WAS WAITING FOR {} ms", end - start);
 
             if (!handlerAddedWithoutTimeout) {
                 log.warn("Failed to execute " + SIMPLE_HEALTHCHECK_QUERY + " SQL query for Postgres liveliness check due to internal timeout!");
@@ -57,7 +53,7 @@ public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService
                     return true;
                 }
                 case SERVER_ERROR -> {
-                    log.error("Failed to execute " + SIMPLE_HEALTHCHECK_QUERY + " SQL query for Postgres liveliness check due to server error! Message from server: " + PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(executionResult.getErrorResponse()));
+                    log.error("Failed to execute " + SIMPLE_HEALTHCHECK_QUERY + " SQL query for Postgres liveliness check due to server error! Error from server: " + PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(executionResult.getErrorResponse()));
                     return false;
                 }
                 case TIMEOUT -> {
