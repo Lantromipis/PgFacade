@@ -15,14 +15,26 @@ public class PostgresErrorMessageUtils {
 
     public static String getLoggableErrorMessageFromErrorResponse(ErrorResponse errorResponse) {
         if (errorResponse == null) {
-            return null;
+            return "";
         }
 
+        StringBuilder stringBuilder = new StringBuilder();
+
+        stringBuilder.append("Message: ");
         if (errorResponse.getMessage() == null) {
-            return "no message";
+            stringBuilder.append("no message");
+        } else {
+            stringBuilder.append(errorResponse.getMessage());
         }
 
-        return errorResponse.getMessage();
+        stringBuilder.append(". Code: ");
+        if (errorResponse.getCode() == null) {
+            stringBuilder.append("no code.");
+        } else {
+            stringBuilder.append(errorResponse.getCode());
+        }
+
+        return stringBuilder.toString();
     }
 
     public static ByteBuf getAuthFailedForUserErrorMessage(String username, ByteBufAllocator allocator) {

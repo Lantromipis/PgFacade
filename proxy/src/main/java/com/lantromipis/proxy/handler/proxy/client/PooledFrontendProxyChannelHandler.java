@@ -6,8 +6,8 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import com.lantromipis.proxy.model.FrontendConnectionState;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
 import com.lantromipis.proxy.service.api.ClientConnectionsManagementService;
@@ -50,7 +50,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (primaryConnectionWrapper == null) {
             setInitialChannelHandlerContext(ctx);
-            HandlerUtils.closeOnFlush(ctx.channel(), PostgresErrorMessageUtils.getTooManyConnectionsErrorMessage(ctx.alloc()));
+            PostgresHandlerUtils.closeOnFlush(ctx.channel(), PostgresErrorMessageUtils.getTooManyConnectionsErrorMessage(ctx.alloc()));
             freeResources();
             return;
         }
@@ -182,7 +182,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
     public void handleSwitchoverStarted() {
         freeResources();
         ChannelHandlerContext ctx = getInitialChannelHandlerContext();
-        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
+        PostgresHandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
     }
 
     @Override
@@ -192,7 +192,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
 
     private void closeClientConnectionExceptionally() {
         ChannelHandlerContext ctx = getInitialChannelHandlerContext();
-        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
+        PostgresHandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
         freeResources();
     }
 

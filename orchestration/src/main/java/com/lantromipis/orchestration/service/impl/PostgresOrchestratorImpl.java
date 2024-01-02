@@ -94,7 +94,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private int healthcheckFailedCount = 0;
     private final Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
 
-    private final static long HEALTHCHECK_TIMEOUT = 1;
+    private final static long HEALTHCHECK_TIMEOUT = 1500;
     private final Map<UUID, Instant> newlyCreatedStartingStandbys = new ConcurrentHashMap<>();
 
     @Override
@@ -229,7 +229,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream()
-                .filter(info -> postgresHealthcheckService.get().isHealthyWithoutAuth(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
+                .filter(info -> postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
                 .forEach(orchestratorUtils::addInstanceToRuntimePropertiesAndNotifyAllIfStandby);
 
         postgresSettingsRuntimeProperties.reload();
@@ -317,7 +317,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             List<PostgresCombinedInstanceInfo> availableStandbys = combinedInstanceInfos
                     .stream()
                     .filter(info -> !info.getPersisted().isPrimary())
-                    .filter(info -> postgresHealthcheckService.get().isHealthyWithoutAuth(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
+                    .filter(info -> postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
                     .toList();
 
             PostgresCombinedInstanceInfo primaryCombinedInstanceInfo = combinedInstanceInfos
@@ -496,7 +496,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             healthcheckFailedCount = Integer.MAX_VALUE;
             log.error("CAN NOT FIND POSTGRES PRIMARY. HEALTHCHECK FAILED!");
         } else {
-            boolean healthy = postgresHealthcheckService.get().isHealthyWithoutAuth(currentPrimary.getAdapter().getInstanceAddress(), currentPrimary.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT);
+            boolean healthy = postgresHealthcheckService.get().checkPostgresLiveliness(currentPrimary.getAdapter().getInstanceAddress(), currentPrimary.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT);
             if (!currentPrimary.getAdapter().isActive() || !healthy) {
                 healthcheckFailedCount++;
                 healthcheckFailed = true;
@@ -576,7 +576,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .filter(info ->
                         info.getAdapter().isActive()
                                 && Boolean.FALSE.equals(info.getPersisted().isPrimary())
-                                && postgresHealthcheckService.get().isHealthyWithoutAuth(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
+                                && postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
                 )
                 .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
                 .findFirst()
@@ -591,7 +591,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
                 .filter(info ->
                         !info.getAdapter().isActive()
-                                || !postgresHealthcheckService.get().isHealthyWithoutAuth(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
+                                || !postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
 
                 )
                 .forEach(info -> {
@@ -612,7 +612,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
                 .filter(info ->
                         newlyCreatedStartingStandbys.containsKey(info.getPersisted().getInstanceId())
-                                || postgresHealthcheckService.get().isHealthyWithoutAuth(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
+                                || postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
                 )
                 .toList();
 
@@ -795,7 +795,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         PostgresAdapterInstanceInfo instanceInfo = platformAdapter.get().getPostgresInstanceInfo(adapterInstanceId);
 
         try {
-            while (!postgresHealthcheckService.get().isHealthyWithoutAuth(instanceInfo.getInstanceAddress(), instanceInfo.getInstancePort(), HEALTHCHECK_TIMEOUT)
+            while (!postgresHealthcheckService.get().checkPostgresLiveliness(instanceInfo.getInstanceAddress(), instanceInfo.getInstancePort(), HEALTHCHECK_TIMEOUT)
                     && endTime > System.currentTimeMillis()
             ) {
                 Thread.sleep(startupCheckProperties.interval());
@@ -806,7 +806,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             throw new AwaitHealthyInstanceException("Failed to achieve healthy instance.", interruptedException);
         }
 
-        if (!postgresHealthcheckService.get().isHealthyWithoutAuth(instanceInfo.getInstanceAddress(), instanceInfo.getInstancePort(), HEALTHCHECK_TIMEOUT)) {
+        if (!postgresHealthcheckService.get().checkPostgresLiveliness(instanceInfo.getInstanceAddress(), instanceInfo.getInstancePort(), HEALTHCHECK_TIMEOUT)) {
             throw new AwaitHealthyInstanceException("Failed to achieve healthy instance. Timout reached.");
         }
 

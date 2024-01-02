@@ -11,7 +11,7 @@ import com.lantromipis.postgresprotocol.model.protocol.PostgresProtocolAuthentic
 import com.lantromipis.postgresprotocol.model.protocol.SaslInitialResponse;
 import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -162,7 +162,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractPgFrontendChann
     }
 
     private void failConnectionAuth(ChannelHandlerContext ctx) {
-        HandlerUtils.closeOnFlush(ctx.channel());
+        PostgresHandlerUtils.closeOnFlush(ctx.channel());
         callbackFunction.accept(new PgChannelAuthResult(false));
     }
 }

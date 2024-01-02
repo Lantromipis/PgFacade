@@ -9,6 +9,7 @@ import com.lantromipis.postgresprotocol.model.protocol.RowDescription;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -19,6 +20,9 @@ import java.util.function.Function;
 public class DecoderUtils {
 
     public static void freeMessageInfos(Deque<PgMessageInfo> pgMessageInfos) {
+        if (CollectionUtils.isEmpty(pgMessageInfos)) {
+            return;
+        }
         pgMessageInfos.forEach(m -> m.getEntireMessage().release());
         pgMessageInfos.clear();
     }

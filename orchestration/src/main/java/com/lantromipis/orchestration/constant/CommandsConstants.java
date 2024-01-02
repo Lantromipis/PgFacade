@@ -23,13 +23,6 @@ public class CommandsConstants {
     public static final String PG_BASE_BACKUP_BACKUP_LABEL_FILE_NAME = "backup_label";
     public static final Pattern PG_BASE_BACKUP_BACKUP_LABEL_WAL_FILE_NAME_PATTERN = Pattern.compile(".*file ([^)]*).*");
 
-    public static final String PG_IS_READY_COMMAND = "pg_isready";
-    public static final String PG_IS_READY_COMMAND_TIMEOUT_KEY = "-t";
-    public static final String PG_IS_READY_COMMAND_HOST_KEY = "-h";
-    public static final String PG_IS_READY_COMMAND_PORT_KEY = "-p";
-    public static final String PG_IS_READY_COMMAND_QUITE_KEY = "-q";
-    public static final String PG_IS_READY_COMMAND_USER_KEY = "-U";
-
     private CommandsConstants() {
     }
 }

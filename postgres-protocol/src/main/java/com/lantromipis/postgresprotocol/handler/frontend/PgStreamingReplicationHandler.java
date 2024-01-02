@@ -22,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -116,7 +117,18 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         private String nextTimelineStartLsn;
     }
 
+    public PgStreamingReplicationHandler(CountDownLatch readyCountDownLatch) {
+        super(readyCountDownLatch);
+
+        resourcesFreed = new AtomicBoolean(true);
+        messageInfos = new ArrayDeque<>();
+        replicationRunning = new AtomicBoolean(false);
+        active = new AtomicBoolean(false);
+    }
+
     public PgStreamingReplicationHandler() {
+        super();
+
         resourcesFreed = new AtomicBoolean(true);
         messageInfos = new ArrayDeque<>();
         replicationRunning = new AtomicBoolean(false);
@@ -157,7 +169,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
         query.append(" ").append("PHYSICAL");
         query.append(" ").append(LogSequenceNumberUtils.lsnToString(startLsn));
-        query.append(" ").append("TIMELINE").append(" ").append(LogSequenceNumberUtils.timelineToStr(timeline));
+        query.append(" ").append("TIMELINE").append(" ").append(Long.toUnsignedString(timeline));
 
         lastReceivedLsn = startLsn;
         lastAppliedLsn = lastReceivedLsn;
@@ -206,7 +218,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         } else {
             while (message.readerIndex() < message.writerIndex()) {
                 if (!readingCopyDataMessage) {
-                    boolean readMarkerAndLength = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, PostgresProtocolGeneralConstants.MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT);
+                    boolean readMarkerAndLength = PostgresHandlerUtils.readFromBufUntilFilled(internalByteBuf, message, PostgresProtocolGeneralConstants.MESSAGE_MARKER_AND_LENGTH_BYTES_COUNT);
                     if (!readMarkerAndLength) {
                         // failed to read marker and length of message
                         return;
@@ -318,7 +330,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     private void handleErrorResponseMessage(ByteBuf message, int length) {
         // need to read full message
-        boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
+        boolean readMessage = PostgresHandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
         if (!readMessage) {
             // failed to read entire message
             // reset index to keep marker and length
@@ -355,7 +367,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
 
     private void handleCopyBothResponseMessage(ByteBuf message, int length) {
         // need to read full message
-        boolean readMessage = HandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
+        boolean readMessage = PostgresHandlerUtils.readFromBufUntilFilled(internalByteBuf, message, length - 4);
         if (!readMessage) {
             // failed to read entire message
             // reset index to keep marker and length
@@ -392,7 +404,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     private void handleXLogDataMessage(ByteBuf message, ChannelHandlerContext ctx) {
         if (!finishedReadingCopyDataMessageStartInfo) {
             // not read preamble
-            boolean readPreamble = HandlerUtils.readFromBufUntilFilled(
+            boolean readPreamble = PostgresHandlerUtils.readFromBufUntilFilled(
                     internalByteBuf,
                     message,
                     PostgresProtocolStreamingReplicationConstants.X_LOG_DATA_MESSAGE_PREAMBLE_LENGTH);
@@ -446,7 +458,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
     }
 
     private void handlePrimaryKeepalive(ByteBuf message, ChannelHandlerContext ctx) {
-        boolean readContent = HandlerUtils.readFromBufUntilFilled(
+        boolean readContent = PostgresHandlerUtils.readFromBufUntilFilled(
                 internalByteBuf,
                 message,
                 PostgresProtocolStreamingReplicationConstants.PRIMARY_KEEPALIVE_CONTENT_LENGTH);
@@ -509,7 +521,7 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
             serverTimeout.run();
         }
         cleanUp();
-        HandlerUtils.closeOnFlush(ctx.channel());
+        PostgresHandlerUtils.closeOnFlush(ctx.channel());
     }
 
     @Override
@@ -538,6 +550,6 @@ public class PgStreamingReplicationHandler extends AbstractPgFrontendChannelHand
         }
 
         cleanUp();
-        HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
+        PostgresHandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
     }
 }

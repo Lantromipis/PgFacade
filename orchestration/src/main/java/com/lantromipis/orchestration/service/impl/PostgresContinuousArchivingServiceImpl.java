@@ -11,18 +11,18 @@ import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
 import com.lantromipis.orchestration.service.api.PostgresContinuousArchivingService;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import com.lantromipis.postgresprotocol.constant.PostgresProtocolStreamingReplicationConstants;
-import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.handler.frontend.PgChannelSimpleQueryExecutorHandler;
 import com.lantromipis.postgresprotocol.handler.frontend.PgStreamingReplicationHandler;
 import com.lantromipis.postgresprotocol.model.PgResultSet;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import com.lantromipis.postgresprotocol.utils.LogSequenceNumberUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.channel.Channel;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
@@ -75,34 +75,47 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     private ExecutorService walUploaderExecutor = null;
 
 
+    private final Object startLock = new Object[0];
+    private final Object stopLock = new Object[0];
+
     public boolean isContinuousArchivingActive() {
         return replicationActive.get();
     }
 
+    @Override
+    @Synchronized(value = "startLock")
     public boolean startContinuousArchiving(boolean forceUseLatestServerLsn) {
-        // do not restart if already running
-        if (replicationActive.get()) {
-            log.info("Continuous WAL archiving already running!");
-            return true;
-        }
-
         try {
-            log.info("Starting continuous WAL archiving!");
-            replicationActive.set(true);
+            // do not restart if already running
+            if (!replicationActive.compareAndSet(false, true)) {
+                log.info("Continuous WAL archiving already running!");
+                return true;
+            }
+
+            log.info("Starting continuous WAL archiving...");
 
             primaryChannel = runtimePostgresConnectionProducer.createNewNettyChannelToPrimaryForReplication();
+            if (primaryChannel == null) {
+                log.error("Failed to connect to Postgres to start continuous WAL archiving!");
+                stopContinuousArchiving();
+                return false;
+            }
+
             walUploaderExecutor = Executors.newSingleThreadExecutor();
 
-            queryExecutor = new PgChannelSimpleQueryExecutorHandler();
+            CountDownLatch handlersAddedLatch = new CountDownLatch(2);
+
+            queryExecutor = new PgChannelSimpleQueryExecutorHandler(handlersAddedLatch);
             primaryChannel.pipeline().addLast(queryExecutor);
 
-            streamingReplicationHandler = new PgStreamingReplicationHandler();
+            streamingReplicationHandler = new PgStreamingReplicationHandler(handlersAddedLatch);
             primaryChannel.pipeline().addLast(streamingReplicationHandler);
 
-            long startTime = System.currentTimeMillis();
-
-            // hack to 'wait' until ChannelHandlerContext is added to handlers, because it is Async and sometimes causes NPE
-            while ((!streamingReplicationHandler.isAdded() || !queryExecutor.isAdded()) && startTime + 10 < System.currentTimeMillis()) {
+            boolean handlersAddedWithoutTimeout = handlersAddedLatch.await(100, TimeUnit.MILLISECONDS);
+            if (!handlersAddedWithoutTimeout) {
+                log.warn("Failed to start Postgres continuous WAL archiving due to internal timeout!");
+                stopContinuousArchiving();
+                return false;
             }
 
             //primaryChannel.pipeline().addFirst(new LoggingHandler(this.getClass(), LogLevel.DEBUG));
@@ -120,22 +133,26 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             }
             return successfullyStarted;
         } catch (Exception e) {
-            stopContinuousArchiving();
+            cleanUp();
+            replicationActive.set(false);
             log.error("Error while initiating replication stream for WAL.", e);
             return false;
         }
     }
 
+    @Override
     public void stopContinuousArchiving() {
         cleanUp();
         replicationActive.set(false);
         log.info("Continuous WAL archiving stopped!");
     }
 
-    private void cleanUp() {
+    @Synchronized(value = "stopLock")
+    public void cleanUp() {
+        // guarantee single thread access
         synchronized (this) {
             if (primaryChannel != null) {
-                HandlerUtils.closeOnFlush(primaryChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(primaryChannel.alloc()));
+                PostgresHandlerUtils.closeGracefullyOnFlush(primaryChannel);
             }
 
             primaryChannel = null;
@@ -280,7 +297,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             PgResultSet.PgRow row = resultSet.getRow(0);
 
             String timelineStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
-            timeline = Long.parseLong(timelineStr, 16);
+            timeline = Long.parseUnsignedLong(timelineStr);
 
             // extract first lsn of current WAL file
             String serverFlushLsnStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_X_LOG_POS_COLUMN_NAME));
@@ -296,7 +313,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     private void replicationErrorCallback(PgStreamingReplicationHandler.ReplicationErrorResult result) {
         switch (result.getErrorType()) {
             case SERVER_ERROR -> log.error(
-                    "Unexpected server error during continuous WAL archiving! Message from server: {}",
+                    "Unexpected server error during continuous WAL archiving! Error from server: {}",
                     PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(result.getErrorResponse())
             );
             case CLIENT_ERROR -> log.error("Unexpected error during continuous WAL archiving!", result.getThrowable());
@@ -374,7 +391,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                     // skip
                 }
                 case SERVER_ERROR -> log.error(
-                        "Unexpected server error while trying to execute TIMELINE_HISTORY query to continue continuous WAL archiving! Message from server: {}",
+                        "Unexpected server error while trying to execute TIMELINE_HISTORY query to continue continuous WAL archiving! Error from server: {}",
                         PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(timelineHistoryResult.getErrorResponse())
                 );
                 case TIMEOUT ->
@@ -438,6 +455,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             boolean success = startStreamingReplication();
             if (!success) {
                 log.error("Failed to restart replication for new timeline {}!", LogSequenceNumberUtils.timelineToStr(timeline));
+                stopContinuousArchiving();
             } else {
                 log.info("Successfully restarted replication for new timeline {}", LogSequenceNumberUtils.timelineToStr(timeline));
             }
@@ -469,7 +487,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                     switch (startedCallback.getStatus()) {
                         case SUCCESS, SUCCESS_END_OF_TIMELINE -> success.set(true);
                         case SERVER_ERROR ->
-                                log.error("Failed to start streaming replication due to error response from Postgres! Error message: {}",
+                                log.error("Failed to start streaming replication due to error response from Postgres! Error from server: {}",
                                         PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(startedCallback.getErrorResponse())
                                 );
                         case CLIENT_ERROR ->
@@ -500,7 +518,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
     }
 
     private String buildTimelineHistoryQueryString(long timeline) {
-        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + LogSequenceNumberUtils.timelineToStr(timeline);
+        return PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_QUERY + " " + timeline;
     }
 
     private String buildReadReplicationSlotQueryString(String slotName) {
@@ -535,7 +553,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 return readReplicationSlotResult;
             }
             case SERVER_ERROR ->
-                    throw new PostgresContinuousArchivingException("Unexpected server error while trying to execute " + sqlQuery + " query to start continuous WAL archiving! Message from server: " +
+                    throw new PostgresContinuousArchivingException("Unexpected server error while trying to execute " + sqlQuery + " query to start continuous WAL archiving! Error from server: " +
                             PostgresErrorMessageUtils.getLoggableErrorMessageFromErrorResponse(readReplicationSlotResult.getErrorResponse())
                     );
             case TIMEOUT ->

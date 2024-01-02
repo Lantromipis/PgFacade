@@ -1,7 +1,5 @@
 package com.lantromipis.proxy.handler.proxy;
 
-import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.AccessLevel;

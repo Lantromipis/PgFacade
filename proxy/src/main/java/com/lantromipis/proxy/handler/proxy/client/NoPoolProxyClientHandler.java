@@ -2,7 +2,7 @@ package com.lantromipis.proxy.handler.proxy.client;
 
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.encoder.ServerPostgresProtocolMessageEncoder;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import com.lantromipis.proxy.handler.proxy.database.NoPoolProxyDatabaseChannelHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -65,7 +65,7 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (postgreSqlChannel != null) {
-            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
+            PostgresHandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
         }
     }
 
@@ -98,13 +98,13 @@ public class NoPoolProxyClientHandler extends AbstractDataProxyClientChannelHand
     }
 
     private void forceCloseConnectionWithEmptyError(ChannelHandlerContext ctx) {
-        HandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
+        PostgresHandlerUtils.closeOnFlush(ctx.channel(), ServerPostgresProtocolMessageEncoder.createEmptyErrorMessage(ctx.alloc()));
         setActive(false);
     }
 
     private void closeRealPostgresConnection() {
         if (postgreSqlChannel != null) {
-            HandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(postgreSqlChannel.alloc()));
+            PostgresHandlerUtils.closeOnFlush(postgreSqlChannel, ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(postgreSqlChannel.alloc()));
         }
     }
 }

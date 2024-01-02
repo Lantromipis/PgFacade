@@ -1,6 +1,6 @@
 package com.lantromipis.proxy.handler.proxy.database;
 
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +37,7 @@ public class CallbackProxyDatabaseChannelHandler extends ChannelInboundHandlerAd
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log.error("Exception in real Postgres connection handler. Connection will be closed and client will be disconnected.", cause);
-        HandlerUtils.closeOnFlush(ctx.channel());
+        PostgresHandlerUtils.closeOnFlush(ctx.channel());
         connectionClosedCallback.run();
     }
 }

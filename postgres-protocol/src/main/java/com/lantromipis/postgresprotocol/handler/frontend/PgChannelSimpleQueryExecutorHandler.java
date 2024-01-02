@@ -6,7 +6,7 @@ import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEnc
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.model.protocol.ErrorResponse;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
-import com.lantromipis.postgresprotocol.utils.HandlerUtils;
+import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.concurrent.ScheduledFuture;
@@ -55,6 +55,14 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         SERVER_ERROR,
         CLIENT_ERROR,
         TIMEOUT
+    }
+
+    public PgChannelSimpleQueryExecutorHandler() {
+        super();
+    }
+
+    public PgChannelSimpleQueryExecutorHandler(CountDownLatch readyCountDownLatch) {
+        super(readyCountDownLatch);
     }
 
     public CommandExecutionResult executeQueryBlocking(String query, long timeoutMs) {
@@ -188,7 +196,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
                         .build()
         );
 
-        HandlerUtils.closeOnFlush(ctx.channel());
+        PostgresHandlerUtils.closeOnFlush(ctx.channel());
         super.channelInactive(ctx);
     }
 
@@ -205,12 +213,12 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         if (!invoked) {
             if (ctx.pipeline().toMap().size() == 1) {
                 log.error("Exception in PgChannelSimpleQueryExecutorHandler ", cause);
-                HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
+                PostgresHandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
             } else {
                 super.exceptionCaught(ctx, cause);
             }
         } else {
-            HandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
+            PostgresHandlerUtils.closeOnFlush(ctx.channel(), ClientPostgresProtocolMessageEncoder.encodeClientTerminateMessage(ctx.alloc()));
         }
     }
 }
