@@ -14,6 +14,7 @@ import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstant
 import com.lantromipis.postgresprotocol.encoder.ClientPostgresProtocolMessageEncoder;
 import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.producer.PgFrontendChannelHandlerProducer;
+import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -267,6 +268,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                         serverParameterMessagesBuf.readBytes(serverParameterMessagesBytes);
 
                                         serverParameterMessagesBuf.release();
+                                        DecoderUtils.freeMessageInfos(result.getServerStartMessagesInfos());
 
                                         PooledConnectionInternalInfo pooledConnectionInternalInfo1 = storage.addNewChannelAndMarkAsTaken(
                                                 startupMessageInfo,

@@ -1,4 +1,4 @@
-# PgFacade — cloud-native All-In-One solution for high availability Postgres
+# PgFacade — cloud-native Docker All-In-One solution for high availability Postgres
 
 ### What is PgFacade
 

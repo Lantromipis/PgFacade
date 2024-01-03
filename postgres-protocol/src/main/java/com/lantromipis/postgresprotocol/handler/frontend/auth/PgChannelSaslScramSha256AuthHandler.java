@@ -15,6 +15,7 @@ import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
@@ -72,7 +73,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractPgFrontendChann
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        ByteBuf message = (ByteBuf) msg;
+        @Cleanup("release") ByteBuf message = (ByteBuf) msg;
 
         if (SaslAuthStatus.FIRST_CLIENT_MESSAGE_SENT.equals(authStatus)) {
 

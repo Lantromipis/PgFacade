@@ -8,6 +8,7 @@ import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayDeque;
@@ -39,7 +40,7 @@ public class PgChannelCleaningHandler extends AbstractPgFrontendChannelHandler {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        ByteBuf message = (ByteBuf) msg;
+        @Cleanup("release") ByteBuf message = (ByteBuf) msg;
 
         ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, pgMessageInfos, ctx.alloc());
 
