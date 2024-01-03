@@ -41,6 +41,8 @@ public interface OrchestrationProperties {
 
             Duration startupDuration();
 
+            Duration healthcheckTimeout();
+
             int healthcheckRetries();
         }
 

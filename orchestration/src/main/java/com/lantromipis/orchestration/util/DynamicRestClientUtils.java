@@ -19,13 +19,13 @@ public class DynamicRestClientUtils {
                 .build(clazz);
     }
 
-    public <T> T createRestClient(Class<T> clazz, String address, int port, long timeout) {
+    public <T> T createRestClient(Class<T> clazz, String address, int port, long timeoutMs) {
         URI uri = URI.create("http://" + address + ":" + port);
 
         return RestClientBuilder.newBuilder()
                 .baseUri(uri)
-                .connectTimeout(timeout, TimeUnit.MILLISECONDS)
-                .readTimeout(timeout, TimeUnit.MILLISECONDS)
+                .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .build(clazz);
     }
 

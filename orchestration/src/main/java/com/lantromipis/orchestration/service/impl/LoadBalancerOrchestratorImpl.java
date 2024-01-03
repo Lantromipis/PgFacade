@@ -194,7 +194,7 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
         String adapterIdentifier = platformAdapter.get().createExternalLoadBalancerInstance();
         ExternalLoadBalancerAdapterInfo adapterInfo = platformAdapter.get().startExternalLoadBalancerInstance(adapterIdentifier);
         timeWhenLoadBalancerExpectedToBeFullyStarted = Instant.now().plusMillis(orchestrationProperties.common().externalLoadBalancer().startupDuration().toMillis());
-        log.info("Created new external load balancer instance!");
+        log.info("Created and started new external load balancer instance!");
 
         ExternalLoadBalancerRaftInfo raftInfo = ExternalLoadBalancerRaftInfo
                 .builder()
@@ -219,7 +219,8 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
         cachedRestClient = dynamicRestClientUtils.createRestClient(
                 ExternalLoadBalancerHealtcheckTemplateRestClient.class,
                 adapterInfo.getAddress(),
-                adapterInfo.getHttpPort()
+                adapterInfo.getHttpPort(),
+                orchestrationProperties.common().externalLoadBalancer().healthcheckTimeout().toMillis()
         );
     }
 }

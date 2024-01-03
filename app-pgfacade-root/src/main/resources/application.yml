@@ -41,6 +41,7 @@ pg-facade:
         deploy: true
         healthcheck-interval: PT5S
         healthcheck-retries: 3
+        healthcheck-timeout: PT3S
         startup-duration: PT10S
       postgres-startup-check:
         start-period: 2000 #millisecinds
