@@ -4,9 +4,8 @@ import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.ContainerNetwork;
 import com.github.dockerjava.api.model.ContainerNetworkSettings;
-import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.github.dockerjava.api.model.NetworkSettings;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -18,9 +17,6 @@ import java.util.regex.Pattern;
 @ApplicationScoped
 public class DockerUtils {
 
-    @Inject
-    OrchestrationProperties orchestrationProperties;
-
     private static final BigDecimal NANO_MULTIPLIER = BigDecimal.valueOf(1000000000);
     private static final String BYTES = "b";
     private static final String KILOBYTES = "k";
@@ -28,15 +24,13 @@ public class DockerUtils {
     private static final String GIGABYTES = "g";
     private static final Pattern MEMORY_REGEX = Pattern.compile("^(\\d+)([bkmg])$");
 
-    public String getContainerAddress(InspectContainerResponse inspectContainerResponse) {
-        ContainerNetwork containerNetwork = inspectContainerResponse.getNetworkSettings()
-                .getNetworks()
-                .get(orchestrationProperties.docker().postgres().networkName());
-        if (containerNetwork == null) {
-            return null;
-        }
-
-        return containerNetwork.getIpAddress();
+    public String getContainerAddress(InspectContainerResponse inspectContainerResponse, String networkName) {
+        return Optional.ofNullable(inspectContainerResponse)
+                .map(InspectContainerResponse::getNetworkSettings)
+                .map(NetworkSettings::getNetworks)
+                .map(n -> n.get(networkName))
+                .map(ContainerNetwork::getIpAddress)
+                .orElse(null);
     }
 
     public String getContainerAddress(Container container, String networkName) {

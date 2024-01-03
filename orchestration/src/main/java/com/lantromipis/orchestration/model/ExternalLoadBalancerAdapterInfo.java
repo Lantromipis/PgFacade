@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ExternalLoadBalancerAdapterInfo {
+    private boolean running;
     private String adapterIdentifier;
     private String address;
     private int httpPort;

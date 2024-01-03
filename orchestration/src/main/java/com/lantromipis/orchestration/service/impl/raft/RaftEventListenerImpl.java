@@ -5,6 +5,7 @@ import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.model.PgFacadeWorkMode;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
+import com.lantromipis.orchestration.service.api.LoadBalancerOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftRole;
@@ -13,7 +14,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
-import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -29,16 +29,15 @@ public class RaftEventListenerImpl implements RaftEventListener {
     PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
 
     @Inject
-    ManagedExecutor managedExecutor;
+    PostgresOrchestrator postgresOrchestrator;
 
     @Inject
-    PostgresOrchestrator postgresOrchestrator;
+    LoadBalancerOrchestrator loadBalancerOrchestrator;
 
     @Inject
     Event<RaftLogSyncedOnStartupEvent> raftLogSyncedOnStartupEvent;
 
     private boolean synced = false;
-
 
     @Override
     public boolean isSyncedWithLeaderOnStartup() {
@@ -75,10 +74,12 @@ public class RaftEventListenerImpl implements RaftEventListener {
                     postgresOrchestrator.initializeFull();
                 }
                 pgFacadeOrchestrator.startOrchestration();
+                loadBalancerOrchestrator.startOrchestration();
             } else if (!PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
                 pgFacadeRuntimeProperties.setRaftRole(PgFacadeRaftRole.FOLLOWER);
                 postgresOrchestrator.stopOrchestrator(false);
                 pgFacadeOrchestrator.stopOrchestration();
+                loadBalancerOrchestrator.stopOrchestration();
                 log.info("This PgFacade node is now follower!");
             } else {
                 log.info("This PgFacade node is already leader. No actions required.");

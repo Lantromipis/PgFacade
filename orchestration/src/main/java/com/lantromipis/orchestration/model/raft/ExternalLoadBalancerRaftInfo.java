@@ -13,7 +13,5 @@ import java.time.Instant;
 @AllArgsConstructor
 public class ExternalLoadBalancerRaftInfo {
     private String adapterIdentifier;
-    private String address;
-    private int port;
     private Instant createdWhen;
 }

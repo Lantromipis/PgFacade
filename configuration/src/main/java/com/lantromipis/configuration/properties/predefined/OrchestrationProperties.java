@@ -39,7 +39,7 @@ public interface OrchestrationProperties {
 
             Duration healthcheckInterval();
 
-            Duration healthcheckAwait();
+            Duration startupDuration();
         }
 
         interface StandbyProperties {
