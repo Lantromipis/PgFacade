@@ -74,6 +74,7 @@ public class PooledFrontendProxyChannelHandler extends AbstractDataProxyClientCh
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        // do not release because this message is transferred to another Channel
         ByteBuf message = (ByteBuf) msg;
 
         // intercept termination message to keep Postgres connection active

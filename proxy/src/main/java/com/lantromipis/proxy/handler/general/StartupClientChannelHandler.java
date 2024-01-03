@@ -15,6 +15,7 @@ import com.lantromipis.usermanagement.model.UserAuthInfo;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -46,7 +47,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
-        ByteBuf message = (ByteBuf) msg;
+        @Cleanup("release") ByteBuf message = (ByteBuf) msg;
 
         if (startupMessage == null) {
             processMessageBeforeStartupMessage(ctx, message);

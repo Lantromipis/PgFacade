@@ -3,14 +3,7 @@ FROM eclipse-temurin:21.0.1_12-jdk-jammy
 ENV LANGUAGE='en_US:en'
 
 SHELL ["/bin/bash", "-c"]
-
-RUN apt-get update && apt-get install -y lsb-release && apt-get clean all
-
-RUN sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'\
-    && wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null \
-    && apt-get update \
-    && apt-get -y install postgresql-client \
-    && apt-get clean all
+RUN ["chsh", "-s", "/bin/bash"]
 
 RUN useradd --create-home --shell /bin/bash pgfacade
 

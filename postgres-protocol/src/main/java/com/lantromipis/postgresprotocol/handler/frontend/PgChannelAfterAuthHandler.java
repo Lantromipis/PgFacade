@@ -10,6 +10,7 @@ import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayDeque;
@@ -38,7 +39,6 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
             if (leftovers != null) {
                 leftovers.release();
             }
-            DecoderUtils.freeMessageInfos(pgMessageInfos);
         }
     }
 
@@ -50,7 +50,7 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        ByteBuf message = (ByteBuf) msg;
+        @Cleanup("release") ByteBuf message = (ByteBuf) msg;
 
         ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, pgMessageInfos, ctx.alloc());
 
@@ -61,7 +61,9 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
 
         if (DecoderUtils.containsMessageOfTypeReversed(pgMessageInfos, PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR)) {
             AtomicReference<ErrorResponse> errorResponse = new AtomicReference<>(null);
-            DecoderUtils.processSplitMessages(pgMessageInfos, pgMessageInfo -> {
+            DecoderUtils.processSplitMessages(
+                    pgMessageInfos,
+                    pgMessageInfo -> {
                         if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.ERROR_MESSAGE_START_CHAR) {
                             errorResponse.set(ServerPostgresProtocolMessageDecoder.decodeErrorResponse(pgMessageInfo.getEntireMessage()));
                             return true;
@@ -69,35 +71,35 @@ public class PgChannelAfterAuthHandler extends AbstractPgFrontendChannelHandler 
                         return false;
                     }
             );
+            DecoderUtils.freeMessageInfos(pgMessageInfos);
             callbackFunction.accept(new PgChannelAuthResult(errorResponse.get()));
             ctx.channel().pipeline().remove(this);
             return;
         }
 
         if (leftovers == null || leftovers.readableBytes() == 0) {
-            boolean containsAuthOk = false;
+            AtomicBoolean containsAuthOk = new AtomicBoolean(false);
 
-            PgMessageInfo pgMessageInfo = pgMessageInfos.poll();
-            while (pgMessageInfo != null) {
-                if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR
-                        && pgMessageInfo.getLength() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_LENGTH) {
-                    ByteBuf messageBytes = pgMessageInfo.getEntireMessage();
+            DecoderUtils.processSplitMessages(
+                    pgMessageInfos,
+                    pgMessageInfo -> {
+                        if (pgMessageInfo.getStartByte() == PostgresProtocolGeneralConstants.AUTH_REQUEST_START_CHAR
+                                && pgMessageInfo.getLength() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_LENGTH) {
 
-                    // 1 byte start byte + 4 bytes length
-                    messageBytes.readerIndex(5);
+                            // 1 byte start byte + 4 bytes length
+                            pgMessageInfo.getEntireMessage().readerIndex(5);
 
-                    if (messageBytes.readInt() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA) {
-                        containsAuthOk = true;
-                        break;
+                            if (pgMessageInfo.getEntireMessage().readInt() == PostgresProtocolGeneralConstants.AUTH_OK_MESSAGE_DATA) {
+                                containsAuthOk.set(true);
+                                return true;
+                            }
+                        }
+                        return false;
                     }
-                }
-
-                pgMessageInfo.getEntireMessage().release();
-                pgMessageInfo = pgMessageInfos.poll();
-            }
+            );
 
             ctx.channel().pipeline().remove(this);
-            callbackFunction.accept(new PgChannelAuthResult(containsAuthOk, pgMessageInfos));
+            callbackFunction.accept(new PgChannelAuthResult(containsAuthOk.get(), pgMessageInfos));
             return;
         }
 

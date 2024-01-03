@@ -14,6 +14,7 @@ import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
@@ -56,7 +57,7 @@ public class PgChannelStartupHandler extends AbstractPgFrontendChannelHandler {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        ByteBuf message = (ByteBuf) msg;
+        @Cleanup("release") ByteBuf message = (ByteBuf) msg;
 
         byte messageMarker = message.readByte();
         message.readerIndex(0);

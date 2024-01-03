@@ -4,7 +4,7 @@ services:
   pgfacade:
     image: pgfacade-pgfacade
     build:
-      dockerfile: ../.deployment/Dockerfile.jvm-postgres-15
+      dockerfile: ../.deployment/Dockerfile.jvm
       context: ../app-pgfacade-root
     networks:
       - pg-facade-postgres-network

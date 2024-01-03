@@ -3,15 +3,6 @@ FROM eclipse-temurin:21.0.1_12-jdk-jammy
 ENV LANGUAGE='en_US:en'
 
 SHELL ["/bin/bash", "-c"]
-
-RUN apt-get update && apt-get install -y lsb-release && apt-get clean all
-
-RUN sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'\
-    && wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null \
-    && apt-get update \
-    && apt-get -y install postgresql-client \
-    && apt-get clean all
-
 RUN ["chsh", "-s", "/bin/bash"]
 
 RUN useradd --create-home --shell /bin/bash pgfacade
@@ -30,7 +21,7 @@ COPY --chown=pgfacade target/quarkus-app/quarkus/ /deployments/quarkus/
 # docker.sock permission denied. To fix that, id of users in host and container must match
 USER root
 
-ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Dquarkus.package.type=mutable-jar -Dquarkus.live-reload.password=123 -Dquarkus.analytics.disabled=true"
+ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Dquarkus.package.type=mutable-jar -Dquarkus.live-reload.password=123 -Dquarkus.analytics.disabled=true -Dio.netty.leakDetection.level=paranoid"
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
 ENV QUARKUS_LAUNCH_DEVMODE=true

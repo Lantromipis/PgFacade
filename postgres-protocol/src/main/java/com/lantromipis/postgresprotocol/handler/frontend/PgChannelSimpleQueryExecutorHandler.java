@@ -10,10 +10,7 @@ import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.concurrent.ScheduledFuture;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayDeque;
@@ -65,6 +62,17 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         super(readyCountDownLatch);
     }
 
+    /**
+     * Executes provided SQL query using simple query protocol AND waits for response from Postgresql.
+     * <p>
+     * <b> Note1: caller MUST release all messages in provided result </b>
+     * <p>
+     * <b> Note2: if timeout received, it is not safe to use this handler and channel anymore. Even if Postgres server is up, TCP packets after timeout for this request can broke entire channel pipeline! </b>
+     *
+     * @param query     SQL query to execute
+     * @param timeoutMs timeout for query to execute
+     * @return query execution result
+     */
     public CommandExecutionResult executeQueryBlocking(String query, long timeoutMs) {
         CountDownLatch countDownLatch = new CountDownLatch(1);
         AtomicReference<CommandExecutionResult> ret = new AtomicReference<>();
@@ -91,6 +99,26 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
         return ret.get();
     }
 
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        super.handlerRemoved(ctx);
+        if (leftovers != null && leftovers.refCnt() > 0) {
+            leftovers.release();
+        }
+        DecoderUtils.freeMessageInfos(messageInfos);
+    }
+
+    /**
+     * Executes provided SQL query using simple query protocol. Once request is fulfilled, provided callback is called
+     * <p>
+     * <b> Note1: caller MUST release all messages in provided result </b>
+     * <p>
+     * <b> Note2: if timeout received, it is not safe to use this handler and channel anymore. Even if Postgres server is up, TCP packets after timeout for this request can broke entire channel pipeline! </b>
+     *
+     * @param query     SQL query to execute
+     * @param timeoutMs timeout for query to execute
+     * @param callback  callback to call once response from Postgres received or timeout reached
+     */
     public void executeQuery(String query, long timeoutMs, Consumer<CommandExecutionResult> callback) {
         responseFulfilled = new AtomicBoolean(false);
         responseCallback = callback;
@@ -143,7 +171,7 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
             return;
         }
 
-        ByteBuf message = (ByteBuf) msg;
+        @Cleanup("release") ByteBuf message = (ByteBuf) msg;
         ByteBuf newLeftovers = DecoderUtils.splitToMessages(leftovers, message, messageInfos, ctx.alloc());
 
         if (leftovers != null) {
@@ -170,6 +198,8 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
                         return false;
                     }
             );
+            // release ByteBufs and clear Deque
+            DecoderUtils.freeMessageInfos(messageInfos);
         }
 
         // handle success
@@ -178,13 +208,13 @@ public class PgChannelSimpleQueryExecutorHandler extends AbstractPgFrontendChann
                     CommandExecutionResult
                             .builder()
                             .status(CommandExecutionResultStatus.SUCCESS)
-                            .messageInfos(messageInfos)
+                            .messageInfos(new ArrayDeque<>(messageInfos))
                             .build()
             );
+            messageInfos.clear();
         }
 
         ctx.channel().read();
-        super.channelRead(ctx, msg);
     }
 
     @Override

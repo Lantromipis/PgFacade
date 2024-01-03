@@ -4,6 +4,7 @@ import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.orchestration.service.api.PostgresHealthcheckService;
 import com.lantromipis.postgresprotocol.handler.frontend.PgChannelSimpleQueryExecutorHandler;
+import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import io.netty.channel.Channel;
@@ -48,6 +49,7 @@ public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService
             }
 
             PgChannelSimpleQueryExecutorHandler.CommandExecutionResult executionResult = queryExecutor.executeQueryBlocking(SIMPLE_HEALTHCHECK_QUERY, timeout);
+            DecoderUtils.freeMessageInfos(executionResult.getMessageInfos());
             switch (executionResult.getStatus()) {
                 case SUCCESS -> {
                     return true;

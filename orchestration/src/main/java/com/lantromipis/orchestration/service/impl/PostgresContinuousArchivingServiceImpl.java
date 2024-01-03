@@ -239,6 +239,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         );
 
         PgResultSet readReplicationSlotResultSet = DecoderUtils.extractResultSetFromMessages(readReplicationSlotResult.getMessageInfos());
+        DecoderUtils.freeMessageInfos(readReplicationSlotResult.getMessageInfos());
+
         PgResultSet.PgRow readReplicationSlotRow = readReplicationSlotResultSet.getRow(0);
 
         String slotType = readReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.READ_REPLICATION_SLOT_SLOT_TYPE_COLUMN_NAME);
@@ -257,6 +259,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             );
 
             PgResultSet createReplicationSlotResultSet = DecoderUtils.extractResultSetFromMessages(createReplicationSlotResult.getMessageInfos());
+            DecoderUtils.freeMessageInfos(createReplicationSlotResult.getMessageInfos());
+
             PgResultSet.PgRow createReplicationSlotRow = createReplicationSlotResultSet.getRow(0);
 
             String slotName = createReplicationSlotRow.getCellValueByNameAsString(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_SLOT_NAME_COLUMN_NAME);
@@ -294,6 +298,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
         try {
             PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(identifySystemResult.getMessageInfos());
+
             PgResultSet.PgRow row = resultSet.getRow(0);
 
             String timelineStr = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.IDENTIFY_SYSTEM_TIMELINE_COLUMN_NAME));
@@ -307,6 +312,8 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
             );
         } catch (Exception e) {
             throw new PostgresContinuousArchivingException("Exception while trying to extract timeline and latest LSN from Postgres server!", e);
+        } finally {
+            DecoderUtils.freeMessageInfos(identifySystemResult.getMessageInfos());
         }
     }
 
@@ -404,11 +411,14 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
 
             if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(timelineHistoryResult.getStatus())) {
                 stopContinuousArchiving();
+                DecoderUtils.freeMessageInfos(timelineHistoryResult.getMessageInfos());
                 return;
             }
 
             try {
                 PgResultSet resultSet = DecoderUtils.extractResultSetFromMessages(timelineHistoryResult.getMessageInfos());
+                DecoderUtils.freeMessageInfos(timelineHistoryResult.getMessageInfos());
+
                 PgResultSet.PgRow row = resultSet.getRow(0);
 
                 String timelineFileName = new String(row.getCellValueByName(PostgresProtocolStreamingReplicationConstants.TIMELINE_HISTORY_FILENAME_COLUMN_NAME));
@@ -547,6 +557,10 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
                 sqlQuery,
                 archivingProperties.walStreaming().queryTimeout().toMillis()
         );
+
+        if (!PgChannelSimpleQueryExecutorHandler.CommandExecutionResultStatus.SUCCESS.equals(readReplicationSlotResult.getStatus())) {
+            DecoderUtils.freeMessageInfos(readReplicationSlotResult.getMessageInfos());
+        }
 
         switch (readReplicationSlotResult.getStatus()) {
             case SUCCESS -> {

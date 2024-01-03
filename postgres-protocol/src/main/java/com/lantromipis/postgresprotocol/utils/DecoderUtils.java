@@ -257,11 +257,11 @@ public class DecoderUtils {
             Boolean finish = processor.apply(pgMessageInfo);
 
             pgMessageInfo.getEntireMessage().release();
-            pgMessageInfo = messageInfos.poll();
-
             if (finish) {
                 break;
             }
+
+            pgMessageInfo = messageInfos.poll();
         }
     }
 
