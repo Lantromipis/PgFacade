@@ -40,6 +40,8 @@ public interface OrchestrationProperties {
             Duration healthcheckInterval();
 
             Duration startupDuration();
+
+            int healthcheckRetries();
         }
 
         interface StandbyProperties {

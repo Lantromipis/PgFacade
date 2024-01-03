@@ -123,19 +123,40 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
             try {
                 HealtcheckResponseDto healtcheckResponseDto = cachedRestClient.checkLiveliness();
                 if (!HealtcheckResponseDto.HealtcheckStatus.UP.equals(healtcheckResponseDto.getStatus())) {
-                    log.error("External load balancer unhealthy! Will force redeploy it...");
-                    deleteExistingLoadBalancerInstance();
-                    createAndStartNewLoadBalancerInstance();
+                    failedHealthChecksCount++;
+                    log.error(
+                            "External load balancer was unhealthy {} times! Will force redeploy it after {} attempts!",
+                            failedHealthChecksCount,
+                            orchestrationProperties.common().externalLoadBalancer().healthcheckRetries()
+                    );
+
                 }
             } catch (Exception e) {
-                log.error("Healthcheck request to external load balancer failed! Will force redeploy it...");
-                deleteExistingLoadBalancerInstance();
-                createAndStartNewLoadBalancerInstance();
+                failedHealthChecksCount++;
+                log.error(
+                        "Healthcheck request to external load balancer failed {} times! Will force redeploy it after {} attempts!",
+                        failedHealthChecksCount,
+                        orchestrationProperties.common().externalLoadBalancer().healthcheckRetries()
+                );
             }
         } catch (Exception e) {
-            log.error("Healthcheck attempt for external load balancer failed! Will force redeploy it...");
+            failedHealthChecksCount++;
+            log.error(
+                    "Healthcheck attempt for external load balancer failed {} times! Will force redeploy it after {} attempts!",
+                    failedHealthChecksCount,
+                    orchestrationProperties.common().externalLoadBalancer().healthcheckRetries()
+            );
+        }
+
+        if (failedHealthChecksCount >= orchestrationProperties.common().externalLoadBalancer().healthcheckRetries()) {
+            log.error("Reached maximum number of attempts to healthcheck external load balancer. Force redeploying it now!");
             deleteExistingLoadBalancerInstance();
-            createAndStartNewLoadBalancerInstance();
+            boolean newInstanceCreatedAndStarted = createAndStartNewLoadBalancerInstance();
+            if (newInstanceCreatedAndStarted) {
+                failedHealthChecksCount = 0;
+            } else {
+                log.info("Failed to start new external load balancer instance!");
+            }
         }
     }
 
@@ -169,7 +190,7 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
         cachedRestClient = null;
     }
 
-    private void createAndStartNewLoadBalancerInstance() {
+    private boolean createAndStartNewLoadBalancerInstance() {
         String adapterIdentifier = platformAdapter.get().createExternalLoadBalancerInstance();
         ExternalLoadBalancerAdapterInfo adapterInfo = platformAdapter.get().startExternalLoadBalancerInstance(adapterIdentifier);
         timeWhenLoadBalancerExpectedToBeFullyStarted = Instant.now().plusMillis(orchestrationProperties.common().externalLoadBalancer().startupDuration().toMillis());
@@ -186,10 +207,11 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
             // failed to safe, means this is not leader
             platformAdapter.get().deleteInstance(adapterIdentifier);
             log.error("Failed to save external load balancer info in Raft! Is this PgFacade node a Raft leader?", e);
-            return;
+            return false;
         }
 
         recreateCachedHealthcheckRestClient(adapterInfo);
+        return true;
     }
 
     private void recreateCachedHealthcheckRestClient(ExternalLoadBalancerAdapterInfo adapterInfo) {
