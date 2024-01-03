@@ -110,14 +110,6 @@ public interface PlatformAdapter {
     String restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException;
 
     /**
-     * Return subnet to which Postgres and PgFacade belong to allow communications between them.
-     *
-     * @return subnet IP address
-     * @throws PlatformAdapterOperationExecutionException
-     */
-    String getPostgresSubnetIp() throws PlatformAdapterOperationExecutionException;
-
-    /**
      * Return list of active PgFacade instances. List must not contain inactive instances or instances that will be suspended.
      * Whether the instance is suspended or not is determined by the adapter. For example, for Docker suspended PgFacade containers will have some special prefix in name.
      *
@@ -143,10 +135,29 @@ public interface PlatformAdapter {
     /**
      * Create and start new external load balancer instance.
      *
+     * @return adapter identifier
+     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
+     */
+    String createExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException;
+
+    /**
+     * Get adapter info about external load balancer
+     *
+     * @param adapterIdentifier adapter identifier of existing external load balancer instance
+     * @return object containing adapter info about external load balancer
+     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
+     */
+    ExternalLoadBalancerAdapterInfo getExternalLoadBalancerInstanceInfo(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
+
+    /**
+     * Start existing external load balancer instance.
+     *
      * @return object containing info for created load balancer
      * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
      */
-    ExternalLoadBalancerAdapterInfo createAndStartExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException;
+    ExternalLoadBalancerAdapterInfo startExternalLoadBalancerInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
+
+    boolean stopExternalLoadBalancerInstance(String adapterIdentifier);
 
     void suspendPgFacadeInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
 }

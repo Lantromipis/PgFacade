@@ -38,9 +38,11 @@ pg-facade:
       remove-failed-to-restore-instance: false
     common:
       external-load-balancer:
-        deploy: false
+        deploy: true
         healthcheck-interval: PT5S
-        healthcheck-await: PT10S
+        healthcheck-retries: 3
+        healthcheck-timeout: PT3S
+        startup-duration: PT10S
       postgres-startup-check:
         start-period: 2000 #millisecinds
         interval: 100 #millisecinds

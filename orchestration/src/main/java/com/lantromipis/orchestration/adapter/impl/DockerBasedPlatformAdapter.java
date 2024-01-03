@@ -246,7 +246,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             return PostgresAdapterInstanceInfo
                     .builder()
                     .adapterInstanceId(adapterInstanceId)
-                    .instanceAddress(dockerUtils.getContainerAddress(inspectResponse))
+                    .instanceAddress(dockerUtils.getContainerAddress(inspectResponse, orchestrationProperties.docker().postgres().networkName()))
                     .instancePort(5432)
                     .isActive(DockerConstants.ContainerState.RUNNING.getValue().equals(inspectResponse.getState().getStatus()))
                     .build();
@@ -546,25 +546,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public String getPostgresSubnetIp() {
-        Network pgFacadePostgresNetwork;
-
-        try {
-            pgFacadePostgresNetwork = dockerClient.inspectNetworkCmd()
-                    .withNetworkId(orchestrationProperties.docker().postgres().networkName())
-                    .exec();
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Can not find Postgres network. ", e);
-        }
-
-        if (CollectionUtils.isEmpty(pgFacadePostgresNetwork.getIpam().getConfig()) || pgFacadePostgresNetwork.getIpam().getConfig().size() > 1) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. Found no or several IPAM config for Postgres network. Network must have exactly one IPAM config with subnet in it.");
-        }
-
-        return pgFacadePostgresNetwork.getIpam().getConfig().get(0).getSubnet();
-    }
-
-    @Override
     public List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException {
         try {
             List<Container> containers = listPgFacadeUnsuspendedContainers();
@@ -695,7 +676,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public ExternalLoadBalancerAdapterInfo createAndStartExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException {
+    public String createExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException {
         try {
             PgFacadeNodeExternalConnectionsInfo selfInfo = getSelfExternalConnectionInfo();
 
@@ -734,25 +715,52 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
                     )
                     .exec();
 
-            dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
-
-            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();
-
-            return ExternalLoadBalancerAdapterInfo
-                    .builder()
-                    .adapterIdentifier(createContainerResponse.getId())
-                    .httpPort(QuarkusConstants.DEFAULT_HTTP_PORT)
-                    .address(
-                            inspectContainerResponse.getNetworkSettings()
-                                    .getNetworks()
-                                    .get(orchestrationProperties.docker().pgFacade().externalNetworkName())
-                                    .getIpAddress()
-                    )
-                    .build();
+            return createContainerResponse.getId();
         } catch (PlatformAdapterOperationExecutionException e) {
             throw e;
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Failed to create container with load balancer!", e);
+        }
+    }
+
+    @Override
+    public ExternalLoadBalancerAdapterInfo getExternalLoadBalancerInstanceInfo(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
+        try {
+            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(adapterIdentifier).exec();
+            return from(inspectContainerResponse);
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Failed to get info about external load balancer.", e);
+        }
+    }
+
+    @Override
+    public ExternalLoadBalancerAdapterInfo startExternalLoadBalancerInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
+        try {
+            dockerClient.startContainerCmd(adapterIdentifier).exec();
+            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(adapterIdentifier).exec();
+            return from(inspectContainerResponse);
+        } catch (Exception e) {
+            throw new PlatformAdapterOperationExecutionException("Failed to start external load balancer.", e);
+        }
+    }
+
+    @Override
+    public boolean stopExternalLoadBalancerInstance(String adapterIdentifier) {
+        if (adapterIdentifier == null) {
+            throw new PlatformAdapterNotFoundException("Can not stop container with load balancer because container ID is null.");
+        }
+
+        try {
+            dockerClient.stopContainerCmd(adapterIdentifier).exec();
+            return true;
+        } catch (NotFoundException notFoundException) {
+            log.warn("Failed to stop load balancer. Container with ID " + adapterIdentifier + " not found.");
+            return true;
+        } catch (NotModifiedException notModifiedException) {
+            return true;
+        } catch (Exception e) {
+            log.error("Unexpected error while stopping load balancer with container ID {}", adapterIdentifier, e);
+            return false;
         }
     }
 
@@ -765,6 +773,16 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         } catch (Exception e) {
             throw new PlatformAdapterOperationExecutionException("Failed to suspend container!", e);
         }
+    }
+
+    private ExternalLoadBalancerAdapterInfo from(InspectContainerResponse inspectContainerResponse) {
+        return ExternalLoadBalancerAdapterInfo
+                .builder()
+                .running(Boolean.TRUE.equals(inspectContainerResponse.getState().getRunning()))
+                .adapterIdentifier(inspectContainerResponse.getId())
+                .httpPort(QuarkusConstants.DEFAULT_HTTP_PORT)
+                .address(dockerUtils.getContainerAddress(inspectContainerResponse, orchestrationProperties.docker().pgFacade().externalNetworkName()))
+                .build();
     }
 
     private List<Container> listPgFacadeUnsuspendedContainers() {
@@ -824,10 +842,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             return null;
         }
 
-        String address = inspectContainerResponse.getNetworkSettings()
-                .getNetworks()
-                .get(orchestrationProperties.docker().pgFacade().internalNetworkName())
-                .getIpAddress();
+        String address = dockerUtils.getContainerAddress(inspectContainerResponse, orchestrationProperties.docker().pgFacade().internalNetworkName());
 
         if (address == null) {
             return null;
