@@ -1,6 +1,5 @@
 package com.lantromipis.orchestration.util;
 
-import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
@@ -10,8 +9,6 @@ import jakarta.inject.Inject;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.Map;
 
 @ApplicationScoped
 public class PostgresUtils {
@@ -41,28 +38,6 @@ public class PostgresUtils {
                 + "touch " + pgDataDirPath + "/recovery.signal ; "
                 + "chown -R postgres:postgres " + pgDataDirPath + " ; "
                 + "chmod 700 " + pgDataDirPath;
-    }
-
-    public Map<String, String> getDefaultSettings(int version) {
-        Map<String, String> settings = new HashMap<>();
-
-        addWalKepSetting(settings, version, postgresProperties.defaultSettings().maxWalKeepCount());
-
-        return settings;
-    }
-
-    public void addWalKepSetting(Map<String, String> settings, int version, int walKeepCount) {
-        if (version >= PostgresConstants.PG_VERSION_13_NUM) {
-            settings.put(
-                    PostgresConstants.WAL_KEEP_SIZE_SETTING_NAME,
-                    walKeepCount * 16 + "MB"
-            );
-        } else {
-            settings.put(
-                    PostgresConstants.WAL_KEEP_SEGMENTS_SETTING_NAME,
-                    String.valueOf(walKeepCount)
-            );
-        }
     }
 
     public Connection getConnectionForPgFacadeUser(String address, int port) throws SQLException {
@@ -128,7 +103,7 @@ public class PostgresUtils {
 
     public String getPrimaryConnInfoSetting() {
         return String.format(
-                "'host=%s port=%d user=%s password=%s'",
+                "host=%s port=%d user=%s password=%s",
                 clusterRuntimeProperties.getPrimaryInstanceInfo().getAddress(),
                 clusterRuntimeProperties.getPrimaryInstanceInfo().getPort(),
                 postgresProperties.users().replication().username(),

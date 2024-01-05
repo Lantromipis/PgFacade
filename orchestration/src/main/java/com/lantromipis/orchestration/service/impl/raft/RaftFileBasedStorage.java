@@ -35,17 +35,14 @@ public class RaftFileBasedStorage implements RaftStorage {
     private ObjectMapper objectMapper;
 
     private File postgresNodeInfoFile;
-    private File postgresSettingInfoFile;
     private File postgresArchiveInfoFile;
     private File pgfacadeLoadBalancerInfoFile;
     private final ReentrantLock postgresNodeInfoFileModificationLock = new ReentrantLock();
-    private final ReentrantLock postgresSettingInfoFileModificationLock = new ReentrantLock();
     private final ReentrantLock postgresArchiveInfoFileModificationLock = new ReentrantLock();
     private final ReentrantLock pgfacadeLoadBalancerInfoLock = new ReentrantLock();
 
     // @formatter:off
     public static final TypeReference<Map<UUID, PostgresPersistedInstanceInfo>> POSTGRES_NODE_INFO_TYPE_REF = new TypeReference<>() {};
-    public static final TypeReference<Map<String, String>> POSTGRES_SETTING_INFO_TYPE_REF = new TypeReference<>() {};
     // @formatter:on
 
     @PostConstruct
@@ -55,7 +52,6 @@ public class RaftFileBasedStorage implements RaftStorage {
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
         postgresNodeInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresNodesInfosFilePath());
-        postgresSettingInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresSettingsInfosFilePath());
         postgresArchiveInfoFile = createConfigFileIfNeeded(filesPathsProducer.getPostgresArchiveInfosFilePath());
         pgfacadeLoadBalancerInfoFile = createConfigFileIfNeeded(filesPathsProducer.getExternalLoadBalancerInfoFilePath());
     }
@@ -64,7 +60,6 @@ public class RaftFileBasedStorage implements RaftStorage {
     public List<SnapshotChunk> getChunks() {
         try {
             postgresNodeInfoFileModificationLock.lock();
-            postgresSettingInfoFileModificationLock.lock();
             postgresArchiveInfoFileModificationLock.lock();
             pgfacadeLoadBalancerInfoLock.lock();
 
@@ -74,12 +69,6 @@ public class RaftFileBasedStorage implements RaftStorage {
                     .builder()
                     .data(Files.readAllBytes(postgresNodeInfoFile.toPath()))
                     .name(POSTGRES_NODES_INFO_CHUNK)
-                    .build()
-            );
-            ret.add(SnapshotChunk
-                    .builder()
-                    .data(Files.readAllBytes(postgresSettingInfoFile.toPath()))
-                    .name(POSTGRES_SETTINGS_INFO_CHUNK)
                     .build()
             );
             ret.add(SnapshotChunk
@@ -101,7 +90,6 @@ public class RaftFileBasedStorage implements RaftStorage {
             throw new PropertyReadException("Error while reading nodes info from file", e);
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
-            postgresSettingInfoFileModificationLock.unlock();
             postgresArchiveInfoFileModificationLock.unlock();
             pgfacadeLoadBalancerInfoLock.unlock();
         }
@@ -111,7 +99,6 @@ public class RaftFileBasedStorage implements RaftStorage {
     public void loadChunks(List<SnapshotChunk> chunks) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
-            postgresSettingInfoFileModificationLock.lock();
             postgresArchiveInfoFileModificationLock.lock();
             pgfacadeLoadBalancerInfoLock.lock();
 
@@ -119,8 +106,6 @@ public class RaftFileBasedStorage implements RaftStorage {
                 switch (chunk.getName()) {
                     case POSTGRES_NODES_INFO_CHUNK ->
                             FileUtils.writeByteArrayToFile(postgresNodeInfoFile, chunk.getData(), false);
-                    case POSTGRES_SETTINGS_INFO_CHUNK ->
-                            FileUtils.writeByteArrayToFile(postgresSettingInfoFile, chunk.getData(), false);
                     case POSTGRES_ARCHIVE_INFO_CHUNK ->
                             FileUtils.writeByteArrayToFile(postgresArchiveInfoFile, chunk.getData(), false);
                     case PGFACADE_LOAD_BALANCER_ARCHIVE_INFO_CHUNK ->
@@ -132,7 +117,6 @@ public class RaftFileBasedStorage implements RaftStorage {
             throw new PropertyModificationException("Error while reading nodes info from file", e);
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
-            postgresSettingInfoFileModificationLock.unlock();
             postgresArchiveInfoFileModificationLock.unlock();
             pgfacadeLoadBalancerInfoLock.unlock();
         }
@@ -246,64 +230,6 @@ public class RaftFileBasedStorage implements RaftStorage {
             throw new PropertyModificationException("Error while saving nodes info to file", e);
         } finally {
             postgresNodeInfoFileModificationLock.unlock();
-        }
-    }
-
-    @Override
-    public Map<String, String> getPostgresSettingInfos() throws PropertyReadException {
-        try {
-            postgresSettingInfoFileModificationLock.lock();
-            if (postgresSettingInfoFile.length() > 0) {
-                return objectMapper.readValue(postgresSettingInfoFile, POSTGRES_SETTING_INFO_TYPE_REF);
-            } else {
-                return Collections.emptyMap();
-            }
-        } catch (Exception e) {
-            throw new PropertyReadException("Error while reading settings info from file", e);
-        } finally {
-            postgresSettingInfoFileModificationLock.unlock();
-        }
-    }
-
-    @Override
-    public void savePostgresSettingsInfos(Map<String, String> settingsToSave) throws PropertyModificationException {
-        try {
-            postgresSettingInfoFileModificationLock.lock();
-            Map<String, String> savedMap;
-
-            if (postgresSettingInfoFile.length() > 0) {
-                savedMap = objectMapper.readValue(postgresSettingInfoFile, POSTGRES_SETTING_INFO_TYPE_REF);
-            } else {
-                savedMap = new HashMap<>();
-            }
-
-            savedMap.putAll(settingsToSave);
-            objectMapper.writeValue(postgresSettingInfoFile, savedMap);
-        } catch (Exception e) {
-            throw new PropertyReadException("Error while reading settings info from file", e);
-        } finally {
-            postgresSettingInfoFileModificationLock.unlock();
-        }
-    }
-
-    @Override
-    public void deletePostgresSettingsInfos(List<String> settingsNames) throws PropertyModificationException {
-        try {
-            postgresSettingInfoFileModificationLock.lock();
-            Map<String, String> savedMap;
-
-            if (postgresSettingInfoFile.length() > 0) {
-                savedMap = objectMapper.readValue(postgresSettingInfoFile, POSTGRES_SETTING_INFO_TYPE_REF);
-            } else {
-                savedMap = new HashMap<>();
-            }
-
-            settingsNames.forEach(savedMap::remove);
-            objectMapper.writeValue(postgresSettingInfoFile, savedMap);
-        } catch (Exception e) {
-            throw new PropertyReadException("Error while reading settings info from file", e);
-        } finally {
-            postgresSettingInfoFileModificationLock.unlock();
         }
     }
 

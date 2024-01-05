@@ -1,11 +1,11 @@
 package com.lantromipis.orchestration.service.api;
 
-import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
-import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
-import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceSettingsChangeResult;
+import com.lantromipis.orchestration.model.PostgresSettingsValidationResult;
 
 import java.sql.Connection;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Help service for Orchestrator, so it should only be used by orchestrator
@@ -16,33 +16,28 @@ public interface PostgresConfigurator {
      * Method is used to validate settings and check if new settings require restart.
      *
      * @param settingsToCheck map of settings that will be checked. Key is setting name, value is setting value
-     * @return true if restart is needed, and false if not
-     * @throws PostgresConfigurationChangeException when some settings are invalid
+     * @return object containing validation result
      */
-    boolean validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck) throws PostgresConfigurationCheckException;
+    PostgresSettingsValidationResult validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck);
 
     /**
-     * Method is used to change Postgres settings. It is an automated alternative to manually modifying postgresql.conf or calling ALTER SYSTEM.
+     * Changes settings of Postgres instance
      *
-     * @param combinedInstanceInfo        info about instance
-     * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value.
-     *                                    Settings will be merged with existing one in special PgFacade conf file.
-     * @return true if restart is needed, and false if not
-     * @throws PostgresConfigurationCheckException  when some settings are invalid
-     * @throws PostgresConfigurationChangeException when something went wrong during settings update
+     * @param instanceId                  persisted Postgres instance id
+     * @param newSettingNamesAndValuesMap settings which will be applied
+     * @return object containing result of settings change
      */
-    boolean changePostgresSettings(PostgresCombinedInstanceInfo combinedInstanceInfo, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException;
+    PostgresInstanceSettingsChangeResult changePostgresInstanceSettingsAndRollbackOnFailure(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap);
 
     /**
-     * Method is used to fast change any Postgres setting. However, there are no checks that settings are valid.
+     * Method is used to fast change any Postgres setting. However, there are no checks that settings are valid nor rollback in case of failure.
      * Must be used carefully when it is critical to apply settings fast (ex. switchover)
      *
-     * @param combinedInstanceInfo        info about instance
      * @param newSettingNamesAndValuesMap new settings that will be applied. Key is setting name, value is setting value.
      *                                    Settings will be merged with existing one in special PgFacade conf file.
      * @param reloadConf                  if true, pg_reload_conf() will be called
-     * @param connection                  optional param. If provided, then connection will be used, if not, then new one will be created.
+     * @param connection                  JDBC connection which will be used.
      * @return true if success, false if not
      */
-    boolean fastPostgresSettingsChange(String adapterIdentifier, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection);
+    boolean changePostgresSettingsFastUnsafe(Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection);
 }

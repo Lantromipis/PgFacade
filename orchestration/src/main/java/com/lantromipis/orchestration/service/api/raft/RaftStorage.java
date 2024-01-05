@@ -8,7 +8,6 @@ import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.pgfacadeprotocol.model.api.SnapshotChunk;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 public interface RaftStorage {
@@ -30,12 +29,6 @@ public interface RaftStorage {
     PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
 
     void clearPostgresNodesInfos() throws PropertyModificationException;
-
-    Map<String, String> getPostgresSettingInfos() throws PropertyReadException;
-
-    void savePostgresSettingsInfos(Map<String, String> persistedSettingsInfos) throws PropertyModificationException;
-
-    void deletePostgresSettingsInfos(List<String> settingsNames) throws PropertyModificationException;
 
     ExternalLoadBalancerRaftInfo getPgFacadeLoadBalancerInfo() throws PropertyReadException;
 

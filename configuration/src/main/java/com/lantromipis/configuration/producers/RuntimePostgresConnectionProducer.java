@@ -68,13 +68,20 @@ public class RuntimePostgresConnectionProducer {
             return null;
         }
 
-        return createNewPgFacadeUserConnection(runtimePostgresInstanceInfo.getAddress(), runtimePostgresInstanceInfo.getPort());
+        return createNewPgFacadeUserConnection(
+                runtimePostgresInstanceInfo.getAddress(),
+                runtimePostgresInstanceInfo.getPort()
+        );
     }
 
     public Connection createNewPgFacadeUserConnection(String address, int port) throws SQLException {
         String jdbcUrl = "jdbc:postgresql://" + address + ":" + port + "/" + postgresProperties.users().pgFacade().database();
 
-        return DriverManager.getConnection(jdbcUrl, postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password());
+        return DriverManager.getConnection(
+                jdbcUrl,
+                postgresProperties.users().pgFacade().username(),
+                postgresProperties.users().pgFacade().password()
+        );
     }
 
     public Channel createNewNettyChannelToPrimaryForReplication() {
@@ -85,23 +92,52 @@ public class RuntimePostgresConnectionProducer {
         Map<String, String> parameters = new HashMap<>();
         parameters.put(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_REPLICATION, "true");
 
-        return createNewNettyChannelToPostgres(instanceId, "replication", postgresProperties.users().replication().username(), postgresProperties.users().replication().password(), parameters, DEFAULT_CONNECTION_CREATION_TIMEOUT_MS);
+        return createNewNettyChannelToPostgres(
+                instanceId,
+                "replication",
+                postgresProperties.users().replication().username(),
+                postgresProperties.users().replication().password(),
+                parameters,
+                DEFAULT_CONNECTION_CREATION_TIMEOUT_MS
+        );
     }
 
     public Channel createNewNettyChannelToInstanceUsingPgFacadeUser(UUID instanceId) {
-        return createNewNettyChannelToInstanceUsingPgFacadeUser(instanceId, DEFAULT_CONNECTION_CREATION_TIMEOUT_MS);
+        return createNewNettyChannelToInstanceUsingPgFacadeUser(
+                instanceId,
+                DEFAULT_CONNECTION_CREATION_TIMEOUT_MS
+        );
     }
 
     public Channel createNewNettyChannelToInstanceUsingPgFacadeUser(UUID instanceId, long timeoutMs) {
-        return createNewNettyChannelToPostgres(instanceId, postgresProperties.users().pgFacade().database(), postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password(), null, timeoutMs);
+        return createNewNettyChannelToPostgres(
+                instanceId,
+                postgresProperties.users().pgFacade().database(),
+                postgresProperties.users().pgFacade().username(),
+                postgresProperties.users().pgFacade().password(),
+                null,
+                timeoutMs
+        );
     }
 
     public Channel createNewNettyChannelToInstanceUsingPgFacadeUser(String address, int port) {
-        return createNewNettyChannelToInstanceUsingPgFacadeUser(address, port, DEFAULT_CONNECTION_CREATION_TIMEOUT_MS);
+        return createNewNettyChannelToInstanceUsingPgFacadeUser(
+                address,
+                port,
+                DEFAULT_CONNECTION_CREATION_TIMEOUT_MS
+        );
     }
 
     public Channel createNewNettyChannelToInstanceUsingPgFacadeUser(String address, int port, long timeoutMs) {
-        return createNewNettyChannelToPostgres(address, port, postgresProperties.users().pgFacade().database(), postgresProperties.users().pgFacade().username(), postgresProperties.users().pgFacade().password(), null, timeoutMs);
+        return createNewNettyChannelToPostgres(
+                address,
+                port,
+                postgresProperties.users().pgFacade().database(),
+                postgresProperties.users().pgFacade().username(),
+                postgresProperties.users().pgFacade().password(),
+                null,
+                timeoutMs
+        );
     }
 
     private Channel createNewNettyChannelToPostgres(UUID instanceId, String database, String user, String password, Map<String, String> parameters, long timeoutMs) {
@@ -111,7 +147,15 @@ public class RuntimePostgresConnectionProducer {
             return null;
         }
 
-        return createNewNettyChannelToPostgres(runtimePostgresInstanceInfo.getAddress(), runtimePostgresInstanceInfo.getPort(), database, user, password, parameters, timeoutMs);
+        return createNewNettyChannelToPostgres(
+                runtimePostgresInstanceInfo.getAddress(),
+                runtimePostgresInstanceInfo.getPort(),
+                database,
+                user,
+                password,
+                parameters,
+                timeoutMs
+        );
     }
 
     private Channel createNewNettyChannelToPostgres(String address, int port, String database, String user, String password, Map<String, String> parameters, long timeoutMs) {
@@ -196,7 +240,15 @@ public class RuntimePostgresConnectionProducer {
 
     private Bootstrap createInstanceBootstrap(String address, int port) {
         Bootstrap bootstrap = new Bootstrap();
-        bootstrap.group(workerGroup).channel(Epoll.isAvailable() ? EpollSocketChannel.class : NioSocketChannel.class).option(ChannelOption.AUTO_READ, false).handler(EmptyNettyHandler.SHRED_EMPTY_HANDLER).remoteAddress(address, port);
+        bootstrap.group(workerGroup)
+                .channel(
+                        Epoll.isAvailable()
+                                ? EpollSocketChannel.class
+                                : NioSocketChannel.class
+                )
+                .option(ChannelOption.AUTO_READ, false)
+                .handler(EmptyNettyHandler.SHRED_EMPTY_HANDLER)
+                .remoteAddress(address, port);
 
         return bootstrap;
     }

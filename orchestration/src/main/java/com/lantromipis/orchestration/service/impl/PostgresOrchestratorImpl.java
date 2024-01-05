@@ -12,9 +12,7 @@ import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimePropertie
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
-import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
-import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
-import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
+import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.*;
 import com.lantromipis.orchestration.util.OrchestratorUtils;
@@ -31,6 +29,7 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -199,8 +198,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                                 postgresUtils.getPrimaryConnInfoSetting()
                         );
                         try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(standbyAdapterInfo.getInstanceAddress(), standbyAdapterInfo.getInstancePort())) {
-                            boolean settingsChanged = postgresConfigurator.fastPostgresSettingsChange(
-                                    standbyInfo.getAdapter().getAdapterInstanceId(),
+                            boolean settingsChanged = postgresConfigurator.changePostgresSettingsFastUnsafe(
                                     primaryConnInfoSetting,
                                     true,
                                     connection
@@ -233,8 +231,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .forEach(orchestratorUtils::addInstanceToRuntimePropertiesAndNotifyAllIfStandby);
 
         postgresSettingsRuntimeProperties.reload();
-
-        validateDefaultSettingsPresence();
 
         if (archivingProperties.enabled()) {
             postgresArchiver.initialize();
@@ -293,97 +289,194 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Override
-    public void changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws OrchestratorNotReadyException, OrchestratorOperationExecutionException {
+    public PostgresClusterSettingsChangeResult changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws OrchestratorNotReadyException, OrchestratorOperationExecutionException {
         if (!orchestratorReady.get()) {
-            throw new OrchestratorNotReadyException("Can not update Postgres settings. Orchestrator not ready. Its initialization is still in progress or PgFacade is configured to work just like proxy.");
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.NOT_READY_ERROR)
+                    .build();
         }
 
         if (switchoverInProgress.get()) {
-            throw new OrchestratorOperationExecutionException("Switchover in progress. For safety reasons, it is impossible to change settings now. Try again later when switchover completed.");
+            log.warn("Settings change request was received, but switchover is in progress");
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.CLUSTER_MODIFICATION_IN_PROGRESS_ERROR)
+                    .build();
         }
 
-        boolean restartRequired = postgresConfigurator.validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
+        PostgresSettingsValidationResult validationResult = postgresConfigurator.validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
+        if (!validationResult.isSettingsValid()) {
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.VALIDATION_ERROR)
+                    .settingNameToValidationError(validationResult.getSettingNameToError())
+                    .build();
+        }
 
-        if (!restartRequired) {
-            try {
-                orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream()
-                        .forEach(info -> postgresConfigurator.changePostgresSettings(info, newSettingNamesAndValuesMap));
-            } catch (Exception e) {
-                throw new OrchestratorOperationExecutionException("Unexpected error while updating Postgres settings.", e);
-            }
-        } else {
-            List<PostgresCombinedInstanceInfo> combinedInstanceInfos = orchestratorUtils.getCombinedInfosForAvailableInstances();
-
-            List<PostgresCombinedInstanceInfo> availableStandbys = combinedInstanceInfos
-                    .stream()
-                    .filter(info -> !info.getPersisted().isPrimary())
-                    .filter(info -> postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
+        // in case no restart required, just update instances one by one
+        if (!validationResult.isRestartRequired()) {
+            // change standby first
+            List<PostgresCombinedInstanceInfo> combinedInstanceInfos = orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream()
+                    .sorted((i1, i2) -> Boolean.compare(i1.getPersisted().isPrimary(), i2.getPersisted().isPrimary()))
                     .toList();
 
-            PostgresCombinedInstanceInfo primaryCombinedInstanceInfo = combinedInstanceInfos
-                    .stream()
-                    .filter(info -> info.getPersisted().isPrimary())
-                    .findFirst()
-                    .orElse(null);
+            for (int i = 0; i < combinedInstanceInfos.size(); i++) {
+                PostgresCombinedInstanceInfo info = combinedInstanceInfos.get(i);
+                PostgresInstanceSettingsChangeResult changeResult = postgresConfigurator.changePostgresInstanceSettingsAndRollbackOnFailure(
+                        info.getPersisted().getInstanceId(),
+                        newSettingNamesAndValuesMap
+                );
+                // do not continue if first fails
+                if (!PostgresInstanceSettingsChangeResult.Status.SUCCESS.equals(changeResult.getStatus()) && i == 0) {
+                    // delete if rollback failed
+                    if (changeResult.isRollbackWasRequired() && CollectionUtils.isNotEmpty(changeResult.getNotRollbackedSettings())) {
+                        platformAdapter.get().deleteInstance(info.getAdapter().getAdapterInstanceId());
+                    }
 
-            if (CollectionUtils.isEmpty(availableStandbys)) {
-                throw new OrchestratorOperationExecutionException("Provided settings require restart but currently there are no healthy standby nodes. For safety reasons, parameters can not be changed now. Try again later, when there will be at least one standby. However, it is highly recommended to change provided settings with at least 2 active standby nodes.");
-            }
-
-            if (primaryCombinedInstanceInfo == null) {
-                throw new OrchestratorOperationExecutionException("Can not found primary. Is cluster recovering or lost?");
-            }
-
-            if (availableStandbys.size() == 1) {
-                log.warn("Settings require restart but there is only 1 healthy standby. Potentially unsafe operation.");
-            }
-
-            if (!switchoverInProgress.compareAndSet(false, true)) {
-                throw new OrchestratorOperationExecutionException("Can not change Postgres settings. Switchover in progress.");
-            }
-
-            try {
-                log.warn("RESTARTING CLUSTER DUE TO POSTGRES SETTINGS CHANGES. CLUSTER WILL BE TEMPORARY UNAVAILABLE.");
-
-                // using switchover event because for application restart looks the same
-                UUID switchoverEventId = UUID.randomUUID();
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
-
-                try {
-                    postgresConfigurator.changePostgresSettings(primaryCombinedInstanceInfo, newSettingNamesAndValuesMap);
-                    platformAdapter.get().restartPostgresInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
-
-                    waitUntilPostgresInstanceHealthy(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
-
-                } catch (Exception e) {
-                    // most likely we faced config parameter issue, so primary can not start.
-                    // Because of that, there is no ability to revert settings (for non-running instance), so instance must be deleted
-                    platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
-                    log.error("CLUSTER FAILED TO RESTART. WILL TRY TO RECOVER.");
-                    raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
-                    throw e;
+                    return PostgresClusterSettingsChangeResult
+                            .builder()
+                            .status(PostgresClusterSettingsChangeResult.Status.SETTING_CHANGE_ERROR)
+                            .settingNamesForWhichRollbackFailed(changeResult.getNotRollbackedSettings())
+                            .settingChangeErrorMessage(changeResult.getSqlErrorMessage())
+                            .build();
                 }
-
-                log.warn("PRIMARY RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. PRIMARY IS AVAILABLE NOW.");
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
-
-                // all good for primary, so it will be good for every other Postgres instance
-                for (PostgresCombinedInstanceInfo availableStandby : availableStandbys) {
-                    postgresConfigurator.changePostgresSettings(availableStandby, newSettingNamesAndValuesMap);
-                    restartStandbyAndWaitUntilItIsReadyAndRemoveOnFail(availableStandby);
-                }
-                log.warn("CLUSTER RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. CLUSTER IS AVAILABLE NOW.");
-            } catch (Exception e) {
-                throw new OrchestratorOperationExecutionException("Failed to update Postgres settings", e);
-            } finally {
-                switchoverInProgress.set(false);
             }
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.SUCCESS)
+                    .build();
         }
 
+        // in case restart required, restart standby and only then primary
+        List<PostgresCombinedInstanceInfo> combinedInstanceInfos = orchestratorUtils.getCombinedInfosForAvailableInstances();
+
+        List<PostgresCombinedInstanceInfo> availableStandbys = combinedInstanceInfos
+                .stream()
+                .filter(info -> !info.getPersisted().isPrimary())
+                .filter(info -> postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT))
+                .toList();
+
+        if (CollectionUtils.isEmpty(availableStandbys)) {
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.NO_AVAILABLE_STANDBY_ERROR)
+                    .build();
+        }
+
+        PostgresCombinedInstanceInfo primaryCombinedInstanceInfo = combinedInstanceInfos
+                .stream()
+                .filter(info -> info.getPersisted().isPrimary())
+                .findFirst()
+                .orElse(null);
+
+        if (primaryCombinedInstanceInfo == null) {
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.NO_PRIMARY_ERROR)
+                    .build();
+        }
+
+        if (availableStandbys.size() == 1) {
+            log.warn("Settings require restart but there is only 1 healthy standby. Potentially unsafe operation.");
+        }
+
+        if (!switchoverInProgress.compareAndSet(false, true)) {
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.CLUSTER_MODIFICATION_IN_PROGRESS_ERROR)
+                    .build();
+        }
+
+        UUID switchoverEventId = UUID.randomUUID();
+
         try {
-            raftFunctionalityCombinator.savePostgresSettingsInfosInRaft(newSettingNamesAndValuesMap);
-        } catch (RaftException e) {
-            throw new OrchestratorOperationExecutionException("Failed to save settings in Raft!", e);
+            log.warn("RESTARTING CLUSTER DUE TO POSTGRES SETTINGS CHANGES. CLUSTER WILL BE TEMPORARY UNAVAILABLE.");
+
+            // using switchover event because for application restart looks the same
+            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
+
+            try {
+                PostgresInstanceSettingsChangeResult changeResult = postgresConfigurator.changePostgresInstanceSettingsAndRollbackOnFailure(
+                        primaryCombinedInstanceInfo.getPersisted().getInstanceId(),
+                        newSettingNamesAndValuesMap
+                );
+
+                if (!PostgresInstanceSettingsChangeResult.Status.SUCCESS.equals(changeResult.getStatus())) {
+                    // delete if rollback failed
+                    if (changeResult.isRollbackWasRequired() && CollectionUtils.isNotEmpty(changeResult.getNotRollbackedSettings())) {
+                        platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                    }
+
+                    return PostgresClusterSettingsChangeResult
+                            .builder()
+                            .status(PostgresClusterSettingsChangeResult.Status.SETTING_CHANGE_ERROR)
+                            .settingNamesForWhichRollbackFailed(changeResult.getNotRollbackedSettings())
+                            .settingChangeErrorMessage(changeResult.getSqlErrorMessage())
+                            .build();
+                }
+
+                platformAdapter.get().restartPostgresInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                waitUntilPostgresInstanceHealthy(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+
+            } catch (Exception e) {
+                // most likely we faced config parameter issue, so primary can not start.
+                // Because of that, there is no ability to revert settings (for non-running instance), so instance must be deleted
+                platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                log.error("CLUSTER FAILED TO RESTART. WILL TRY TO RECOVER.", e);
+                return PostgresClusterSettingsChangeResult
+                        .builder()
+                        .status(PostgresClusterSettingsChangeResult.Status.RESTART_AFTER_CHANGE_ERROR)
+                        .build();
+            }
+
+            log.info("PRIMARY RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. PRIMARY IS AVAILABLE NOW.");
+
+            // all good for primary, so it will 99% be good for every other Postgres instance
+            for (PostgresCombinedInstanceInfo availableStandby : availableStandbys) {
+                PostgresInstanceSettingsChangeResult changeResult = postgresConfigurator.changePostgresInstanceSettingsAndRollbackOnFailure(
+                        availableStandby.getPersisted().getInstanceId(),
+                        newSettingNamesAndValuesMap
+                );
+                // failed to rollback
+                if (!PostgresInstanceSettingsChangeResult.Status.SUCCESS.equals(changeResult.getStatus())
+                        && changeResult.isRollbackWasRequired()
+                        && CollectionUtils.isNotEmpty(changeResult.getNotRollbackedSettings())) {
+                    log.error("FAILED TO ROLLBACK INCORRECT SETTINGS FOR STANDBY!");
+                    removeStandby(availableStandby);
+                }
+                // failed to restart
+                boolean restartSuccessful = restartStandbyAndWaitUntilItIsReadyAndRemoveOnFail(availableStandby);
+                if (!restartSuccessful) {
+                    log.error("FAILED TO RESTART STANDBY AFTER SETTINGS WAS CHANGED!");
+                }
+            }
+            log.info("CLUSTER RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. CLUSTER IS AVAILABLE NOW.");
+
+            try {
+                raftFunctionalityCombinator.notifyClusterAboutSettingsChange();
+            } catch (RaftException e) {
+                throw new OrchestratorOperationExecutionException("Failed to save settings in Raft!", e);
+            }
+
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.SUCCESS)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Failed to update Postgres settings", e);
+            return PostgresClusterSettingsChangeResult
+                    .builder()
+                    .status(PostgresClusterSettingsChangeResult.Status.UNKNOWN_ERROR)
+                    .build();
+        } finally {
+            switchoverInProgress.set(false);
+            try {
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
+            } catch (Exception e) {
+                log.error("Failed to notify cluster about switchover completed!", e);
+            }
         }
     }
 
@@ -455,28 +548,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             } catch (Exception e) {
                 log.error("Failed to restore from backup! Restore manually and restart PgFacade in 'RECOVERY' mode!", e);
                 return null;
-            }
-        }
-    }
-
-    private void validateDefaultSettingsPresence() {
-        Map<String, String> defaultSettings = postgresUtils.getDefaultSettings(postgresSettingsRuntimeProperties.getPostgresVersionNum());
-
-        Map<String, String> persistedSettings = raftFunctionalityCombinator.getPostgresSettingInfos();
-        Map<String, String> mergedSettings = new HashMap<>(persistedSettings);
-
-        defaultSettings.forEach(mergedSettings::putIfAbsent);
-
-        if (!persistedSettings.equals(mergedSettings)) {
-            log.info("Not all required settings have values. Will apply default values.");
-            try {
-                orchestratorUtils.getCombinedInfosForAvailableInstancesAsStream()
-                        .forEach(
-                                instance -> postgresConfigurator.changePostgresSettings(instance, mergedSettings)
-                        );
-                raftFunctionalityCombinator.savePostgresSettingsInfosInRaft(mergedSettings);
-            } catch (Exception e) {
-                log.error("Failed to apply required settings default values ", e);
             }
         }
     }
@@ -628,10 +699,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             List<CompletableFuture<Void>> completableFutureList = new ArrayList<>();
 
             for (int i = 0; i < countDiff; i++) {
-                completableFutureList.add(managedExecutor.runAsync(() -> {
-                            createStartAndWaitForNewStandbyToBeReady();
-                            log.info("Standby is up and running!");
-                        })
+                completableFutureList.add(managedExecutor.runAsync(
+                                () -> {
+                                    createStartAndWaitForNewStandbyToBeReady();
+                                    log.info("Standby is up and running!");
+                                }
+                        )
                 );
             }
 
@@ -656,10 +729,10 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private void removeStandby(PostgresCombinedInstanceInfo standbyInstanceInfo) {
         try {
             raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getPersisted().getInstanceId());
+            platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
         } catch (RaftException e) {
             log.error("Failed to delete instance {} in raft!", standbyInstanceInfo.getPersisted().getInstanceId(), e);
         }
-        platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
     }
 
     private synchronized boolean switchover(PostgresCombinedInstanceInfo newPrimaryInstanceInfo, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
@@ -689,15 +762,14 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 return false;
             }
 
-            standbyConnection.close();
-
-            clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
-
             newPrimaryInstanceInfo.getPersisted().setPrimary(true);
             raftFunctionalityCombinator.updatePostgresNodeInfoInRaft(newPrimaryInstanceInfo.getPersisted());
 
-            platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
-            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+            if (currentPrimaryInstanceInfo != null) {
+                clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+                platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
+                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+            }
 
             //remove all standby because of new timeline
             //TODO it is possible to repair such nodes instead of deleting them. Use recovery_target_timeline = 'latest'
@@ -706,6 +778,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");
+            standbyConnection.close();
             return true;
         } catch (Exception e) {
             try {
@@ -720,7 +793,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
-    private void restartStandbyAndWaitUntilItIsReadyAndRemoveOnFail(PostgresCombinedInstanceInfo standbyInfo) {
+    private boolean restartStandbyAndWaitUntilItIsReadyAndRemoveOnFail(PostgresCombinedInstanceInfo standbyInfo) {
         UUID instanceId = standbyInfo.getPersisted().getInstanceId();
         restartingStandbyInstanceIds.add(instanceId);
         orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(instanceId);
@@ -732,22 +805,21 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             waitUntilPostgresInstanceHealthy(standbyInfo.getAdapter().getAdapterInstanceId());
 
             raftFunctionalityCombinator.savePostgresNodeInfoInRaft(standbyInfo.getPersisted());
-
+            return true;
         } catch (Exception e) {
-            log.error("Error while restarting standby! ", e);
+            log.error("Error while restarting standby! It will be removed!", e);
             restartingStandbyInstanceIds.remove(instanceId);
             removeStandby(standbyInfo);
+            return false;
         }
     }
 
-    //TODO reuse on recovery
     private PostgresCombinedInstanceInfo createStartAndWaitForNewStandbyToBeReady() throws InstanceCreationException, AwaitHealthyInstanceException {
         UUID futureInstanceId = UUID.randomUUID();
         String adapterIdentifier = platformAdapter.get().createNewPostgresStandbyInstance(
                 PostgresInstanceCreationRequest
                         .builder()
                         .futureInstanceId(UUID.randomUUID())
-                        .settings(raftFunctionalityCombinator.getPostgresSettingInfos())
                         .build()
         );
 
@@ -766,6 +838,29 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             log.info("Started new instance. Will wait until it is healthy...");
 
             PostgresAdapterInstanceInfo adapterInstanceInfo = waitUntilPostgresInstanceHealthy(adapterIdentifier);
+
+            // set primary_conninfo
+            Map<String, String> standbySettings = Map.of(
+                    PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting()
+            );
+            Connection standbyConnection;
+            try {
+                standbyConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(
+                        adapterInstanceInfo.getInstanceAddress(),
+                        adapterInstanceInfo.getInstancePort()
+                );
+            } catch (SQLException sqlException) {
+                throw new InstanceCreationException("Failed to connect to new Postgres instance!", sqlException);
+            }
+            boolean settingsChanged = postgresConfigurator.changePostgresSettingsFastUnsafe(
+                    standbySettings,
+                    true,
+                    standbyConnection
+            );
+
+            if (!settingsChanged) {
+                throw new InstanceCreationException("Failed to set default settings for new Postgres instance!");
+            }
 
             PostgresPersistedInstanceInfo persistedInstanceInfo = PostgresPersistedInstanceInfo
                     .builder()

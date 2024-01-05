@@ -17,7 +17,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -134,8 +133,7 @@ public class RaftCommitUtils {
                 .forEach((uuid, instanceInfo) -> orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(uuid));
     }
 
-    public void processCommittedPostgresSettingsInfoCommand(Map<String, String> committedSettings) throws Exception {
-        raftStorage.savePostgresSettingsInfos(committedSettings);
+    public void processCommittedPostgresSettingsInfoCommand() throws Exception {
         postgresSettingsRuntimeProperties.reload();
     }
 }

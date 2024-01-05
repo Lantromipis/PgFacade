@@ -6,7 +6,8 @@ import lombok.Data;
 @Data
 @Builder
 public class PgSetting {
-    public String name;
-    public String settingValue;
-    public String unit;
+    private String name;
+    private String settingValue;
+    private String context;
+    private String unit;
 }
