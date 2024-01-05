@@ -165,7 +165,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     }
 
     @Override
-    public void appendToLogAndAwaitCommit(String command, byte[] data, long timeout) throws RaftException {
+    public void appendToLogAndAwaitCommit(String command, byte[] data, long timeoutMs) throws RaftException {
         long commitIdx = 0;
         try {
             commitIdx = raftServer.appendToLog(
@@ -173,7 +173,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
                     data
             );
             log.debug("Appended command {} with index {}", command, commitIdx);
-            raftStateMachine.awaitCommit(commitIdx, timeout);
+            raftStateMachine.awaitCommit(commitIdx, timeoutMs);
         } catch (RaftException e) {
             log.debug("Error while waiting for command {} with index {} to commit", command, commitIdx);
             throw e;

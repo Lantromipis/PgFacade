@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.exception.PropertyReadException;
+import com.lantromipis.configuration.properties.predefined.RaftProperties;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
@@ -32,8 +33,10 @@ public class RaftFunctionalityCombinator {
     @Inject
     ObjectMapper objectMapper;
 
+    @Inject
+    RaftProperties raftProperties;
 
-    private static final long TIMEOUT = 2000;
+
     private static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
 
     public boolean testIfAbleToCommitToRaftNoException() {
@@ -41,7 +44,7 @@ public class RaftFunctionalityCombinator {
             testIfAbleToCommitToRaft();
             return true;
         } catch (Exception e) {
-            log.error("Not able to commit to Raft! Is this node a leader?");
+            log.error("Not able to commit to Raft! Is this node a leader?", e);
             return false;
         }
     }
@@ -50,7 +53,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 DUMMY_COMMIT_TEST_COMMAND,
                 EMPTY_BYTE_ARRAY,
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -62,7 +65,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 SAVE_PGFACADE_LOAD_BALANCER_INFO,
                 writeAsBytesSafe(info),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -70,7 +73,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 SAVE_POSTGRES_ARCHIVE_INFO,
                 writeAsBytesSafe(archiveInfo),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -82,7 +85,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED,
                 writeAsBytesSafe(switchoverStartedEvent),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -90,7 +93,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_COMPLETED,
                 writeAsBytesSafe(switchoverCompletedEvent),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -106,7 +109,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 SAVE_POSTGRES_NODE_INFO,
                 writeAsBytesSafe(postgresPersistedInstanceInfo),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -114,7 +117,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 DELETE_POSTGRES_NODE_INFO,
                 instanceId.toString().getBytes(),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -122,7 +125,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 UPDATE_POSTGRES_NODE_INFO,
                 writeAsBytesSafe(updatedPostgresPersistedInstanceInfo),
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -130,7 +133,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 CLEAR_POSTGRES_NODES_INFOS,
                 EMPTY_BYTE_ARRAY,
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 
@@ -138,7 +141,7 @@ public class RaftFunctionalityCombinator {
         raftService.appendToLogAndAwaitCommit(
                 NOTIFY_ABOUT_POSTGRES_SETTINGS_CHANGE,
                 EMPTY_BYTE_ARRAY,
-                TIMEOUT
+                raftProperties.commitTimeout().toMillis()
         );
     }
 

@@ -4,6 +4,7 @@ pg-facade:
     nodes-check-interval: PT5S
     app-checks-retry-before-kill: 3
     raft-no-response-timeout-before-kill: PT5S
+    commit-timeout: PT5S
     follower-startup-healthcheck:
       interval-ms: 100
       timeout: PT60S

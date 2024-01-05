@@ -1,13 +1,12 @@
 package com.lantromipis.rest.service.impl;
 
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
+import com.lantromipis.orchestration.model.PostgresClusterSettingsChangeResult;
 import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.rest.constant.PostgresConstants;
 import com.lantromipis.rest.exception.GeneralRequestProcessingException;
-import com.lantromipis.rest.model.api.postgres.PatchPostgresSettingsRequestDto;
-import com.lantromipis.rest.model.api.postgres.PostgresSettingDescriptionDto;
-import com.lantromipis.rest.model.api.postgres.PostgresSettingValueDto;
-import com.lantromipis.rest.model.api.postgres.PostgresSettingsResponseDto;
+import com.lantromipis.rest.mapper.PostgresSettingsMapper;
+import com.lantromipis.rest.model.api.postgres.*;
 import com.lantromipis.rest.service.api.PostgresManagementService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -28,6 +27,9 @@ public class PostgresManagementServiceImpl implements PostgresManagementService 
 
     @Inject
     PostgresOrchestrator postgresOrchestrator;
+
+    @Inject
+    PostgresSettingsMapper postgresSettingsMapper;
 
     @Override
     public PostgresSettingsResponseDto getCurrentSettings() {
@@ -65,13 +67,13 @@ public class PostgresManagementServiceImpl implements PostgresManagementService 
     }
 
     @Override
-    public PostgresSettingsResponseDto patchSettings(PatchPostgresSettingsRequestDto requestDto) {
+    public PatchPostgresSettingsResponseDto patchSettings(PatchPostgresSettingsRequestDto requestDto) {
         Map<String, String> mapOfSettings = requestDto.getSettingsToPatch()
                 .stream()
                 .collect(Collectors.toMap(PostgresSettingValueDto::getName, PostgresSettingValueDto::getValue));
 
-        postgresOrchestrator.changePostgresSettings(mapOfSettings);
+        PostgresClusterSettingsChangeResult changeResult = postgresOrchestrator.changePostgresSettings(mapOfSettings);
 
-        return getCurrentSettings();
+        return postgresSettingsMapper.from(changeResult);
     }
 }

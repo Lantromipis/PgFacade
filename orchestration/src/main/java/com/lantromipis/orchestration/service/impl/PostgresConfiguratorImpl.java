@@ -62,7 +62,7 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
         return PostgresSettingsValidationResult
                 .builder()
-                .settingsValid(!settingNameToError.isEmpty())
+                .settingsValid(settingNameToError.isEmpty())
                 .restartRequired(restartRequired)
                 .settingNameToError(settingNameToError)
                 .build();
@@ -132,6 +132,8 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
                 appliedSettingsNames.removeAll(successfullyRollbackedSettings);
                 if (!appliedSettingsNames.isEmpty()) {
                     log.error("Was not able to rollback settings {}", appliedSettingsNames);
+                } else {
+                    log.info("All other setting in current change request was successfully rollbacked!");
                 }
             } else {
                 log.error("Failed to change Postgres settings!", e);

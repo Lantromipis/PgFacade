@@ -14,6 +14,8 @@ public interface RaftProperties {
 
     Duration raftNoResponseTimeoutBeforeKill();
 
+    Duration commitTimeout();
+
     FollowerStartupHealthcheckProperties followerStartupHealthcheck();
 
     interface FollowerStartupHealthcheckProperties {

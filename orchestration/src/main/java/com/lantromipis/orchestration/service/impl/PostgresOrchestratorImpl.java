@@ -388,11 +388,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     .build();
         }
 
+        UUID switchoverEventId = UUID.randomUUID();
+
         try {
             log.warn("RESTARTING CLUSTER DUE TO POSTGRES SETTINGS CHANGES. CLUSTER WILL BE TEMPORARY UNAVAILABLE.");
 
             // using switchover event because for application restart looks the same
-            UUID switchoverEventId = UUID.randomUUID();
             raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
 
             try {
@@ -422,7 +423,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 // most likely we faced config parameter issue, so primary can not start.
                 // Because of that, there is no ability to revert settings (for non-running instance), so instance must be deleted
                 platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
                 log.error("CLUSTER FAILED TO RESTART. WILL TRY TO RECOVER.", e);
                 return PostgresClusterSettingsChangeResult
                         .builder()
@@ -430,8 +430,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                         .build();
             }
 
-            log.warn("PRIMARY RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. PRIMARY IS AVAILABLE NOW.");
-            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
+            log.info("PRIMARY RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. PRIMARY IS AVAILABLE NOW.");
 
             // all good for primary, so it will 99% be good for every other Postgres instance
             for (PostgresCombinedInstanceInfo availableStandby : availableStandbys) {
@@ -443,16 +442,16 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 if (!PostgresInstanceSettingsChangeResult.Status.SUCCESS.equals(changeResult.getStatus())
                         && changeResult.isRollbackWasRequired()
                         && CollectionUtils.isNotEmpty(changeResult.getNotRollbackedSettings())) {
-                    log.warn("FAILED TO ROLLBACK INCORRECT SETTINGS FOR STANDBY!");
+                    log.error("FAILED TO ROLLBACK INCORRECT SETTINGS FOR STANDBY!");
                     removeStandby(availableStandby);
                 }
                 // failed to restart
                 boolean restartSuccessful = restartStandbyAndWaitUntilItIsReadyAndRemoveOnFail(availableStandby);
                 if (!restartSuccessful) {
-                    log.warn("FAILED TO RESTART STANDBY AFTER SETTINGS WAS CHANGED!");
+                    log.error("FAILED TO RESTART STANDBY AFTER SETTINGS WAS CHANGED!");
                 }
             }
-            log.warn("CLUSTER RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. CLUSTER IS AVAILABLE NOW.");
+            log.info("CLUSTER RESTARTED SUCCESSFULLY AND NEW POSTGRES SETTINGS WERE APPLIED. CLUSTER IS AVAILABLE NOW.");
 
             try {
                 raftFunctionalityCombinator.notifyClusterAboutSettingsChange();
@@ -473,6 +472,11 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     .build();
         } finally {
             switchoverInProgress.set(false);
+            try {
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
+            } catch (Exception e) {
+                log.error("Failed to notify cluster about switchover completed!", e);
+            }
         }
     }
 
@@ -758,15 +762,14 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 return false;
             }
 
-            standbyConnection.close();
-
-            clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
-
             newPrimaryInstanceInfo.getPersisted().setPrimary(true);
             raftFunctionalityCombinator.updatePostgresNodeInfoInRaft(newPrimaryInstanceInfo.getPersisted());
 
-            platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
-            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+            if (currentPrimaryInstanceInfo != null) {
+                clusterRuntimeProperties.getAllPostgresInstancesInfos().remove(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+                platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
+                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+            }
 
             //remove all standby because of new timeline
             //TODO it is possible to repair such nodes instead of deleting them. Use recovery_target_timeline = 'latest'
@@ -775,6 +778,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");
+            standbyConnection.close();
             return true;
         } catch (Exception e) {
             try {
