@@ -1,164 +1,176 @@
 package com.lantromipis.orchestration.service.impl;
 
+import com.lantromipis.configuration.model.PgSetting;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.constant.PostgresConstants;
-import com.lantromipis.configuration.properties.constant.PostgresqlConfConstants;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.exception.PostgresConfigurationChangeException;
-import com.lantromipis.orchestration.exception.PostgresConfigurationCheckException;
-import com.lantromipis.orchestration.exception.PostgresConfigurationReadException;
-import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
-import com.lantromipis.orchestration.model.PgSettingsTableRow;
-import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
+import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
+import com.lantromipis.orchestration.model.PostgresInstanceSettingsChangeResult;
+import com.lantromipis.orchestration.model.PostgresSettingsValidationResult;
 import com.lantromipis.orchestration.service.api.PostgresConfigurator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.collections4.MapUtils;
-import org.apache.commons.lang3.StringUtils;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.*;
-import java.util.regex.Matcher;
 
 @Slf4j
 @ApplicationScoped
 public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
     @Inject
-    PlatformAdapter platformAdapter;
-    @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
+    @Inject
+    PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
+
     @Override
-    public boolean validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck) throws PostgresConfigurationCheckException {
-        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+    public PostgresSettingsValidationResult validateSettingAndCheckIfRestartRequired(Map<String, String> settingsToCheck) {
+        boolean restartRequired = false;
+        Map<String, String> settingNameToError = new HashMap<>();
 
-            //check for nulls
-            for (var entry : settingsToCheck.entrySet()) {
-                if (entry.getKey() == null || entry.getValue() == null) {
-                    throw new PostgresConfigurationCheckException("Nor key or value of setting can be null.");
-                }
+        //TODO add check for types using vartype and enumvals columns
+        Map<String, PgSetting> settingsInfo = postgresSettingsRuntimeProperties.getCachedSettings();
+        for (var entry : settingsToCheck.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
             }
 
-            //checking if trying to change forbidden settings
-            for (String forbiddenSettingName : PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES) {
-                if (settingsToCheck.containsKey(forbiddenSettingName)) {
-                    throw new PostgresConfigurationCheckException("Unable to change setting '" + forbiddenSettingName + "' because it is managed by PgFacade.");
-                }
-            }
+            String settingName = entry.getKey();
+            String settingContext = Optional.ofNullable(settingsInfo.get(settingName))
+                    .map(PgSetting::getContext)
+                    .orElse(null);
 
-            boolean restartRequired = false;
-
-            //TODO add check for types using vartype and enumvals columns
-            Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
-
-            for (String settingName : settingsToCheck.keySet()) {
-                String settingContext = Optional.ofNullable(settingNameAndContextMap.get(settingName)).map(PgSettingsTableRow::getContext).orElse(null);
-                if (settingContext == null) {
-                    throw new PostgresConfigurationCheckException("Unknown setting '" + settingName + "' provided. Can not find it in pg_settings table.");
+            if (settingContext == null) {
+                settingNameToError.put(settingName, "Unknown setting provided. Can not find it in pg_settings table.");
+            } else {
+                if (PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES.contains(settingName)) {
+                    settingNameToError.put(settingName, "Unable to change setting because it is managed by PgFacade.");
                 }
                 if (PostgresConstants.UNMODIFIABLE_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
-                    throw new PostgresConfigurationCheckException("Unable to change setting '" + settingName + "'. This setting is immutable.");
+                    settingNameToError.put(settingName, "Unable to change setting. This setting is immutable.");
                 }
                 if (PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
                     restartRequired = true;
                 }
             }
-
-            return restartRequired;
-
-        } catch (PostgresConfigurationCheckException postgresConfigurationCheckException) {
-            throw postgresConfigurationCheckException;
-        } catch (Exception e) {
-            throw new PostgresConfigurationCheckException("Unexpected error occurred while trying to check new Postgres settings. ", e);
         }
+
+        return PostgresSettingsValidationResult
+                .builder()
+                .settingsValid(!settingNameToError.isEmpty())
+                .restartRequired(restartRequired)
+                .settingNameToError(settingNameToError)
+                .build();
     }
 
     @Override
-    public boolean changePostgresSettings(PostgresCombinedInstanceInfo combinedInstanceInfo, Map<String, String> newSettingNamesAndValuesMap) throws PostgresConfigurationCheckException, PostgresConfigurationChangeException {
-        if (MapUtils.isEmpty(newSettingNamesAndValuesMap)) {
-            return false;
+    public PostgresInstanceSettingsChangeResult changePostgresInstanceSettingsAndRollbackOnFailure(UUID instanceId, Map<String, String> newSettingNamesAndValuesMap) {
+        PostgresSettingsValidationResult validationResult = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
+
+        if (!validationResult.isSettingsValid()) {
+            return PostgresInstanceSettingsChangeResult
+                    .builder()
+                    .status(PostgresInstanceSettingsChangeResult.Status.SETTINGS_INVALID)
+                    .settingNameToValidationError(validationResult.getSettingNameToError())
+                    .build();
         }
 
-        boolean restartRequired = validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
+        Connection connection = null;
+        Statement oldPgSettingsStatement = null;
+        ResultSet oldPgSettingsResultSet;
+        try {
+            connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(instanceId);
 
-        log.info("Changing settings for instance {}. Restart will be required: {}", combinedInstanceInfo.getPersisted().getInstanceId(), restartRequired);
-
-        try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToInstance(combinedInstanceInfo.getPersisted().getInstanceId())) {
-            Map<String, PgSettingsTableRow> settingNameAndContextMap = getPgSettingsMap(connection);
-
-            String filePath = getPgFacadePostgresqlConfFilePath(connection);
-            List<String> oldConfLines = getFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath);
-
-            fastPostgresSettingsChange(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), newSettingNamesAndValuesMap, false, connection);
-
-            ResultSet checkSettingResultSet = connection.createStatement().executeQuery("SELECT * FROM pg_file_settings WHERE error NOTNULL AND sourcefile = '" + filePath + "'");
-
-            List<String> errors = new ArrayList<>();
-
-            while (checkSettingResultSet.next()) {
-                String settingsContext = Optional.ofNullable(settingNameAndContextMap.get(checkSettingResultSet.getString("name"))).map(PgSettingsTableRow::getContext).orElse(null);
-
-                if (settingsContext == null) {
-                    errors.add("Can not identify error. Check parameters names.");
-                }
-
-                // error appears for any settings that require restart
-                // don't need to display them as real errors to user
-                if (!PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingsContext)) {
-                    try {
-                        errors.add("Parameter name: '" + checkSettingResultSet.getString("name") + "'." + " Parameter value: '" + checkSettingResultSet.getString("setting") + "'." + " Error: '" + checkSettingResultSet.getString("error") + "'");
-                    } catch (Exception e) {
-                        errors.add("Can not identify error. Check parameters names.");
-                    }
+            oldPgSettingsStatement = connection.createStatement();
+            oldPgSettingsResultSet = oldPgSettingsStatement.executeQuery("SELECT * FROM pg_settings");
+        } catch (Exception e) {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (Exception ignored) {
                 }
             }
+            if (e instanceof SQLException) {
+                log.error("Failed to change postgres settings due to SQL error!", e);
+                return PostgresInstanceSettingsChangeResult
+                        .builder()
+                        .status(PostgresInstanceSettingsChangeResult.Status.SQL_ERROR)
+                        .sqlErrorMessage(e.getMessage())
+                        .build();
+            } else {
+                log.error("Failed to change postgres settings due to internal error!", e);
+                return PostgresInstanceSettingsChangeResult
+                        .builder()
+                        .status(PostgresInstanceSettingsChangeResult.Status.INTERNAL_ERROR)
+                        .build();
+            }
+        }
 
-            if (CollectionUtils.isNotEmpty(errors)) {
-                replaceFileLines(combinedInstanceInfo.getAdapter().getAdapterInstanceId(), filePath, oldConfLines);
-                String errorString = String.join("; \n", errors);
-                throw new PostgresConfigurationChangeException("Error while applying parameters. " + errorString);
+        Set<String> appliedSettingsNames = new HashSet<>();
+        try {
+            for (var entry : newSettingNamesAndValuesMap.entrySet()) {
+                executeAlterSystem(entry.getKey(), entry.getValue(), connection);
+                appliedSettingsNames.add(entry.getKey());
             }
 
             reloadConf(connection);
 
-            return restartRequired;
-
-        } catch (PostgresConfigurationChangeException postgresConfigurationChangeException) {
-            throw postgresConfigurationChangeException;
+            return PostgresInstanceSettingsChangeResult
+                    .builder()
+                    .status(PostgresInstanceSettingsChangeResult.Status.SUCCESS)
+                    .restartRequired(validationResult.isRestartRequired())
+                    .build();
         } catch (Exception e) {
-            throw new PostgresConfigurationChangeException("Unexpected error occurred while trying to apply new Postgres settings. ", e);
+            if (!appliedSettingsNames.isEmpty()) {
+                log.error("Failed to change Postgres settings! Will try to rollback made changes!", e);
+                Set<String> successfullyRollbackedSettings = rollbackSettingsSafe(oldPgSettingsResultSet, appliedSettingsNames, connection);
+                appliedSettingsNames.removeAll(successfullyRollbackedSettings);
+                if (!appliedSettingsNames.isEmpty()) {
+                    log.error("Was not able to rollback settings {}", appliedSettingsNames);
+                }
+            } else {
+                log.error("Failed to change Postgres settings!", e);
+            }
+
+            if (e instanceof SQLException) {
+                return PostgresInstanceSettingsChangeResult
+                        .builder()
+                        .status(PostgresInstanceSettingsChangeResult.Status.SQL_ERROR)
+                        .rollbackWasRequired(true)
+                        .notRollbackedSettings(appliedSettingsNames)
+                        .sqlErrorMessage(e.getMessage())
+                        .build();
+            } else {
+                return PostgresInstanceSettingsChangeResult
+                        .builder()
+                        .status(PostgresInstanceSettingsChangeResult.Status.INTERNAL_ERROR)
+                        .rollbackWasRequired(true)
+                        .notRollbackedSettings(appliedSettingsNames)
+                        .build();
+            }
+        } finally {
+            try {
+                connection.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                connection.close();
+            } catch (Exception ignored) {
+            }
         }
     }
 
     @Override
-    public boolean fastPostgresSettingsChange(String adapterIdentifier, Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
+    public boolean changePostgresSettingsFastUnsafe(Map<String, String> newSettingNamesAndValuesMap, boolean reloadConf, Connection connection) {
         try {
-            String filePath = getPgFacadePostgresqlConfFilePath(connection);
-
-            List<String> oldConfLines = getFileLines(adapterIdentifier, filePath);
-
-            Map<String, String> newConfSettingsMap = new HashMap<>();
-            for (String settingLine : oldConfLines) {
-                Matcher settingLineMatcher = PostgresConstants.CONF_FILE_LINE_PATTERN.matcher(settingLine);
-                if (!settingLineMatcher.matches()) {
-                    throw new PostgresConfigurationChangeException("Corrupted config file.");
-                }
-                newConfSettingsMap.put(settingLineMatcher.group(1), settingLineMatcher.group(2));
+            for (var entry : newSettingNamesAndValuesMap.entrySet()) {
+                executeAlterSystem(entry.getKey(), entry.getValue(), connection);
             }
-
-            newConfSettingsMap.putAll(newSettingNamesAndValuesMap);
-
-            List<String> newConfLines = new ArrayList<>();
-            for (var settingEntry : newConfSettingsMap.entrySet()) {
-                newConfLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
-            }
-
-            replaceFileLines(adapterIdentifier, filePath, newConfLines);
 
             if (reloadConf) {
                 reloadConf(connection);
@@ -166,67 +178,51 @@ public class PostgresConfiguratorImpl implements PostgresConfigurator {
 
             return true;
         } catch (Exception e) {
-            log.error("Error while applying settings", e);
+            log.error("Error while applying new Postgres settings using fast and unsafe method!", e);
             return false;
         }
     }
 
-    private Map<String, PgSettingsTableRow> getPgSettingsMap(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("SELECT * FROM pg_settings");
+    private void executeAlterSystem(String settingName, String settingValue, Connection connection) throws SQLException {
+        @Cleanup Statement statement = connection.createStatement();
+        statement.execute(
+                String.format(
+                        "ALTER SYSTEM SET %s = '%s'",
+                        settingName,
+                        settingValue
+                )
+        );
+    }
 
-        Map<String, PgSettingsTableRow> ret = new HashMap<>();
-        while (resultSet.next()) {
-            ret.put(resultSet.getString("name"), PgSettingsTableRow.builder().name(resultSet.getString("name")).value(resultSet.getString("setting")).unit(resultSet.getString("unit")).vartype(resultSet.getString("vartype")).enumvals(resultSet.getString("enumvals")).context(resultSet.getString("context")).build());
+    /**
+     * Rollback settings and report all successfully rollbacked ones. Fails on first error.
+     *
+     * @param oldPgSettingsResultSet result set containing pg_settings table content at the moment to when rollback is required
+     * @param rollbackSettingsNames  settings names to rollback
+     * @param connection             JDBC connection
+     * @return Set containing settings which were successfully rollbacked
+     */
+    private Set<String> rollbackSettingsSafe(ResultSet oldPgSettingsResultSet, Set<String> rollbackSettingsNames, Connection connection) {
+        Set<String> rollbackedSettings = new HashSet<>();
+        try {
+            while (oldPgSettingsResultSet.next()) {
+                String settingName = oldPgSettingsResultSet.getString("name");
+                String settingValue = oldPgSettingsResultSet.getString("setting");
+
+                if (rollbackSettingsNames.contains(settingName)) {
+                    executeAlterSystem(settingName, settingValue, connection);
+                    rollbackedSettings.add(settingName);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to rollback settings!", e);
         }
 
-        return ret;
+        return rollbackedSettings;
     }
+
 
     private void reloadConf(Connection connection) throws SQLException {
         connection.createStatement().execute("SELECT pg_reload_conf()");
-    }
-
-    private List<String> getFileLines(String adapterIdentifier, String filePath) throws PostgresConfigurationReadException {
-        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = platformAdapter.executeShellCommandForInstance(
-                adapterIdentifier,
-                "cat " + filePath,
-                Collections.emptyList()
-        );
-
-        if (!adapterShellCommandExecutionResult.isSuccess() || StringUtils.isNotEmpty(adapterShellCommandExecutionResult.getStderr())) {
-            throw new PostgresConfigurationReadException("Unable to read Postgres settings file. Cause: " + adapterShellCommandExecutionResult.getStderr());
-        }
-
-        if (StringUtils.isEmpty(adapterShellCommandExecutionResult.getStdout())) {
-            return Collections.emptyList();
-        }
-
-        return Arrays.asList(adapterShellCommandExecutionResult.getStdout().split("\n"));
-    }
-
-    private void replaceFileLines(String adapterIdentifier, String filePath, List<String> newLines) throws PostgresConfigurationChangeException {
-        AdapterShellCommandExecutionResult adapterShellCommandExecutionResult = platformAdapter.executeShellCommandForInstance(
-                adapterIdentifier,
-                "echo \"" + String.join("\n", newLines) + "\" > " + filePath,
-                Collections.emptyList()
-        );
-
-        if (!adapterShellCommandExecutionResult.isSuccess() || StringUtils.isNotEmpty(adapterShellCommandExecutionResult.getStderr())) {
-            throw new PostgresConfigurationChangeException("Unable to change Postgres settings file. Cause: " + adapterShellCommandExecutionResult.getStderr());
-        }
-    }
-
-    private String getPgHbaConfFilePath(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.HBA_FILE_SETTING_NAME + "'");
-        resultSet.next();
-
-        return resultSet.getString(1);
-    }
-
-    private String getPgFacadePostgresqlConfFilePath(Connection connection) throws SQLException {
-        ResultSet resultSet = connection.createStatement().executeQuery("SELECT setting FROM pg_settings WHERE name = '" + PostgresConstants.DATA_DIRECTORY_SETTING_NAME + "'");
-        resultSet.next();
-
-        return resultSet.getString(1) + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
     }
 }

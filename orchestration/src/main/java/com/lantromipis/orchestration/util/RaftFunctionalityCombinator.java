@@ -16,7 +16,6 @@ import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static com.lantromipis.orchestration.constant.RaftConstants.*;
@@ -35,6 +34,7 @@ public class RaftFunctionalityCombinator {
 
 
     private static final long TIMEOUT = 2000;
+    private static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
 
     public boolean testIfAbleToCommitToRaftNoException() {
         try {
@@ -49,7 +49,7 @@ public class RaftFunctionalityCombinator {
     public void testIfAbleToCommitToRaft() throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 DUMMY_COMMIT_TEST_COMMAND,
-                new byte[0],
+                EMPTY_BYTE_ARRAY,
                 TIMEOUT
         );
     }
@@ -102,10 +102,6 @@ public class RaftFunctionalityCombinator {
         return raftStorage.getPostgresNodeInfo(instanceId);
     }
 
-    public Map<String, String> getPostgresSettingInfos() throws PropertyReadException {
-        return raftStorage.getPostgresSettingInfos();
-    }
-
     public void savePostgresNodeInfoInRaft(PostgresPersistedInstanceInfo postgresPersistedInstanceInfo) throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 SAVE_POSTGRES_NODE_INFO,
@@ -133,15 +129,15 @@ public class RaftFunctionalityCombinator {
     public void clearPostgresNodesInfosInRaft() throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 CLEAR_POSTGRES_NODES_INFOS,
-                new byte[0],
+                EMPTY_BYTE_ARRAY,
                 TIMEOUT
         );
     }
 
-    public void savePostgresSettingsInfosInRaft(Map<String, String> persistedSettingsInfos) throws RaftException {
+    public void notifyClusterAboutSettingsChange() throws RaftException {
         raftService.appendToLogAndAwaitCommit(
-                SAVE_POSTGRES_SETTINGS_INFO,
-                writeAsBytesSafe(persistedSettingsInfos),
+                NOTIFY_ABOUT_POSTGRES_SETTINGS_CHANGE,
+                EMPTY_BYTE_ARRAY,
                 TIMEOUT
         );
     }

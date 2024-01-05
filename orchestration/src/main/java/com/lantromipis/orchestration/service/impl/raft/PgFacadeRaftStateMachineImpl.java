@@ -19,7 +19,6 @@ import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,12 +74,8 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                     raftStorage.clearPostgresNodesInfos();
                     raftCommitUtils.processCommittedClearPostgresNodeInfoCommand();
                 }
-                case SAVE_POSTGRES_SETTINGS_INFO -> {
-                    Map<String, String> persistedSettingsInfos = objectMapper.readValue(
-                            new String(data),
-                            RaftFileBasedStorage.POSTGRES_SETTING_INFO_TYPE_REF
-                    );
-                    raftCommitUtils.processCommittedPostgresSettingsInfoCommand(persistedSettingsInfos);
+                case NOTIFY_ABOUT_POSTGRES_SETTINGS_CHANGE -> {
+                    raftCommitUtils.processCommittedPostgresSettingsInfoCommand();
                 }
                 case NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED -> {
                     SwitchoverStartedEvent switchoverStartedEvent = objectMapper.readValue(new String(data), SwitchoverStartedEvent.class);

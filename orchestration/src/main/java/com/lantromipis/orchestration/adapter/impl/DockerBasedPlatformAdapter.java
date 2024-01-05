@@ -11,7 +11,9 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
-import com.lantromipis.configuration.properties.constant.*;
+import com.lantromipis.configuration.properties.constant.ExternalLoadBalancerConstants;
+import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
+import com.lantromipis.configuration.properties.constant.QuarkusConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
@@ -148,11 +150,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             String containerNamePostfix = request.getFutureInstanceId().toString();
 
             CreateContainerCmd createContainerCmd = getPostgresDefaultCreateContainerCmdRequest(containerNamePostfix);
-
-            Map<String, String> postgresSettings = new HashMap<>(request.getSettings());
-            postgresSettings.put(PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME, postgresUtils.getPrimaryConnInfoSetting());
-
-            String volumeName = createVolumeWithPgBaseBackupForStandby(containerNamePostfix, postgresSettings);
+            String volumeName = createVolumeWithPgBaseBackupForStandby(containerNamePostfix);
 
             createContainerCmd.getHostConfig()
                     .withBinds(
@@ -897,7 +895,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         }
     }
 
-    private String createVolumeWithPgBaseBackupForStandby(String containerPostfix, Map<String, String> settings) throws PlatformAdapterOperationExecutionException {
+    private String createVolumeWithPgBaseBackupForStandby(String containerPostfix) throws PlatformAdapterOperationExecutionException {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
         String volumeName = null, containerId = null;
@@ -929,16 +927,9 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
 
             dockerClient.startContainerCmd(containerId).exec();
 
-            List<String> settingsLines = new ArrayList<>();
-            for (var settingEntry : settings.entrySet()) {
-                settingsLines.add(String.format(PostgresConstants.CONF_FILE_LINE_FORMAT, settingEntry.getKey(), settingEntry.getValue()));
-            }
-            String confFilePath = DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/" + PostgresqlConfConstants.PG_FACADE_POSTGRESQL_CONF_FILE_NAME;
-
             String commandToExecute = postgresUtils.getCommandToCreatePgPassFileForPrimary(postgresProperties.users().replication())
                     + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
-                    + " ; touch " + DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/standby.signal"
-                    + " ; echo \"" + String.join("\n", settingsLines) + "\" > " + confFilePath;
+                    + " ; touch " + DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/standby.signal";
 
             log.info("Creating backup for standby. This will take some time...");
 

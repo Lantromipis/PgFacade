@@ -5,15 +5,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PgSettingsTableRow {
-    private String name;
-    private String value;
-    private String unit;
-    private String context;
-    private String vartype;
-    private String enumvals;
+public class PostgresSettingsValidationResult {
+    private boolean restartRequired;
+    private boolean settingsValid;
+    private Map<String, String> settingNameToError;
 }

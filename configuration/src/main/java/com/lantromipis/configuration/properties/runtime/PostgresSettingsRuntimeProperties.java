@@ -13,11 +13,12 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
-@Getter
 @ApplicationScoped
 public class PostgresSettingsRuntimeProperties {
 
@@ -27,9 +28,18 @@ public class PostgresSettingsRuntimeProperties {
     @Inject
     Event<PostgresSettingsUpdatedEvent> postgresSettingsUpdatedEvent;
 
+    @Getter
     private int postgresVersionNum = 150005;
+    @Getter
     private int maxPostgresConnections = 100;
+    @Getter
     private long walSegmentSizeInBytes = 16777216;
+
+    private AtomicReference<Map<String, PgSetting>> cachedSettings = new AtomicReference<>(Collections.EMPTY_MAP);
+
+    public Map<String, PgSetting> getCachedSettings() {
+        return cachedSettings.get();
+    }
 
     public void reload() throws Exception {
         try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
@@ -40,6 +50,7 @@ public class PostgresSettingsRuntimeProperties {
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString("name");
                 String settingValue = pgSettingsResultSet.getString("setting");
+                String settingContext = pgSettingsResultSet.getString("context");
                 String settingUnit = pgSettingsResultSet.getString("unit");
 
                 settingNameToValue.put(
@@ -48,6 +59,7 @@ public class PostgresSettingsRuntimeProperties {
                                 .builder()
                                 .settingValue(settingValue)
                                 .name(settingName)
+                                .context(settingContext)
                                 .unit(settingUnit)
                                 .build()
                 );
@@ -68,6 +80,7 @@ public class PostgresSettingsRuntimeProperties {
                     walSegmentSizeSetting.getUnit()
             );
 
+            cachedSettings.set(Collections.unmodifiableMap(settingNameToValue));
             postgresSettingsUpdatedEvent.fire(new PostgresSettingsUpdatedEvent());
         }
     }
