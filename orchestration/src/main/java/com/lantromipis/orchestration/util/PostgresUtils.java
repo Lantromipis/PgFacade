@@ -1,15 +1,19 @@
 package com.lantromipis.orchestration.util;
 
+import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import lombok.extern.slf4j.Slf4j;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.UUID;
 
+@Slf4j
 @ApplicationScoped
 public class PostgresUtils {
 
@@ -18,6 +22,9 @@ public class PostgresUtils {
 
     @Inject
     PostgresProperties postgresProperties;
+
+    @Inject
+    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
     public String getShellPgCtlToStopPostgres(String pgDataDirPath) {
         return "pg_ctl stop -D " + pgDataDirPath + " ; rm -f " + pgDataDirPath + "/recovery.signal";
@@ -38,31 +45,6 @@ public class PostgresUtils {
                 + "touch " + pgDataDirPath + "/recovery.signal ; "
                 + "chown -R postgres:postgres " + pgDataDirPath + " ; "
                 + "chmod 700 " + pgDataDirPath;
-    }
-
-    public Connection getConnectionForPgFacadeUser(String address, int port) throws SQLException {
-        return getConnectionToDatabase(
-                address,
-                port,
-                postgresProperties.users().pgFacade().database(),
-                postgresProperties.users().pgFacade().username(),
-                postgresProperties.users().pgFacade().password()
-        );
-    }
-
-    public Connection getConnectionToDatabase(String address, int port, String database, String username, String password) throws SQLException {
-        String jdbcUrl = "jdbc:postgresql://"
-                + address
-                + ":"
-                + port
-                + "/"
-                + database;
-
-        return DriverManager.getConnection(
-                jdbcUrl,
-                username,
-                password
-        );
     }
 
     //TODO move to configuration/producers
@@ -109,5 +91,56 @@ public class PostgresUtils {
                 postgresProperties.users().replication().username(),
                 postgresProperties.users().replication().password()
         );
+    }
+
+    public void createPhysicalReplicationSlot(Connection connection, String slotName) throws SQLException {
+        if (slotName == null) {
+            return;
+        }
+
+        PreparedStatement statement = connection.prepareStatement("SELECT pg_create_physical_replication_slot(?, true, false)");
+        statement.setString(1, slotName);
+        statement.executeQuery();
+        statement.close();
+    }
+
+    public void dropPhysicalReplicationSlot(Connection connection, String slotName) throws SQLException {
+        if (slotName == null) {
+            return;
+        }
+
+        PreparedStatement statement = connection.prepareStatement("SELECT pg_drop_replication_slot(?)");
+        statement.setString(1, slotName);
+        statement.executeQuery();
+        statement.close();
+    }
+
+    public boolean dropPhysicalReplicationSlotOnPrimarySafely(String slotName) {
+        if (slotName == null) {
+            return true;
+        }
+        try (Connection primaryConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+            dropPhysicalReplicationSlot(primaryConnection, slotName);
+            return true;
+        } catch (Exception ex) {
+            log.error("Failed to drop physical replication slot! Be sure to remove it manually!", ex);
+            return false;
+        }
+    }
+
+    public String createPostgresServerName(UUID standbyInstanceId) {
+        return "pgfacade-managed-postgres" + standbyInstanceId.toString();
+    }
+
+    public String createPostgresReplicationSlotName(UUID standbyInstanceId) {
+        return "pgfacade_standby" + standbyInstanceId.toString().replaceAll("-", "_");
+    }
+
+    public void closeJdbcConnectionSafely(Connection connection) {
+        try {
+            connection.close();
+        } catch (Exception ignored) {
+
+        }
     }
 }

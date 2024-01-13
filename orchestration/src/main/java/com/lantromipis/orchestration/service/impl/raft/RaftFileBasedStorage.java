@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
@@ -143,6 +144,18 @@ public class RaftFileBasedStorage implements RaftStorage {
         try {
             postgresArchiveInfoFileModificationLock.lock();
             objectMapper.writeValue(postgresArchiveInfoFile, info);
+        } catch (Exception e) {
+            throw new PropertyModificationException("Error while saving archive info to file", e);
+        } finally {
+            postgresArchiveInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
+    public void deleteArchiveInfo() throws PropertyModificationException {
+        try {
+            postgresArchiveInfoFileModificationLock.lock();
+            new FileOutputStream(postgresArchiveInfoFile).close();
         } catch (Exception e) {
             throw new PropertyModificationException("Error while saving archive info to file", e);
         } finally {

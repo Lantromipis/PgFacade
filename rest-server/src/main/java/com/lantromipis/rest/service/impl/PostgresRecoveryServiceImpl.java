@@ -38,8 +38,7 @@ public class PostgresRecoveryServiceImpl implements PostgresRecoveryService {
                             .adapterIdentifier(adapterIdentifier)
                             .build()
             );
-
-            // TODO update postgres-archive-info.json AND postgres-settings-info.json
+            raftStorage.deleteArchiveInfo();
 
             log.info("New master was created from backup. Adapter identifier is {}", adapterIdentifier);
         }

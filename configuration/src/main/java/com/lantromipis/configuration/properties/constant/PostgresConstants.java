@@ -8,26 +8,14 @@ import java.util.regex.Pattern;
 
 public class PostgresConstants {
 
-    public static final String PG_HBA_CONF_START_LINE = "# TYPE  DATABASE        USER            ADDRESS                 METHOD";
-    public static final String PG_FACADE_POSTGRESQL_CONF_START_LINE = "# do not modify this file! It is managed by PgFacade!";
-
-    public static final String PG_HBA_CONF_REPLICATION_DB = "replication";
-
-    public static final String PG_HBA_CONF_ALL = "all";
-
-    public static final String PG_DATA_ENV_VAR = "PGDATA";
-
     //settings
     public static final String PRIMARY_CONN_INFO_SETTING_NAME = "primary_conninfo";
-    public static final String HBA_FILE_SETTING_NAME = "hba_file";
-    public static final String DATA_DIRECTORY_SETTING_NAME = "data_directory";
-    public static final String CONFIG_FILE_SETTING_NAME = "config_file";
     public static final String MAX_CONNECTIONS_SETTING_NAME = "max_connections";
     public static final String SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME = "superuser_reserved_connections";
-    public static final String WAL_KEEP_SIZE_SETTING_NAME = "wal_keep_size";
-    public static final String WAL_KEEP_SEGMENTS_SETTING_NAME = "wal_keep_segments";
     public static final String SERVER_VERSION_NUM_SETTING_NAME = "server_version_num";
     public static final String WAL_SEGMENT_SIZE_SETTING_NAME = "wal_segment_size";
+    public static final String PRIMARY_SLOT_NAME_SETTING_NAME = "primary_slot_name";
+    public static final String CLUSTER_NAME_SETTING_NAME = "cluster_name";
 
     public static final int PG_VERSION_13_NUM = 130000;
     public static final int PG_VERSION_15_NUM = 150000;
@@ -39,7 +27,9 @@ public class PostgresConstants {
             "archive_command",
             "archive_mode",
             "archive_cleanup_command",
-            "archive_library"
+            "archive_library",
+            PRIMARY_SLOT_NAME_SETTING_NAME,
+            CLUSTER_NAME_SETTING_NAME
     );
     public static final Set<String> UNMODIFIABLE_SETTINGS_CONTEXT_NAMES = Set.of("internal");
     public static final Set<String> RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES = Set.of("postmaster");
