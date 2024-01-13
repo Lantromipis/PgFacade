@@ -231,7 +231,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 continue;
             }
 
-            boolean configuredSuccessfully = configureStandby(
+            boolean configuredSuccessfully = configureStandbyForReplication(
+                    standbyAdapterInstanceInfo.getAdapterInstanceId(),
                     standbyAdapterInstanceInfo.getInstanceAddress(),
                     standbyAdapterInstanceInfo.getInstancePort(),
                     standbyInfo.getPersisted().getServerName(),
@@ -759,6 +760,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         try {
             raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getPersisted().getInstanceId());
             platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
+            postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(standbyInstanceInfo.getPersisted().getReplicationSlotName());
         } catch (RaftException e) {
             log.error("Failed to delete instance {} in raft!", standbyInstanceInfo.getPersisted().getInstanceId(), e);
         }
@@ -883,7 +885,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             return null;
         }
 
-        boolean settingsChanged = configureStandby(
+        boolean settingsChanged = configureStandbyForReplication(
+                postgresAdapterInstanceInfo.getAdapterInstanceId(),
                 postgresAdapterInstanceInfo.getInstanceAddress(),
                 postgresAdapterInstanceInfo.getInstancePort(),
                 serverName,
@@ -913,7 +916,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .build();
     }
 
-    private boolean configureStandby(String address, int port, String standbyName, String replicationSlotName) {
+    private boolean configureStandbyForReplication(String adapterIdentifier, String address, int port, String standbyName, String replicationSlotName) {
         log.info("Standby stared and is healthy. Changing it's settings to achieve replication.");
 
         try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(address, port)) {
@@ -933,20 +936,33 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             boolean settingsChanged = postgresConfigurator.changePostgresSettingsFastUnsafe(
                     standbySettings,
-                    true,
+                    false,
                     connection
             );
 
             if (!settingsChanged) {
                 log.error("Failed to change settings which are required for replication for started standby!");
                 return false;
-            } else {
-                return true;
             }
         } catch (Exception e) {
             log.error("Failed to configure started standby!", e);
             return false;
         }
+
+        // restart due to cluster_name settings change
+        try {
+            platformAdapter.get().restartPostgresInstance(adapterIdentifier);
+        } catch (Exception e) {
+            log.error("Failed to restart standby after configuring it for replication!", e);
+        }
+        
+        PostgresAdapterInstanceInfo adapterInstanceInfo = waitUntilPostgresInstanceHealthy(adapterIdentifier);
+        if (adapterInstanceInfo == null) {
+            log.error("Failed to restart standby after configuring it for replication!");
+            return false;
+        }
+
+        return true;
     }
 
     private PostgresAdapterInstanceInfo startPostgresInstanceAndWaitToBeReady(String adapterIdentifier) {

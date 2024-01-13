@@ -133,7 +133,7 @@ public class PostgresUtils {
     }
 
     public String createPostgresReplicationSlotName(UUID standbyInstanceId) {
-        return "pgfacade_standby" + standbyInstanceId.toString().replaceAll("-", "_");
+        return "pgfacade_standby_slot" + standbyInstanceId.toString().replaceAll("-", "_");
     }
 
     public void closeJdbcConnectionSafely(Connection connection) {
