@@ -10,7 +10,7 @@ import java.util.UUID;
 /**
  * Help service for Orchestrator, so it should only be used by orchestrator
  */
-public interface PostgresConfigurator {
+public interface PostgresConfigurationService {
 
     /**
      * Method is used to validate settings and check if new settings require restart.

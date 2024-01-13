@@ -6,7 +6,7 @@ import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.model.PostgresInstanceSettingsChangeResult;
 import com.lantromipis.orchestration.model.PostgresSettingsValidationResult;
-import com.lantromipis.orchestration.service.api.PostgresConfigurator;
+import com.lantromipis.orchestration.service.api.PostgresConfigurationService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.Cleanup;
@@ -20,7 +20,7 @@ import java.util.*;
 
 @Slf4j
 @ApplicationScoped
-public class PostgresConfiguratorImpl implements PostgresConfigurator {
+public class PostgresConfigurationServiceImpl implements PostgresConfigurationService {
 
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;

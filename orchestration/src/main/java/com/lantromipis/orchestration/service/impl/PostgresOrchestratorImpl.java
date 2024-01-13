@@ -29,8 +29,6 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,7 +47,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     OrchestrationProperties orchestrationProperties;
 
     @Inject
-    PostgresConfigurator postgresConfigurator;
+    PostgresConfigurationService postgresConfigurationService;
 
     @Inject
     ManagedExecutor managedExecutor;
@@ -93,7 +91,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final Set<UUID> restartingStandbyInstanceIds = ConcurrentHashMap.newKeySet();
 
     private final static long HEALTHCHECK_TIMEOUT = 1500;
-    private final Map<UUID, Instant> newlyCreatedStartingStandbys = new ConcurrentHashMap<>();
 
     @Override
     public void initializeFastWhenClusterRunning() throws Exception {
@@ -302,7 +299,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     .build();
         }
 
-        PostgresSettingsValidationResult validationResult = postgresConfigurator.validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
+        PostgresSettingsValidationResult validationResult = postgresConfigurationService.validateSettingAndCheckIfRestartRequired(newSettingNamesAndValuesMap);
         if (!validationResult.isSettingsValid()) {
             return PostgresClusterSettingsChangeResult
                     .builder()
@@ -320,7 +317,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             for (int i = 0; i < combinedInstanceInfos.size(); i++) {
                 PostgresCombinedInstanceInfo info = combinedInstanceInfos.get(i);
-                PostgresInstanceSettingsChangeResult changeResult = postgresConfigurator.changePostgresInstanceSettingsAndRollbackOnFailure(
+                PostgresInstanceSettingsChangeResult changeResult = postgresConfigurationService.changePostgresInstanceSettingsAndRollbackOnFailure(
                         info.getPersisted().getInstanceId(),
                         newSettingNamesAndValuesMap
                 );
@@ -393,7 +390,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             // using switchover event because for application restart looks the same
             raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
 
-            PostgresInstanceSettingsChangeResult primaryChangeResult = postgresConfigurator.changePostgresInstanceSettingsAndRollbackOnFailure(
+            PostgresInstanceSettingsChangeResult primaryChangeResult = postgresConfigurationService.changePostgresInstanceSettingsAndRollbackOnFailure(
                     primaryCombinedInstanceInfo.getPersisted().getInstanceId(),
                     newSettingNamesAndValuesMap
             );
@@ -430,7 +427,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
             // all good for primary, so it will 99% be good for every other Postgres instance
             for (PostgresCombinedInstanceInfo availableStandby : availableStandbys) {
-                PostgresInstanceSettingsChangeResult standbyChangeResult = postgresConfigurator.changePostgresInstanceSettingsAndRollbackOnFailure(
+                PostgresInstanceSettingsChangeResult standbyChangeResult = postgresConfigurationService.changePostgresInstanceSettingsAndRollbackOnFailure(
                         availableStandby.getPersisted().getInstanceId(),
                         newSettingNamesAndValuesMap
                 );
@@ -439,7 +436,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                         && standbyChangeResult.isRollbackWasRequired()
                         && CollectionUtils.isNotEmpty(standbyChangeResult.getNotRollbackedSettings())) {
                     log.error("FAILED TO ROLLBACK INCORRECT SETTINGS FOR STANDBY!");
-                    removeStandby(availableStandby);
+                    removeStandby(availableStandby.getPersisted());
                 }
                 // failed to restart
                 boolean restartSuccessful = restartStandbyAndWaitUntilItIsReadyAndRemoveOnFail(availableStandby);
@@ -492,7 +489,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     public void checkStandbyCount() {
         if (orchestratorReady.get() && !primaryUnhealthy.get() && !switchoverInProgress.get() && standbyCountCheckInProgress.compareAndSet(false, true)) {
             try {
-                checkAndFixStandbyCount(orchestratorUtils.getCombinedInfosForAvailableInstances());
+                checkAndFixStandbyCount();
             } finally {
                 standbyCountCheckInProgress.set(false);
             }
@@ -651,44 +648,43 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .orElse(null);
     }
 
-    private void checkAndFixStandbyCount(List<PostgresCombinedInstanceInfo> availableInstances) {
-        //remove unhealthy or inactive standby
-        availableInstances
-                .stream()
-                .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
-                .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
-                .filter(info ->
-                        !info.getAdapter().isActive()
-                                || !postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
+    private void checkAndFixStandbyCount() {
+        int healthyStandbyCount = 0;
 
-                )
-                .forEach(info -> {
-                    if (raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
-                        log.info("Found unhealthy or inactive standby. Removing it.");
-                        removeStandby(info);
-                    }
-                });
-
-        newlyCreatedStartingStandbys.forEach((key, value) -> {
-            if (value.isAfter(Instant.now().plus(15, ChronoUnit.SECONDS))) {
-                newlyCreatedStartingStandbys.remove(key);
+        List<PostgresPersistedInstanceInfo> persistedInstanceInfos = raftFunctionalityCombinator.getPostgresNodeInfos();
+        for (PostgresPersistedInstanceInfo persistedInstanceInfo : persistedInstanceInfos) {
+            if (persistedInstanceInfo.isPrimary()) {
+                continue;
             }
-        });
 
-        List<PostgresCombinedInstanceInfo> healthyOrStartingStandby = availableInstances
-                .stream()
-                .filter(info -> Boolean.FALSE.equals(info.getPersisted().isPrimary()))
-                .filter(info ->
-                        newlyCreatedStartingStandbys.containsKey(info.getPersisted().getInstanceId())
-                                || postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
-                )
-                .toList();
+            if (restartingStandbyInstanceIds.contains(persistedInstanceInfo.getInstanceId())) {
+                healthyStandbyCount++;
+                continue;
+            }
 
-        long countDiff = orchestrationProperties.common().standby().count() - healthyOrStartingStandby.size();
+            PostgresAdapterInstanceInfo adapterInstanceInfo;
+            try {
+                adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(persistedInstanceInfo.getAdapterIdentifier());
+            } catch (PlatformAdapterNotFoundException e) {
+                log.error("Standby with name {} and exists in Raft but can not be found by adapter. Removing it from Raft!", persistedInstanceInfo.getServerName());
+                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(persistedInstanceInfo.getInstanceId());
+                continue;
+            }
 
-        if (healthyOrStartingStandby.size() < orchestrationProperties.common().standby().count() && raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
-            log.warn("Found {} starting or healthy standby while it is required to have {}. Need to start {} more.",
-                    healthyOrStartingStandby.size(),
+            if (!postgresHealthcheckService.get().checkPostgresLiveliness(adapterInstanceInfo.getInstanceAddress(), adapterInstanceInfo.getInstancePort(), HEALTHCHECK_TIMEOUT)) {
+                log.info("Found unhealthy or inactive standby. Removing it.");
+                removeStandby(persistedInstanceInfo);
+                continue;
+            }
+
+            healthyStandbyCount++;
+        }
+
+        int countDiff = orchestrationProperties.common().standby().count() - healthyStandbyCount;
+
+        if (healthyStandbyCount < orchestrationProperties.common().standby().count() && raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
+            log.warn("Found {} healthy standby while it is required to have {}. Need to start {} more.",
+                    healthyStandbyCount,
                     orchestrationProperties.common().standby().count(),
                     countDiff
             );
@@ -724,26 +720,34 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             } catch (Exception e) {
                 log.error("Error while scaling up standby count", e);
             }
-        } else if (healthyOrStartingStandby.size() > orchestrationProperties.common().standby().count()) {
+        } else if (healthyStandbyCount > orchestrationProperties.common().standby().count()) {
             log.warn("Found {} starting or healthy standby while it is required to have {}. Will stop {} instance(s).",
-                    healthyOrStartingStandby.size(),
+                    healthyStandbyCount,
                     orchestrationProperties.common().standby().count(),
                     Math.abs(countDiff)
             );
 
-            for (int i = 0; i < Math.abs(countDiff); i++) {
-                platformAdapter.get().deleteInstance(healthyOrStartingStandby.get(i).getAdapter().getAdapterInstanceId());
+            int leftToRemove = Math.abs(countDiff);
+            for (PostgresPersistedInstanceInfo persistedInstanceInfo : persistedInstanceInfos) {
+                if (leftToRemove <= 0) {
+                    break;
+                }
+                if (persistedInstanceInfo.isPrimary()) {
+                    continue;
+                }
+                removeStandby(persistedInstanceInfo);
+                leftToRemove--;
             }
         }
     }
 
-    private void removeStandby(PostgresCombinedInstanceInfo standbyInstanceInfo) {
+    private void removeStandby(PostgresPersistedInstanceInfo standbyInstanceInfo) {
         try {
-            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getPersisted().getInstanceId());
-            platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapter().getAdapterInstanceId());
-            postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(standbyInstanceInfo.getPersisted().getReplicationSlotName());
+            raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getInstanceId());
+            platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapterIdentifier());
+            postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(standbyInstanceInfo.getReplicationSlotName());
         } catch (RaftException e) {
-            log.error("Failed to delete instance {} in raft!", standbyInstanceInfo.getPersisted().getInstanceId(), e);
+            log.error("Failed to delete instance with name {} in raft!", standbyInstanceInfo.getServerName(), e);
         }
     }
 
@@ -786,7 +790,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             //remove all standby because of new timeline
             //TODO it is possible to repair such nodes instead of deleting them. Use recovery_target_timeline = 'latest'
             log.info("NEW PRIMARY PROMOTED. REMOVING ALL FORMER STANDBY BECAUSE OF NEW TIMELINE.");
-            orchestratorUtils.getCombinedInfosForStandbyInstances().forEach(this::removeStandby);
+            orchestratorUtils.getCombinedInfosForStandbyInstances().forEach(i -> removeStandby(i.getPersisted()));
 
             raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");
@@ -818,7 +822,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             if (adapterInstanceInfo == null) {
                 log.error("Standby failed to become healthy after restart! Removing it...");
                 restartingStandbyInstanceIds.remove(instanceId);
-                removeStandby(standbyInfo);
+                removeStandby(standbyInfo.getPersisted());
                 return false;
             }
 
@@ -827,7 +831,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         } catch (Exception e) {
             log.error("Error while restarting standby! It will be removed!", e);
             restartingStandbyInstanceIds.remove(instanceId);
-            removeStandby(standbyInfo);
+            removeStandby(standbyInfo.getPersisted());
             return false;
         }
     }
@@ -915,7 +919,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     postgresUtils.getPrimaryConnInfoSetting()
             );
 
-            boolean settingsChanged = postgresConfigurator.changePostgresSettingsFastUnsafe(
+            boolean settingsChanged = postgresConfigurationService.changePostgresSettingsFastUnsafe(
                     standbySettings,
                     false,
                     connection
