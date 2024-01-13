@@ -3,7 +3,6 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
-import com.lantromipis.configuration.model.PgSetting;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.constant.PostgresConstants;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
@@ -26,7 +25,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.sql.Connection;
@@ -178,23 +176,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
         orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(primaryInstanceInfo);
         postgresSettingsRuntimeProperties.reload();
-
-        // verify cluster_name
-        PgSetting currentPrimaryClusterName = postgresSettingsRuntimeProperties.getCachedSettings().get(PostgresConstants.CLUSTER_NAME_SETTING_NAME);
-        String expectedClusterName = primaryInstanceInfo.getPersisted().getServerName();
-        if (currentPrimaryClusterName == null
-                || StringUtils.isEmpty(currentPrimaryClusterName.getSettingValue())
-                || !currentPrimaryClusterName.getSettingValue().equals(expectedClusterName)) {
-            try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
-                postgresConfigurator.changePostgresSettingsFastUnsafe(
-                        Map.of(PostgresConstants.CLUSTER_NAME_SETTING_NAME, expectedClusterName),
-                        true,
-                        connection
-                );
-            } catch (Exception ignored) {
-
-            }
-        }
 
         log.info("Primary is up and running!");
 
@@ -955,7 +936,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         } catch (Exception e) {
             log.error("Failed to restart standby after configuring it for replication!", e);
         }
-        
+
         PostgresAdapterInstanceInfo adapterInstanceInfo = waitUntilPostgresInstanceHealthy(adapterIdentifier);
         if (adapterInstanceInfo == null) {
             log.error("Failed to restart standby after configuring it for replication!");

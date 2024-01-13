@@ -129,11 +129,11 @@ public class PostgresUtils {
     }
 
     public String createPostgresServerName(UUID standbyInstanceId) {
-        return "pgfacade-managed-postgres" + standbyInstanceId.toString();
+        return "pgfacade-managed-postgres-" + standbyInstanceId.toString();
     }
 
     public String createPostgresReplicationSlotName(UUID standbyInstanceId) {
-        return "pgfacade_standby_slot" + standbyInstanceId.toString().replaceAll("-", "_");
+        return "pgfacade_standby_slot_" + standbyInstanceId.toString().replaceAll("-", "_");
     }
 
     public void closeJdbcConnectionSafely(Connection connection) {
