@@ -2,7 +2,7 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
-import com.lantromipis.configuration.properties.constant.PostgresConstants;
+import com.lantromipis.configuration.properties.constant.PostgresSettingsConstants;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
@@ -542,7 +542,7 @@ public class PostgresContinuousArchivingServiceImpl implements PostgresContinuou
         s.append(" ").append(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY_OPTION_PHYSICAL);
 
         if (reserveWal) {
-            if (postgresSettingsRuntimeProperties.getPostgresVersionNum() >= PostgresConstants.PG_VERSION_15_NUM) {
+            if (postgresSettingsRuntimeProperties.getPostgresVersionNum() >= PostgresSettingsConstants.PG_VERSION_15_NUM) {
                 s.append(" ").append(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY_OPTION_RESERVE_WAL_ABOVE_PG_15);
             } else {
                 s.append(" ").append(PostgresProtocolStreamingReplicationConstants.CREATE_REPLICATION_SLOT_QUERY_OPTION_RESERVE_WAL_BELOW_PG_15);

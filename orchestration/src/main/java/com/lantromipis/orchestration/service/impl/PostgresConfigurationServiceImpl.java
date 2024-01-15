@@ -2,7 +2,7 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.model.PgSetting;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
-import com.lantromipis.configuration.properties.constant.PostgresConstants;
+import com.lantromipis.configuration.properties.constant.PostgresSettingsConstants;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.model.PostgresInstanceSettingsChangeResult;
 import com.lantromipis.orchestration.model.PostgresSettingsValidationResult;
@@ -48,13 +48,13 @@ public class PostgresConfigurationServiceImpl implements PostgresConfigurationSe
             if (settingContext == null) {
                 settingNameToError.put(settingName, "Unknown setting provided. Can not find it in pg_settings table.");
             } else {
-                if (PostgresConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES.contains(settingName)) {
+                if (PostgresSettingsConstants.FORBIDDEN_TO_CHANGE_SETTINGS_NAMES.contains(settingName)) {
                     settingNameToError.put(settingName, "Unable to change setting because it is managed by PgFacade.");
                 }
-                if (PostgresConstants.UNMODIFIABLE_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
+                if (PostgresSettingsConstants.UNMODIFIABLE_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
                     settingNameToError.put(settingName, "Unable to change setting. This setting is immutable.");
                 }
-                if (PostgresConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
+                if (PostgresSettingsConstants.RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES.contains(settingContext)) {
                     restartRequired = true;
                 }
             }

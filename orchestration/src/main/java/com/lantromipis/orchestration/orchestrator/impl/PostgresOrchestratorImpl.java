@@ -1,10 +1,10 @@
-package com.lantromipis.orchestration.service.impl;
+package com.lantromipis.orchestration.orchestrator.impl;
 
 import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
-import com.lantromipis.configuration.properties.constant.PostgresConstants;
+import com.lantromipis.configuration.properties.constant.PostgresSettingsConstants;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -14,6 +14,7 @@ import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.*;
 import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
+import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.service.api.*;
 import com.lantromipis.orchestration.util.OrchestratorUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -59,7 +60,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     ArchivingProperties archivingProperties;
 
     @Inject
-    PostgresArchiver postgresArchiver;
+    PostgresArchivingService postgresArchivingService;
 
     @Inject
     PostgresRestorationService postgresRestorationService;
@@ -82,6 +83,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
     PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
 
+    @Inject
+    PostgresPrimaryOrchestrationService postgresPrimaryOrchestrationService;
+
+    @Inject
+    PostgresStandbyOrchestrationService postgresStandbyOrchestrationService;
+
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean livelinessCheckInProgress = new AtomicBoolean(false);
     private final AtomicBoolean standbyCountCheckInProgress = new AtomicBoolean(false);
@@ -93,20 +100,20 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private final static long HEALTHCHECK_TIMEOUT = 1500;
 
     @Override
-    public void initializeFastWhenClusterRunning() throws Exception {
+    public void initializeWhenClusterRunning() throws Exception {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresSettingsRuntimeProperties.reload();
 
             if (archivingProperties.enabled()) {
-                postgresArchiver.initialize();
+                postgresArchivingService.initialize();
             }
             log.info("Fast orchestrator initialization completed!");
             return;
         }
 
         if (archivingProperties.enabled()) {
-            postgresArchiver.startArchiving();
+            postgresArchivingService.startArchiving();
         } else {
             log.warn("Archiving is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
@@ -120,115 +127,31 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Override
-    public void initializeFull() throws Exception {
+    public void initializeWhenClusterStopped() throws Exception {
         if (PgFacadeRaftRole.FOLLOWER.equals(pgFacadeRuntimeProperties.getRaftRole())) {
             log.info("Not starting Postgres orchestration because this PgFacade instance is not current raft leader.");
             postgresSettingsRuntimeProperties.reload();
             return;
         }
 
-        PostgresPersistedInstanceInfo primaryPersistedInstanceInfo = raftFunctionalityCombinator.getPostgresNodeInfos()
-                .stream()
-                .filter(PostgresPersistedInstanceInfo::isPrimary)
-                .findFirst()
-                .orElse(null);
-
-        PostgresAdapterInstanceInfo adapterInstanceInfo = null;
-        boolean primaryFoundAndStarted = false;
-
-        if (primaryPersistedInstanceInfo != null) {
-            adapterInstanceInfo = platformAdapter.get().getPostgresInstanceInfo(primaryPersistedInstanceInfo.getAdapterIdentifier());
-
-            if (adapterInstanceInfo.isActive()) {
-                primaryFoundAndStarted = true;
-                log.info("Found active Postgres primary. No actions needed.");
-
-            } else {
-                log.info("Found non-active Postgres primary instance. Will start it now.");
-
-                try {
-                    platformAdapter.get().startPostgresInstance(adapterInstanceInfo.getAdapterInstanceId());
-                    adapterInstanceInfo = waitUntilPostgresInstanceHealthy(adapterInstanceInfo.getAdapterInstanceId());
-                    if (adapterInstanceInfo == null) {
-                        log.error("Failed to start non-active Postgres primary!");
-                    } else {
-                        primaryFoundAndStarted = true;
-                    }
-                    log.info("Successfully started non-active Postgres primary!");
-                } catch (Exception e) {
-                    log.error("Failed to start non-active Postgres primary!", e);
-                }
-            }
-        }
-
-        if (!primaryFoundAndStarted) {
-            throw new NoPrimaryException("Postgres primary NOT found! Con not start orchestration!");
-        }
-
-        PostgresCombinedInstanceInfo primaryInstanceInfo = PostgresCombinedInstanceInfo
-                .builder()
-                .adapter(adapterInstanceInfo)
-                .persisted(primaryPersistedInstanceInfo)
-                .build();
+        // start primary
+        PostgresCombinedInstanceInfo primaryInstanceInfo = postgresPrimaryOrchestrationService.startStoppedExistingPrimary();
 
         orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(primaryInstanceInfo);
         postgresSettingsRuntimeProperties.reload();
 
         log.info("Primary is up and running!");
 
-        // standby section
-        List<PostgresCombinedInstanceInfo> standbyInfos = orchestratorUtils.getCombinedInfosForStandbyInstances();
+        // start standbys
+        List<PostgresCombinedInstanceInfo> startedStandbyInstanceInfos = postgresStandbyOrchestrationService.startStoppedStandbys();
+        startedStandbyInstanceInfos.forEach(
+                standbyInfo -> orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(standbyInfo)
+        );
 
-        log.info("Checking if Postgres standby instances are active.");
-
-        for (PostgresCombinedInstanceInfo standbyInfo : standbyInfos) {
-            if (standbyInfo.getAdapter().isActive()) {
-                log.info("Known standby with name {} is already running!", standbyInfo.getPersisted().getServerName());
-                boolean healthCheckSucceeded = postgresHealthcheckService.get().checkPostgresLiveliness(
-                        standbyInfo.getAdapter().getInstanceAddress(),
-                        standbyInfo.getAdapter().getInstancePort(),
-                        HEALTHCHECK_TIMEOUT
-                );
-
-                if (!healthCheckSucceeded) {
-                    log.error("Failed to healthcheck running standby. Will remove it");
-                    raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInfo.getPersisted().getInstanceId());
-                    platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
-                } else {
-                    orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(standbyInfo);
-                }
-                continue;
-            }
-
-            log.info("Found inactive standby with name {}. Will start it now.", standbyInfo.getPersisted().getServerName());
-            PostgresAdapterInstanceInfo standbyAdapterInstanceInfo = startPostgresInstanceAndWaitToBeReady(standbyInfo.getPersisted().getAdapterIdentifier());
-            if (standbyAdapterInstanceInfo == null) {
-                log.error("Failed to start inactive standby with name {}. Will remove it.", standbyInfo.getPersisted().getServerName());
-                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInfo.getPersisted().getInstanceId());
-                platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
-                continue;
-            }
-
-            boolean configuredSuccessfully = configureStandbyForReplication(
-                    standbyAdapterInstanceInfo.getAdapterInstanceId(),
-                    standbyAdapterInstanceInfo.getInstanceAddress(),
-                    standbyAdapterInstanceInfo.getInstancePort(),
-                    standbyInfo.getPersisted().getServerName(),
-                    standbyInfo.getPersisted().getReplicationSlotName()
-            );
-
-            if (!configuredSuccessfully) {
-                log.error("Failed to configure standby with name {}. Will remove it.", standbyInfo.getPersisted().getServerName());
-                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInfo.getPersisted().getInstanceId());
-                platformAdapter.get().deleteInstance(standbyInfo.getAdapter().getAdapterInstanceId());
-            } else {
-                orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(standbyInfo);
-            }
-        }
-
+        // archiving
         if (archivingProperties.enabled()) {
-            postgresArchiver.initialize();
-            postgresArchiver.startArchiving();
+            postgresArchivingService.initialize();
+            postgresArchivingService.startArchiving();
         } else {
             log.warn("Archiving is disabled. Continuous Archiving and Point-in-Time Recovery will not be possible!");
         }
@@ -241,7 +164,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Override
     public void stopOrchestrator(boolean shutdownPostgres) {
         orchestratorReady.set(false);
-        postgresArchiver.stop();
+        postgresArchivingService.stop();
         waitForActiveOperationsToComplete();
 
         if (shutdownPostgres) {
@@ -499,11 +422,11 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     //TODO remove
     private PostgresCombinedInstanceInfo restoreClusterFromBackup(boolean initializeArchiver) {
         if (initializeArchiver) {
-            postgresArchiver.initialize();
+            postgresArchivingService.initialize();
         }
 
         log.info("Started restoring cluster from backup.");
-        if (CollectionUtils.isEmpty(postgresArchiver.getBackupInstants())) {
+        if (CollectionUtils.isEmpty(postgresArchivingService.getBackupInstants())) {
             log.error("No backups are available in archive storage! Can not restore cluster from backup!");
             return null;
         } else {
@@ -907,15 +830,15 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         try (Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(address, port)) {
             Map<String, String> standbySettings = new LinkedHashMap<>();
             standbySettings.put(
-                    PostgresConstants.CLUSTER_NAME_SETTING_NAME,
+                    PostgresSettingsConstants.CLUSTER_NAME_SETTING_NAME,
                     standbyName
             );
             standbySettings.put(
-                    PostgresConstants.PRIMARY_SLOT_NAME_SETTING_NAME,
+                    PostgresSettingsConstants.PRIMARY_SLOT_NAME_SETTING_NAME,
                     replicationSlotName
             );
             standbySettings.put(
-                    PostgresConstants.PRIMARY_CONN_INFO_SETTING_NAME,
+                    PostgresSettingsConstants.PRIMARY_CONN_INFO_SETTING_NAME,
                     postgresUtils.getPrimaryConnInfoSetting()
             );
 

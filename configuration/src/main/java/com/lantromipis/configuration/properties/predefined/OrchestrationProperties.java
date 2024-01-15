@@ -28,6 +28,8 @@ public interface OrchestrationProperties {
 
         PostgresStartupCheckProperties postgresStartupCheck();
 
+        Duration postgresHealthcheckTimeout();
+
         PostgresDeadCheckProperties postgresDeadCheck();
 
         StandbyProperties standby();

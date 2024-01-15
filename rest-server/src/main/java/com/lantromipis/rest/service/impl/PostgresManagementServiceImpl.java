@@ -2,7 +2,7 @@ package com.lantromipis.rest.service.impl;
 
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.orchestration.model.PostgresClusterSettingsChangeResult;
-import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
+import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.rest.constant.PostgresConstants;
 import com.lantromipis.rest.exception.GeneralRequestProcessingException;
 import com.lantromipis.rest.mapper.PostgresSettingsMapper;

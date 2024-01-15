@@ -5,7 +5,7 @@ import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
-import com.lantromipis.orchestration.service.api.PostgresArchiver;
+import com.lantromipis.orchestration.service.api.PostgresArchivingService;
 import com.lantromipis.orchestration.service.api.PostgresRestorationService;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -34,7 +34,7 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
     Instance<ArchiverStorageAdapter> archiverAdapter;
 
     @Inject
-    PostgresArchiver postgresArchiver;
+    PostgresArchivingService postgresArchivingService;
 
     @Inject
     FilesPathsProducer filesPathsProducer;
@@ -58,7 +58,7 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
             }
 
             archiverAdapter.get().initializeAndValidate();
-            postgresArchiver.stop();
+            postgresArchivingService.stop();
 
             Instant lastBackupInstant = instants.stream().sorted().findFirst().get();
 

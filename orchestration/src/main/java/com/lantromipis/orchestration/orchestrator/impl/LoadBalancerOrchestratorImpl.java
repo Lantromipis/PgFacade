@@ -1,4 +1,4 @@
-package com.lantromipis.orchestration.service.impl;
+package com.lantromipis.orchestration.orchestrator.impl;
 
 import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
@@ -8,9 +8,9 @@ import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.ExternalLoadBalancerAdapterInfo;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
+import com.lantromipis.orchestration.orchestrator.api.LoadBalancerOrchestrator;
 import com.lantromipis.orchestration.restclient.ExternalLoadBalancerHealtcheckTemplateRestClient;
 import com.lantromipis.orchestration.restclient.model.HealtcheckResponseDto;
-import com.lantromipis.orchestration.service.api.LoadBalancerOrchestrator;
 import com.lantromipis.orchestration.util.DynamicRestClientUtils;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import io.quarkus.scheduler.Scheduled;

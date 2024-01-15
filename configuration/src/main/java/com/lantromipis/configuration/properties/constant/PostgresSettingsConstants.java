@@ -1,12 +1,14 @@
 package com.lantromipis.configuration.properties.constant;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
 import java.util.Set;
-import java.util.regex.Pattern;
 
-public class PostgresConstants {
+public class PostgresSettingsConstants {
+
+    // pg_settings_column_names
+    public static final String PG_SETTING_COLUMN_SETTING_NAME = "name";
+    public static final String PG_SETTING_COLUMN_SETTING_VALUE = "setting";
+    public static final String PG_SETTING_COLUMN_SETTING_CONTEXT = "context";
+    public static final String PG_SETTING_COLUMN_SETTING_UNIT = "unit";
 
     //settings
     public static final String PRIMARY_CONN_INFO_SETTING_NAME = "primary_conninfo";
@@ -34,47 +36,7 @@ public class PostgresConstants {
     public static final Set<String> UNMODIFIABLE_SETTINGS_CONTEXT_NAMES = Set.of("internal");
     public static final Set<String> RESTART_REQUIRED_SETTINGS_CONTEXT_NAMES = Set.of("postmaster");
 
-    // Patterns and formats
-    public static final String CONF_FILE_LINE_FORMAT = "%s = %s";
-    public static final Pattern CONF_FILE_LINE_PATTERN = Pattern.compile("^([^ ]*) *= *(.*)$");
 
-
-    // https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
-    @RequiredArgsConstructor
-    public enum PgHbaConfHost {
-        HOST("host"),
-        LOCAL("local"),
-        HOST_SSL("hostssl"),
-        HOST_NO_SSL("hostnossl"),
-        HOST_GSS_ENC("hostgssenc"),
-        HOST_NO_GSS_ENC("hostnogssenc");
-
-        @Getter
-        private final String value;
-    }
-
-    // https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
-    @RequiredArgsConstructor
-    public enum PgHbaConfAuthMethod {
-        TRUST("trust"),
-        REJECT("reject"),
-        SCRAM_SHA_256("scram-sha-256"),
-        MD5("md5"),
-        PASSWORD("password"),
-        GSS("gss"),
-        SSPI("sspi"),
-        IDENT("ident"),
-        PEER("peer"),
-        LDAP("ldap"),
-        RADIUS("radius"),
-        CERT("cert"),
-        PAM("pam"),
-        VSD("bsd");
-
-        @Getter
-        private final String value;
-    }
-
-    private PostgresConstants() {
+    private PostgresSettingsConstants() {
     }
 }
