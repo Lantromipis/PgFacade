@@ -33,7 +33,7 @@
         <jandex-plugin.version>3.1.6</jandex-plugin.version>
 
         <!--dependencies versions-->
-        <quarkus.platform.version>3.6.4</quarkus.platform.version>
+        <quarkus.platform.version>3.6.8</quarkus.platform.version>
         <lombok.version>1.18.30</lombok.version>
         <apache.commons.long3.version>3.14.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
