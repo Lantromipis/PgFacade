@@ -219,7 +219,7 @@ public class QuarkusStartupAndShutdownHandler {
         // Initialize archiver adapter if required
         if (archivingProperties.enabled()) {
             try {
-                archiverStorageAdapter.get().initializeAndValidate();
+                archiverStorageAdapter.get().initializeAndValidateStorageAvailability();
             } catch (Exception e) {
                 log.error("Failed to initialize archiver adapter!", e);
                 return false;

@@ -37,7 +37,17 @@ public class PgResultSet {
                 return null;
             }
 
-            return new String(columns.get(name));
+            return new String(value);
+        }
+
+        public String getCellValueByIdxAsString(int idx) {
+            byte[] value = getCellValueByIdx(idx);
+
+            if (value == null) {
+                return null;
+            }
+
+            return new String(value);
         }
 
         public byte[] getCellValueByIdx(int idx) {

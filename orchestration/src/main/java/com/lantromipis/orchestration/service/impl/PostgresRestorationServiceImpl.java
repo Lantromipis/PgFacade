@@ -57,7 +57,7 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
                 throw new PostgresRestoreException("No backups found. Can not restore Postgres from backup.");
             }
 
-            archiverAdapter.get().initializeAndValidate();
+            archiverAdapter.get().initializeAndValidateStorageAvailability();
             postgresArchivingService.stop();
 
             Instant lastBackupInstant = instants.stream().sorted().findFirst().get();

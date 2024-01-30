@@ -26,6 +26,7 @@ public class PostgresPrimaryOrchestrationServiceImpl implements PostgresPrimaryO
     @Inject
     OrchestratorUtils orchestratorUtils;
 
+    @Override
     public PostgresCombinedInstanceInfo startStoppedExistingPrimary() throws NoPrimaryException {
         PostgresPersistedInstanceInfo primaryPersistedInstanceInfo = raftFunctionalityCombinator.getPostgresNodeInfos()
                 .stream()

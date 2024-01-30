@@ -62,7 +62,7 @@ public class PostgresArchivingServiceImpl implements PostgresArchivingService {
     @Override
     public void initialize() {
         if (!archiverInitialized) {
-            archiverAdapter.get().initializeAndValidate();
+            archiverAdapter.get().initializeAndValidateStorageAvailability();
             archiverInitialized = true;
         }
     }

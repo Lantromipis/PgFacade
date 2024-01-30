@@ -50,7 +50,7 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
     private Instant timeWhenLoadBalancerExpectedToBeFullyStarted = null;
     private int failedHealthChecksCount = 0;
 
-    private Object orchestrationLock = new Object[0];
+    private final Object orchestrationLock = new Object[0];
 
     @Override
     @Synchronized("orchestrationLock")
