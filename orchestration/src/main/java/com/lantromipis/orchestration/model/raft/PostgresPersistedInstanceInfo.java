@@ -34,6 +34,10 @@ public class PostgresPersistedInstanceInfo {
      */
     private String replicationSlotName;
     /**
+     * Indicates if node is standby and is synchronous.
+     */
+    private boolean synchronousStandby;
+    /**
      * Indicates if node is primary.
      */
     private boolean primary;

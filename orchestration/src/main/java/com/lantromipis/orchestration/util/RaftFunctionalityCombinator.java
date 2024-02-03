@@ -11,6 +11,7 @@ import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.UUID;
@@ -95,6 +96,14 @@ public class RaftFunctionalityCombinator {
 
     public List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException {
         return raftStorage.getPostgresNodeInfos();
+    }
+
+    public List<PostgresPersistedInstanceInfo> getPostgresStandbyNodeInfos() throws PropertyReadException {
+        List<PostgresPersistedInstanceInfo> nodes = raftStorage.getPostgresNodeInfos();
+        if (CollectionUtils.isEmpty(nodes)) {
+            return nodes;
+        }
+        return nodes.stream().filter(n -> !n.isPrimary()).toList();
     }
 
     public PostgresPersistedInstanceInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException {

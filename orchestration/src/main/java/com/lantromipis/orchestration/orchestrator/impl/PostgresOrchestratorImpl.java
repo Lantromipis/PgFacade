@@ -1,6 +1,8 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
+import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
+import com.lantromipis.configuration.properties.constant.PostgresSettingsConstants;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -37,6 +39,7 @@ import java.sql.Statement;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
@@ -85,6 +88,9 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
     @Inject
     PostgresStandbyOrchestrationService postgresStandbyOrchestrationService;
+
+    @Inject
+    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
 
     private final AtomicBoolean orchestratorReady = new AtomicBoolean(false);
     private final AtomicBoolean switchoverInProgress = new AtomicBoolean(false);
@@ -393,6 +399,97 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     public void checkStandbyCount() {
         if (orchestratorReady.get() && !primaryUnhealthy.get() && !switchoverInProgress.get()) {
             postgresStandbyOrchestrationService.checkStandbyCountAndLiveliness();
+            validateSynchronousStandbySetting();
+        }
+    }
+
+    private void validateSynchronousStandbySetting() {
+        // check synchronous standby
+        // at this point persisted info must contain only healthy standby
+        String synchronousStandbySettingValue;
+        List<PostgresPersistedInstanceInfo> nodesToUpdate = new ArrayList<>();
+
+        switch (orchestrationProperties.common().postgres().common().synchronousStandbyStrategy()) {
+            case DISABLED -> {
+                synchronousStandbySettingValue = "";
+            }
+            case SINGLE -> {
+                List<PostgresPersistedInstanceInfo> leftStandbys = raftFunctionalityCombinator.getPostgresStandbyNodeInfos();
+                PostgresPersistedInstanceInfo newSynchronousStandby = null;
+
+                for (PostgresPersistedInstanceInfo standbyInfo : leftStandbys) {
+                    if (standbyInfo.isSynchronousStandby()) {
+                        newSynchronousStandby = standbyInfo;
+                    }
+                }
+
+                if (newSynchronousStandby == null) {
+                    newSynchronousStandby = leftStandbys.getFirst();
+                    newSynchronousStandby.setSynchronousStandby(true);
+                }
+
+                nodesToUpdate.add(newSynchronousStandby);
+                synchronousStandbySettingValue = postgresUtils.escapeStr(newSynchronousStandby.getServerName());
+
+                for (PostgresPersistedInstanceInfo standbyInfo : leftStandbys) {
+                    if (standbyInfo.isSynchronousStandby() && !newSynchronousStandby.getInstanceId().equals(standbyInfo.getInstanceId())) {
+                        standbyInfo.setSynchronousStandby(false);
+                        nodesToUpdate.add(standbyInfo);
+                    }
+                }
+            }
+            case ALL -> {
+                List<PostgresPersistedInstanceInfo> leftStandbys = raftFunctionalityCombinator.getPostgresStandbyNodeInfos();
+                if (CollectionUtils.isEmpty(leftStandbys)) {
+                    return;
+                }
+                synchronousStandbySettingValue = "ANY "
+                        + leftStandbys.size()
+                        + " ("
+                        + leftStandbys.stream()
+                        .map(PostgresPersistedInstanceInfo::getServerName)
+                        .map(s -> postgresUtils.escapeStr(s))
+                        .collect(Collectors.joining(","))
+                        + ")";
+                for (PostgresPersistedInstanceInfo standbyInfo : leftStandbys) {
+                    if (standbyInfo.isSynchronousStandby()) {
+                        continue;
+                    }
+                    standbyInfo.setSynchronousStandby(true);
+                    nodesToUpdate.add(standbyInfo);
+                }
+            }
+            default -> throw new UnsupportedOperationException("Unsupported synchronous standby strategy!");
+        }
+
+        try (Connection primaryConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnectionToCurrentPrimary()) {
+            Statement synchronousStandbyNamesSettingStatement = primaryConnection.createStatement();
+            ResultSet synchronousStandbyNamesSettingResultSet = synchronousStandbyNamesSettingStatement.executeQuery("SELECT name, setting FROM pgfacade.pg_catalog.pg_settings WHERE name = 'synchronous_standby_names'");
+            synchronousStandbyNamesSettingResultSet.next();
+            String currentSynchronousStandbyNamesSettingValue = synchronousStandbyNamesSettingResultSet.getString(PostgresSettingsConstants.PG_SETTING_COLUMN_SETTING_VALUE);
+
+            if (currentSynchronousStandbyNamesSettingValue.equals(synchronousStandbySettingValue)) {
+                return;
+            }
+
+            log.warn("Setting 'synchronous_standby_names' has invalid value. Expected value '{}'. Actual value: '{}' Will update it.",
+                    synchronousStandbySettingValue,
+                    currentSynchronousStandbyNamesSettingValue
+            );
+
+            postgresConfigurationService.changePostgresSettingsFastUnsafe(
+                    Map.of(PostgresSettingsConstants.SYNCHRONOUS_STANDBY_NAMES_SETTING_NAME, synchronousStandbySettingValue),
+                    true,
+                    primaryConnection
+            );
+        } catch (Exception e) {
+            log.error("Failed to update synchronous_standby_names setting!", e);
+        }
+
+        if (CollectionUtils.isNotEmpty(nodesToUpdate)) {
+            for (PostgresPersistedInstanceInfo standbyInfo : nodesToUpdate) {
+                raftFunctionalityCombinator.updatePostgresNodeInfoInRaft(standbyInfo);
+            }
         }
     }
 

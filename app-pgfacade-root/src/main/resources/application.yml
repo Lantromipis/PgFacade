@@ -45,6 +45,7 @@ pg-facade:
         startup-duration: PT10S
       postgres:
         common:
+          synchronous-standby-strategy: disabled
           readiness:
             delay: PT2S
             interval: PT0.1S

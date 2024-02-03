@@ -52,12 +52,20 @@ public interface OrchestrationProperties {
 
                 CommonPostgresReadinessProperties readiness();
 
+                SynchronousStandbyStrategy synchronousStandbyStrategy();
+
                 interface CommonPostgresReadinessProperties {
                     Duration delay();
 
                     Duration interval();
 
                     int retries();
+                }
+
+                enum SynchronousStandbyStrategy {
+                    DISABLED,
+                    SINGLE,
+                    ALL
                 }
             }
 

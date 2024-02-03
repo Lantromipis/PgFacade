@@ -18,6 +18,7 @@ public class PostgresSettingsConstants {
     public static final String WAL_SEGMENT_SIZE_SETTING_NAME = "wal_segment_size";
     public static final String PRIMARY_SLOT_NAME_SETTING_NAME = "primary_slot_name";
     public static final String CLUSTER_NAME_SETTING_NAME = "cluster_name";
+    public static final String SYNCHRONOUS_STANDBY_NAMES_SETTING_NAME = "synchronous_standby_names";
 
     public static final int PG_VERSION_13_NUM = 130000;
     public static final int PG_VERSION_15_NUM = 150000;

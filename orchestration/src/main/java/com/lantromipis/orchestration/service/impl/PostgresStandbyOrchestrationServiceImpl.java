@@ -117,6 +117,13 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             }
 
             log.info("Standby with name {} is up ad running!", persistedStandbyInfo.getServerName());
+            ret.add(
+                    PostgresCombinedInstanceInfo
+                            .builder()
+                            .adapter(adapterStandbyInfo)
+                            .persisted(persistedStandbyInfo)
+                            .build()
+            );
         }
 
         return ret;
