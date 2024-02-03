@@ -29,7 +29,7 @@
 
         <!--plugins versions-->
         <compiler-plugin.version>3.12.1</compiler-plugin.version>
-        <surefire-plugin.version>3.2.3</surefire-plugin.version>
+        <surefire-plugin.version>3.2.5</surefire-plugin.version>
         <jandex-plugin.version>3.1.6</jandex-plugin.version>
 
         <!--dependencies versions-->
