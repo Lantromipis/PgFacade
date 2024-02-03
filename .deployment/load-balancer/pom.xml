@@ -21,8 +21,8 @@
         <surefire-plugin.version>3.0.0</surefire-plugin.version>
 
         <!--dependencies versions-->
-        <quarkus.platform.version>3.6.4</quarkus.platform.version>
-        <netty.version>4.1.104.Final</netty.version>
+        <quarkus.platform.version>3.7.1</quarkus.platform.version>
+        <netty.version>4.1.106.Final</netty.version>
         <lombok.version>1.18.30</lombok.version>
         <apache.commons.long3.version>3.14.0</apache.commons.long3.version>
         <apache.commons.collections4.version>4.4</apache.commons.collections4.version>
@@ -41,11 +41,11 @@
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-rest-client-jackson</artifactId>
+            <artifactId>quarkus-resteasy-client-jackson</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-rest-client</artifactId>
+            <artifactId>quarkus-resteasy-client</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
