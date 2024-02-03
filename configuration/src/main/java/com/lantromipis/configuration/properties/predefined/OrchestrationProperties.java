@@ -24,15 +24,9 @@ public interface OrchestrationProperties {
 
     interface CommonProperties {
 
-        PostgresStartupCheckProperties postgresStartupCheck();
-
-        Duration postgresHealthcheckTimeout();
-
-        PostgresDeadCheckProperties postgresDeadCheck();
-
-        StandbyProperties standby();
-
         ExternalLoadBalancerProperties externalLoadBalancer();
+
+        PostgresCommonProperties postgres();
 
         interface ExternalLoadBalancerProperties {
             boolean deploy();
@@ -46,24 +40,51 @@ public interface OrchestrationProperties {
             int healthcheckRetries();
         }
 
-        interface StandbyProperties {
-            int count();
+        interface PostgresCommonProperties {
 
-            Duration countCheckInterval();
-        }
+            CommonPostgresProperties common();
 
-        interface PostgresStartupCheckProperties {
-            long startPeriod();
+            PrimaryPostgresProperties primary();
 
-            long interval();
+            StandbyPostgresProperties standby();
 
-            long retries();
-        }
+            interface CommonPostgresProperties {
 
-        interface PostgresDeadCheckProperties {
-            Duration interval();
+                CommonPostgresReadinessProperties readiness();
 
-            int retries();
+                interface CommonPostgresReadinessProperties {
+                    Duration delay();
+
+                    Duration interval();
+
+                    int retries();
+                }
+            }
+
+            interface PrimaryPostgresProperties {
+
+                PrimaryHealthcheckPostgresProperties healthcheck();
+
+                interface PrimaryHealthcheckPostgresProperties {
+                    Duration interval();
+
+                    int retries();
+
+                    Duration timeout();
+                }
+            }
+
+            interface StandbyPostgresProperties {
+                int count();
+
+                StandbyHealthcheckPostgresProperties healthcheck();
+
+                interface StandbyHealthcheckPostgresProperties {
+                    Duration interval();
+
+                    Duration timeout();
+                }
+            }
         }
     }
 

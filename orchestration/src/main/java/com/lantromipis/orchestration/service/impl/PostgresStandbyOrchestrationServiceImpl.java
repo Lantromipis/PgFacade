@@ -144,7 +144,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             boolean standbyHealthy = postgresHealthcheckService.checkPostgresLiveliness(
                     adapterInstanceInfo.getInstanceAddress(),
                     adapterInstanceInfo.getInstancePort(),
-                    orchestrationProperties.common().postgresHealthcheckTimeout().toMillis()
+                    orchestrationProperties.common().postgres().standby().healthcheck().timeout().toMillis()
             );
 
             if (!standbyHealthy) {
@@ -156,12 +156,12 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             healthyStandbyCount++;
         }
 
-        int countDiff = orchestrationProperties.common().standby().count() - healthyStandbyCount;
+        int countDiff = orchestrationProperties.common().postgres().standby().count() - healthyStandbyCount;
 
-        if (healthyStandbyCount < orchestrationProperties.common().standby().count() && raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
+        if (healthyStandbyCount < orchestrationProperties.common().postgres().standby().count() && raftFunctionalityCombinator.testIfAbleToCommitToRaftNoException()) {
             log.warn("Found {} healthy standby while it is required to have {}. Need to start {} more.",
                     healthyStandbyCount,
-                    orchestrationProperties.common().standby().count(),
+                    orchestrationProperties.common().postgres().standby().count(),
                     countDiff
             );
 
@@ -183,10 +183,10 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
                 }
 
             }
-        } else if (healthyStandbyCount > orchestrationProperties.common().standby().count()) {
+        } else if (healthyStandbyCount > orchestrationProperties.common().postgres().standby().count()) {
             log.warn("Found {} starting or healthy standby while it is required to have {}. Will stop {} instance(s).",
                     healthyStandbyCount,
-                    orchestrationProperties.common().standby().count(),
+                    orchestrationProperties.common().postgres().standby().count(),
                     Math.abs(countDiff)
             );
 
@@ -215,7 +215,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             boolean singleStandbyHealthy = postgresHealthcheckService.checkPostgresLiveliness(
                     singleStandbyInfo.getAdapter().getInstanceAddress(),
                     singleStandbyInfo.getAdapter().getInstancePort(),
-                    orchestrationProperties.common().postgresHealthcheckTimeout().toMillis()
+                    orchestrationProperties.common().postgres().standby().healthcheck().timeout().toMillis()
             );
 
             if (!singleStandbyHealthy) {
@@ -258,7 +258,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             boolean healthy = postgresHealthcheckService.checkPostgresLiveliness(
                     standbyInfo.getAdapter().getInstanceAddress(),
                     standbyInfo.getAdapter().getInstancePort(),
-                    orchestrationProperties.common().postgresHealthcheckTimeout().toMillis()
+                    orchestrationProperties.common().postgres().standby().healthcheck().timeout().toMillis()
             );
 
             if (!healthy) {

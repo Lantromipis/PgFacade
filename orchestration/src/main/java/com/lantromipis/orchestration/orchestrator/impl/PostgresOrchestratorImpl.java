@@ -381,7 +381,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Blocking
-    @Scheduled(every = "${pg-facade.orchestration.common.postgres-dead-check.interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    @Scheduled(every = "${pg-facade.orchestration.common.postgres.primary.healthcheck.interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkPrimaryLiveliness() {
         if (orchestratorReady.get() && !switchoverInProgress.get()) {
             checkPrimaryHealthAndFailoverIfNeeded();
@@ -389,7 +389,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Blocking
-    @Scheduled(every = "${pg-facade.orchestration.common.standby.count-check-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    @Scheduled(every = "${pg-facade.orchestration.common.postgres.standby.healthcheck.interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     public void checkStandbyCount() {
         if (orchestratorReady.get() && !primaryUnhealthy.get() && !switchoverInProgress.get()) {
             postgresStandbyOrchestrationService.checkStandbyCountAndLiveliness();
@@ -404,6 +404,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 .findFirst()
                 .orElse(null);
 
+        var primaryHealthcheckProperties = orchestrationProperties.common().postgres().primary().healthcheck();
+
         if (currentPrimary == null || !currentPrimary.getAdapter().isActive()) {
             healthcheckFailedCount = Integer.MAX_VALUE;
             log.error("CAN NOT FIND POSTGRES PRIMARY. HEALTHCHECK FAILED!");
@@ -411,18 +413,21 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             boolean healthy = postgresHealthcheckService.get().checkPostgresLiveliness(
                     currentPrimary.getAdapter().getInstanceAddress(),
                     currentPrimary.getAdapter().getInstancePort(),
-                    HEALTHCHECK_TIMEOUT
+                    primaryHealthcheckProperties.timeout().toMillis()
             );
             if (!currentPrimary.getAdapter().isActive() || !healthy) {
                 healthcheckFailedCount++;
                 primaryUnhealthy.set(true);
-                log.error("POSTGRES PRIMARY UNHEALTHY. {} HEALTHCHECKS FAILED WHEN MAXIMUM IS {}", healthcheckFailedCount, orchestrationProperties.common().postgresDeadCheck().retries());
+                log.error("POSTGRES PRIMARY UNHEALTHY. {} HEALTHCHECKS FAILED WHEN MAXIMUM IS {}",
+                        healthcheckFailedCount,
+                        primaryHealthcheckProperties.retries()
+                );
             } else {
                 primaryUnhealthy.set(false);
             }
         }
 
-        if (healthcheckFailedCount < orchestrationProperties.common().postgresDeadCheck().retries()) {
+        if (healthcheckFailedCount < primaryHealthcheckProperties.retries()) {
             return;
         }
 

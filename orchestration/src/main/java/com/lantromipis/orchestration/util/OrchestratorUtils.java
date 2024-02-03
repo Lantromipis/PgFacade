@@ -138,9 +138,9 @@ public class OrchestratorUtils {
     }
 
     public PostgresAdapterInstanceInfo waitUntilPostgresInstanceHealthy(String adapterInstanceId) {
-        OrchestrationProperties.CommonProperties.PostgresStartupCheckProperties startupCheckProperties = orchestrationProperties.common().postgresStartupCheck();
+        var startupCheckProperties = orchestrationProperties.common().postgres().common().readiness();
 
-        long endTime = System.currentTimeMillis() + (startupCheckProperties.interval() * startupCheckProperties.retries()) + startupCheckProperties.startPeriod();
+        long endTime = System.currentTimeMillis() + (startupCheckProperties.interval().toMillis() * startupCheckProperties.retries()) + startupCheckProperties.delay().toMillis();
         PostgresAdapterInstanceInfo instanceInfo = platformAdapter.get().getPostgresInstanceInfo(adapterInstanceId);
 
         try {
@@ -149,7 +149,7 @@ public class OrchestratorUtils {
                 boolean healthcheckSucceeded = postgresHealthcheckService.checkPostgresLiveliness(
                         instanceInfo.getInstanceAddress(),
                         instanceInfo.getInstancePort(),
-                        orchestrationProperties.common().postgresHealthcheckTimeout().toMillis()
+                        orchestrationProperties.common().postgres().standby().healthcheck().timeout().toMillis()
                 );
 
                 if (healthcheckSucceeded) {

@@ -43,17 +43,22 @@ pg-facade:
         healthcheck-retries: 3
         healthcheck-timeout: PT3S
         startup-duration: PT10S
-      postgres-healthcheck-timeout: PT1.5S
-      postgres-startup-check:
-        start-period: 2000 #millisecinds
-        interval: 100 #millisecinds
-        retries: 100
-      postgres-dead-check:
-        interval: PT1S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
-        retries: 3
-      standby:
-        count: 1
-        count-check-interval: PT10S
+      postgres:
+        common:
+          readiness:
+            delay: PT2S
+            interval: PT0.1S
+            retries: 100
+        primary:
+          healthcheck:
+            interval: PT1S
+            retries: 3
+            timeout: PT1.5S
+        standby:
+          count: 1
+          healthcheck:
+            interval: PT10S
+            timeout: PT1.5S
     no-adapter:
       primary-host: localhost
       primary-port: 5432
