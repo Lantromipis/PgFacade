@@ -374,7 +374,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
 
             boolean settingsChanged = postgresConfigurationService.changePostgresSettingsFastUnsafe(
                     expectedSettings,
-                    false,
+                    !restartRequired,
                     connection
             );
 
