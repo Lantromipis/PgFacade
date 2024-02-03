@@ -9,7 +9,7 @@ import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
-import com.lantromipis.orchestration.model.SelectedForPromotionStandby;
+import com.lantromipis.orchestration.model.StandbyElectionForPromotionResult;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PostgresConfigurationService;
 import com.lantromipis.orchestration.service.api.PostgresHealthcheckService;
@@ -205,7 +205,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
     }
 
     @Override
-    public SelectedForPromotionStandby selectStandbyForPromotion() {
+    public StandbyElectionForPromotionResult selectStandbyForPromotion() {
         List<PostgresCombinedInstanceInfo> availableStandbys = orchestratorUtils.getCombinedInfosForStandbyInstances();
 
         // for single standby, just return it if it is healthy
@@ -233,10 +233,10 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
                         connectionProperties
                 );
 
-                return SelectedForPromotionStandby
+                return StandbyElectionForPromotionResult
                         .builder()
-                        .standbyInfo(singleStandbyInfo)
-                        .connection(connection)
+                        .electedForPromotionStandby(singleStandbyInfo)
+                        .electedForPromotionStandbyConnection(connection)
                         .build();
             } catch (Exception e) {
                 log.error("Failed to establish JDBC connection for single standby while trying to select it for promotion!", e);
@@ -248,6 +248,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
         long latestLsn = LogSequenceNumberUtils.INVALID_LSN;
         PostgresCombinedInstanceInfo retStandby = null;
         Connection retStandbyConnection = null;
+        Map<UUID, PostgresCombinedInstanceInfo> notElectedStandbys = new HashMap<>();
 
         for (PostgresCombinedInstanceInfo standbyInfo : availableStandbys) {
             if (standbyInfo.getAdapter() == null || !standbyInfo.getAdapter().isActive()) {
@@ -261,6 +262,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             );
 
             if (!healthy) {
+                notElectedStandbys.put(standbyInfo.getPersisted().getInstanceId(), standbyInfo);
                 return null;
             }
 
@@ -280,12 +282,18 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
                 resultSet.next();
                 String standbyLsnStr = resultSet.getString(1);
                 long standbyLsn = LogSequenceNumberUtils.stringToLsn(standbyLsnStr);
+
                 if (standbyLsn > latestLsn) {
+                    if (retStandby != null) {
+                        notElectedStandbys.put(retStandby.getPersisted().getInstanceId(), retStandby);
+                        JdbcUtils.closeJdbcConnectionSafely(retStandbyConnection);
+                    }
                     retStandby = standbyInfo;
                     retStandbyConnection = connection;
                     latestLsn = standbyLsn;
                 } else {
                     JdbcUtils.closeJdbcConnectionSafely(connection);
+                    notElectedStandbys.put(standbyInfo.getPersisted().getInstanceId(), standbyInfo);
                 }
             } catch (Exception e) {
                 log.error("Failed to establish JDBC connection for standby while trying to check if can be promoted!", e);
@@ -296,10 +304,11 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             return null;
         }
 
-        return SelectedForPromotionStandby
+        return StandbyElectionForPromotionResult
                 .builder()
-                .standbyInfo(retStandby)
-                .connection(retStandbyConnection)
+                .electedForPromotionStandby(retStandby)
+                .electedForPromotionStandbyConnection(retStandbyConnection)
+                .otherStandbys(notElectedStandbys)
                 .build();
     }
 
@@ -335,7 +344,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             );
 
             Statement statement = connection.createStatement();
-            ResultSet pgSettingsResultSet = statement.executeQuery("SELECT name, setting from pgfacade.pg_catalog.pg_settings");
+            ResultSet pgSettingsResultSet = statement.executeQuery("SELECT name, setting, context from pgfacade.pg_catalog.pg_settings");
 
             while (pgSettingsResultSet.next()) {
                 String settingName = pgSettingsResultSet.getString(PostgresSettingsConstants.PG_SETTING_COLUMN_SETTING_NAME);

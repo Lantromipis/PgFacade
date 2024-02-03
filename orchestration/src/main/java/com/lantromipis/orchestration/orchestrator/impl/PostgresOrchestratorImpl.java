@@ -1,9 +1,6 @@
 package com.lantromipis.orchestration.orchestrator.impl;
 
-import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
-import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
-import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
@@ -15,6 +12,8 @@ import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionExc
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.*;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.PostgresSwitchoverCompletedNotification;
+import com.lantromipis.orchestration.model.raft.PostgresSwitchoverStartedNotification;
 import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.service.api.*;
 import com.lantromipis.orchestration.util.JdbcUtils;
@@ -29,14 +28,13 @@ import jakarta.inject.Inject;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
+import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -77,7 +75,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     Instance<PostgresHealthcheckService> postgresHealthcheckService;
 
     @Inject
-    RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
+    ManagedExecutor managedExecutor;
 
     @Inject
     PostgresSettingsRuntimeProperties postgresSettingsRuntimeProperties;
@@ -280,13 +278,17 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                     .build();
         }
 
-        UUID switchoverEventId = UUID.randomUUID();
+        UUID switchoverNotificationId = UUID.randomUUID();
 
         try {
             log.warn("RESTARTING CLUSTER DUE TO POSTGRES SETTINGS CHANGES. CLUSTER WILL BE TEMPORARY UNAVAILABLE.");
 
             // using switchover event because for application restart looks the same
-            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
+            PostgresSwitchoverStartedNotification switchoverStartedNotification = PostgresSwitchoverStartedNotification
+                    .builder()
+                    .notificationId(switchoverNotificationId)
+                    .build();
+            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(switchoverStartedNotification);
 
             PostgresInstanceSettingsChangeResult primaryChangeResult = postgresConfigurationService.changePostgresInstanceSettingsAndRollbackOnFailure(
                     primaryCombinedInstanceInfo.getPersisted().getInstanceId(),
@@ -366,7 +368,12 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         } finally {
             switchoverInProgress.set(false);
             try {
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
+                PostgresSwitchoverCompletedNotification switchoverCompletedNotification =
+                        PostgresSwitchoverCompletedNotification
+                                .builder()
+                                .success(false)
+                                .build();
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(switchoverCompletedNotification);
             } catch (Exception e) {
                 log.error("Failed to notify cluster about switchover completed!", e);
             }
@@ -424,32 +431,32 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         // mark orchestrator as not ready, to prevent any other changes during failover
         orchestratorReady.set(false);
 
-        SelectedForPromotionStandby selectedForPromotionStandby = postgresStandbyOrchestrationService.selectStandbyForPromotion();
-        if (selectedForPromotionStandby == null) {
+        StandbyElectionForPromotionResult standbyElectionForPromotionResult = postgresStandbyOrchestrationService.selectStandbyForPromotion();
+        if (standbyElectionForPromotionResult == null) {
             log.error("FATAL ERROR. POSTGRES PRIMARY IS UNHEALTHY BUT NO ALIVE AND ACTIVE STANDBY FOUND. CAN NOT FAILOVER IMMEDIATELY!");
-        } else {
-            log.info("FAILOVER STARTED. STANDBY WILL SWITCHOVER PRIMARY.");
+            orchestratorReady.set(true);
+            return;
+        }
+        log.info("FAILOVER STARTED. STANDBY WILL SWITCHOVER PRIMARY.");
 
-            boolean switchoverSucceeded = switchover(selectedForPromotionStandby, currentPrimary);
-            selectedForPromotionStandby.freeResources();
-            if (!switchoverSucceeded) {
-                log.error("FATAL ERROR. TRIED TO PROMOTE STANDBY BUT FAILED. FAILOVER FAILED!!!");
-                orchestratorReady.set(true);
-                return;
-            } else {
-                PostgresAdapterInstanceInfo adapterInstanceInfo = orchestratorUtils.waitUntilPostgresInstanceHealthy(
-                        selectedForPromotionStandby.getStandbyInfo().getAdapter().getAdapterInstanceId()
-                );
-                if (adapterInstanceInfo == null) {
-                    log.error("FAILED TO ACHIEVE HEALTH PRIMARY AFTER SWITCHOVER!");
-                    orchestratorReady.set(true);
-                    return;
-                }
-                healthcheckFailedCount = 0;
-                primaryUnhealthy.set(false);
-            }
+        boolean switchoverSucceeded = switchover(standbyElectionForPromotionResult, currentPrimary);
+        standbyElectionForPromotionResult.freeResources();
+        if (!switchoverSucceeded) {
+            log.error("FATAL ERROR. TRIED TO PROMOTE STANDBY BUT FAILED. FAILOVER FAILED!!!");
+            orchestratorReady.set(true);
+            return;
         }
 
+        PostgresAdapterInstanceInfo adapterInstanceInfo = orchestratorUtils.waitUntilPostgresInstanceHealthy(
+                standbyElectionForPromotionResult.getElectedForPromotionStandby().getAdapter().getAdapterInstanceId()
+        );
+        if (adapterInstanceInfo == null) {
+            log.error("FAILED TO ACHIEVE HEALTH PRIMARY AFTER SWITCHOVER!");
+            orchestratorReady.set(true);
+            return;
+        }
+        healthcheckFailedCount = 0;
+        primaryUnhealthy.set(false);
         orchestratorReady.set(true);
     }
 
@@ -464,13 +471,17 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Synchronized("switchoverLock")
-    private boolean switchover(SelectedForPromotionStandby selectedForPromotionStandby, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
-        UUID switchoverEventId = UUID.randomUUID();
+    private boolean switchover(StandbyElectionForPromotionResult standbyElectionForPromotionResult, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
+        UUID switchoverNotificationId = UUID.randomUUID();
 
         switchoverInProgress.set(true);
 
         try {
-            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
+            PostgresSwitchoverStartedNotification switchoverStartedNotification = PostgresSwitchoverStartedNotification
+                    .builder()
+                    .notificationId(switchoverNotificationId)
+                    .build();
+            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(switchoverStartedNotification);
         } catch (Exception e) {
             log.error("Failed to notify PgFacade cluster about switchover start! Is this node a leader?", e);
             switchoverInProgress.set(false);
@@ -478,11 +489,11 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         // not using try-catch-with resources to guarantee that exception on close() wont affect method return result
-        Connection standbyConnection = selectedForPromotionStandby.getConnection();
+        Connection standbyConnection = standbyElectionForPromotionResult.getElectedForPromotionStandbyConnection();
         Statement promoteStatement = null;
 
         try {
-            PostgresCombinedInstanceInfo newPrimaryInstanceInfo = selectedForPromotionStandby.getStandbyInfo();
+            PostgresCombinedInstanceInfo newPrimaryInstanceInfo = standbyElectionForPromotionResult.getElectedForPromotionStandby();
             log.info("SWITCHOVER STARTED. SWITCHING TO INSTANCE WITH IP {} AND PORT {}",
                     newPrimaryInstanceInfo.getAdapter().getInstanceAddress(),
                     newPrimaryInstanceInfo.getAdapter().getInstancePort()
@@ -498,27 +509,45 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 return false;
             }
 
+            // will remove all standby because of new timeline
+            // TODO it is possible to repair such nodes instead of deleting them. Use pg_rewind
+            log.info("NEW PRIMARY PROMOTED. REMOVING ALL FORMER STANDBY BECAUSE OF NEW TIMELINE.");
             newPrimaryInstanceInfo.getPersisted().setPrimary(true);
-            raftFunctionalityCombinator.updatePostgresNodeInfoInRaft(newPrimaryInstanceInfo.getPersisted());
+            Set<UUID> instancesToRemove = new HashSet<>();
 
-            if (currentPrimaryInstanceInfo != null) {
-                raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
-                // TODO can delete async
-                platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
+            if (MapUtils.isNotEmpty(standbyElectionForPromotionResult.getOtherStandbys())) {
+                for (var entry : standbyElectionForPromotionResult.getOtherStandbys().entrySet()) {
+                    instancesToRemove.add(entry.getKey());
+                    // no need to remove replication slot on primary!
+                    platformAdapter.get().deleteInstance(entry.getValue().getAdapter().getAdapterInstanceId());
+                }
             }
 
-            //remove all standby because of new timeline
-            //TODO it is possible to repair such nodes instead of deleting them. Use pg_rewind
-            log.info("NEW PRIMARY PROMOTED. REMOVING ALL FORMER STANDBY BECAUSE OF NEW TIMELINE.");
-            orchestratorUtils.getCombinedInfosForStandbyInstances().forEach(i -> removeStandby(i.getPersisted()));
+            if (currentPrimaryInstanceInfo != null) {
+                instancesToRemove.add(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
+                managedExecutor.runAsync(() -> platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId()));
+            }
 
-            //TODO lower number of Raft commits by providing info about old and new primary, so Raft nodes can update instances info using it
-            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
+            PostgresSwitchoverCompletedNotification switchoverCompletedNotification =
+                    PostgresSwitchoverCompletedNotification
+                            .builder()
+                            .success(true)
+                            .notificationId(switchoverNotificationId)
+                            .instanceToRemoveIds(instancesToRemove)
+                            .newPrimaryCombinedInfo(standbyElectionForPromotionResult.getElectedForPromotionStandby())
+                            .build();
+
+            raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(switchoverCompletedNotification);
             log.info("SWITCHOVER COMPLETED SUCCESSFULLY");
             return true;
         } catch (Exception e) {
             try {
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
+                PostgresSwitchoverCompletedNotification switchoverCompletedNotification =
+                        PostgresSwitchoverCompletedNotification
+                                .builder()
+                                .success(false)
+                                .build();
+                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(switchoverCompletedNotification);
             } catch (RaftException ex) {
                 log.error("Failed to notify all PgFacade nodes about failed switchover!", ex);
             }

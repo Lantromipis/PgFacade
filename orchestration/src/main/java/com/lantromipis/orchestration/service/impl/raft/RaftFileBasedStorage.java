@@ -210,7 +210,12 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
-    public PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
+    public void deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
+        deletePostgresNodeInfo(List.of(instanceId));
+    }
+
+    @Override
+    public void deletePostgresNodeInfo(Iterable<UUID> instanceIds) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
             Map<UUID, PostgresPersistedInstanceInfo> savedMap;
@@ -221,12 +226,17 @@ public class RaftFileBasedStorage implements RaftStorage {
                 savedMap = new HashMap<>();
             }
 
-            PostgresPersistedInstanceInfo ret = savedMap.remove(instanceId);
-            if (ret != null) {
-                objectMapper.writeValue(postgresNodeInfoFile, savedMap);
+            boolean anyRemoved = false;
+            for (UUID id : instanceIds) {
+                PostgresPersistedInstanceInfo ret = savedMap.remove(id);
+                if (ret != null) {
+                    anyRemoved = true;
+                }
             }
 
-            return ret;
+            if (anyRemoved) {
+                objectMapper.writeValue(postgresNodeInfoFile, savedMap);
+            }
         } catch (Exception e) {
             throw new PropertyModificationException("Error while saving nodes info to file", e);
         } finally {

@@ -28,7 +28,9 @@ public interface RaftStorage {
 
     void savePostgresNodeInfo(PostgresPersistedInstanceInfo postgresPersistedInstanceInfo) throws PropertyModificationException;
 
-    PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
+    void deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
+
+    void deletePostgresNodeInfo(Iterable<UUID> instanceIds) throws PropertyModificationException;
 
     void clearPostgresNodesInfos() throws PropertyModificationException;
 

@@ -2,14 +2,10 @@ package com.lantromipis.orchestration.service.impl.raft;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
-import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.exception.RaftException;
-import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.*;
 import com.lantromipis.orchestration.service.api.raft.PgFacadeRaftStateMachine;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import com.lantromipis.orchestration.util.RaftCommitUtils;
@@ -78,12 +74,12 @@ public class PgFacadeRaftStateMachineImpl implements PgFacadeRaftStateMachine {
                     raftCommitUtils.processCommittedPostgresSettingsInfoCommand();
                 }
                 case NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED -> {
-                    SwitchoverStartedEvent switchoverStartedEvent = objectMapper.readValue(new String(data), SwitchoverStartedEvent.class);
-                    raftCommitUtils.processCommittedSwitchoverStartedEvent(switchoverStartedEvent);
+                    PostgresSwitchoverStartedNotification switchoverStartedNotification = objectMapper.readValue(new String(data), PostgresSwitchoverStartedNotification.class);
+                    raftCommitUtils.processCommittedSwitchoverStartedNotification(switchoverStartedNotification);
                 }
                 case NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_COMPLETED -> {
-                    SwitchoverCompletedEvent switchoverCompletedEvent = objectMapper.readValue(new String(data), SwitchoverCompletedEvent.class);
-                    raftCommitUtils.processCommittedSwitchoverCompletedEvent(switchoverCompletedEvent);
+                    PostgresSwitchoverCompletedNotification switchoverCompletedNotification = objectMapper.readValue(new String(data), PostgresSwitchoverCompletedNotification.class);
+                    raftCommitUtils.processCommittedSwitchoverCompletedNotification(switchoverCompletedNotification);
                 }
                 case DUMMY_COMMIT_TEST_COMMAND -> {
                     // do nothing...

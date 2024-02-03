@@ -7,15 +7,14 @@ import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeP
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
-import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.*;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.UUID;
 
@@ -74,11 +73,34 @@ public class RaftCommitUtils {
         );
     }
 
-    public void processCommittedSwitchoverStartedEvent(SwitchoverStartedEvent event) {
+    public void processCommittedSwitchoverStartedNotification(PostgresSwitchoverStartedNotification switchoverStartedNotification) {
+        SwitchoverStartedEvent event = new SwitchoverStartedEvent(switchoverStartedNotification.getNotificationId());
         switchoverStartedEvent.fire(event);
     }
 
-    public void processCommittedSwitchoverCompletedEvent(SwitchoverCompletedEvent event) {
+    public void processCommittedSwitchoverCompletedNotification(PostgresSwitchoverCompletedNotification switchoverCompletedNotification) {
+        SwitchoverCompletedEvent event = new SwitchoverCompletedEvent(
+                switchoverCompletedNotification.getNotificationId(),
+                switchoverCompletedNotification.isSuccess()
+        );
+
+        if (switchoverCompletedNotification.isSuccess()) {
+            if (switchoverCompletedNotification.getNewPrimaryCombinedInfo() != null) {
+                // delete old info
+                orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(switchoverCompletedNotification.getNewPrimaryCombinedInfo().getPersisted().getInstanceId());
+                // save new info
+                orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(switchoverCompletedNotification.getNewPrimaryCombinedInfo());
+                raftStorage.savePostgresNodeInfo(switchoverCompletedNotification.getNewPrimaryCombinedInfo().getPersisted());
+            }
+            // remove deleted instances
+            if (CollectionUtils.isNotEmpty(switchoverCompletedNotification.getInstanceToRemoveIds())) {
+                for (UUID instanceToRemoveId : switchoverCompletedNotification.getInstanceToRemoveIds()) {
+                    orchestratorUtils.removeInstanceFromRuntimePropertiesAndNotifyAllIfStandby(instanceToRemoveId);
+                }
+                raftStorage.deletePostgresNodeInfo(switchoverCompletedNotification.getInstanceToRemoveIds());
+            }
+        }
+
         switchoverCompletedEvent.fire(event);
     }
 
