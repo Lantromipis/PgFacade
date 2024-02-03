@@ -10,7 +10,6 @@ import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
-import com.lantromipis.orchestration.exception.OrchestratorNotFoundException;
 import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
 import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
 import com.lantromipis.orchestration.exception.RaftException;
@@ -64,9 +63,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
 
     @Inject
     PostgresArchivingService postgresArchivingService;
-
-    @Inject
-    PostgresRestorationService postgresRestorationService;
 
     @Inject
     OrchestratorUtils orchestratorUtils;
@@ -180,31 +176,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                                 }
                             }
                     );
-        }
-    }
-
-    @Override
-    public boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException {
-        if (orchestratorReady.get()) {
-            try {
-                PostgresCombinedInstanceInfo newPrimaryInstanceInfo = orchestratorUtils.getCombinedInstanceInfo(newPrimaryInstanceId);
-                PostgresCombinedInstanceInfo currentPrimaryInstanceInfo = orchestratorUtils.getCombinedInstanceInfo(clusterRuntimeProperties.getPrimaryInstanceInfo().getInstanceId());
-
-                if (newPrimaryInstanceInfo == null) {
-                    throw new OrchestratorNotFoundException("Instance with id '" + newPrimaryInstanceId + "' not found in persisted settings.");
-                }
-
-                return switchover(
-                        newPrimaryInstanceInfo,
-                        currentPrimaryInstanceInfo
-                );
-            } catch (OrchestratorNotFoundException e) {
-                throw e;
-            } catch (Exception e) {
-                throw new OrchestratorOperationExecutionException("Failed to switchover ", e);
-            }
-        } else {
-            throw new OrchestratorNotReadyException("Can not switchover. Orchestrator not ready. Its initialization is still in progress or PgFacade is configured to work just like proxy.");
         }
     }
 
@@ -418,63 +389,8 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
     }
 
-    //TODO remove
-    private PostgresCombinedInstanceInfo restoreClusterFromBackup(boolean initializeArchiver) {
-        if (initializeArchiver) {
-            postgresArchivingService.initialize();
-        }
-
-        log.info("Started restoring cluster from backup.");
-        if (CollectionUtils.isEmpty(postgresArchivingService.getBackupInstants())) {
-            log.error("No backups are available in archive storage! Can not restore cluster from backup!");
-            return null;
-        } else {
-            try {
-                log.info("Restoring primary from backup. This will take some time...");
-                try {
-                    raftFunctionalityCombinator.getPostgresNodeInfos().forEach(info -> platformAdapter.get().deleteInstance(info.getAdapterIdentifier()));
-                } catch (Exception ignored) {
-                }
-
-                raftFunctionalityCombinator.clearPostgresNodesInfosInRaft();
-                String newPrimaryAdapterId = postgresRestorationService.stopArchiverAndRestorePostgresFromBackup();
-
-                PostgresAdapterInstanceInfo primaryAdapterInstanceInfo = orchestratorUtils.startPostgresInstanceAndWaitToBeReady(newPrimaryAdapterId);
-                if (primaryAdapterInstanceInfo == null) {
-                    log.error("Failed to restore Postgres from backup! New instance failed to become healthy!");
-                    return null;
-                }
-
-                PostgresPersistedInstanceInfo persistedInstanceInfo = PostgresPersistedInstanceInfo
-                        .builder()
-                        .primary(true)
-                        .instanceId(UUID.randomUUID())
-                        .adapterIdentifier(primaryAdapterInstanceInfo.getAdapterInstanceId())
-                        .build();
-
-                raftFunctionalityCombinator.savePostgresNodeInfoInRaft(persistedInstanceInfo);
-
-                PostgresCombinedInstanceInfo combinedInstanceInfo = PostgresCombinedInstanceInfo
-                        .builder()
-                        .persisted(persistedInstanceInfo)
-                        .adapter(primaryAdapterInstanceInfo)
-                        .build();
-
-                orchestratorUtils.addInstanceToRuntimePropertiesAndNotifyAllIfStandby(combinedInstanceInfo);
-
-                return combinedInstanceInfo;
-
-            } catch (Exception e) {
-                log.error("Failed to restore from backup! Restore manually and restart PgFacade in 'RECOVERY' mode!", e);
-                return null;
-            }
-        }
-    }
-
     private void checkPrimaryHealthAndFailoverIfNeeded() {
         List<PostgresCombinedInstanceInfo> availableInstances = orchestratorUtils.getCombinedInfosForAvailableInstances();
-
-        PostgresCombinedInstanceInfo newPrimaryInstanceInfo = null;
 
         PostgresCombinedInstanceInfo currentPrimary = availableInstances.stream()
                 .filter(info -> info.getPersisted().isPrimary())
@@ -485,7 +401,11 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             healthcheckFailedCount = Integer.MAX_VALUE;
             log.error("CAN NOT FIND POSTGRES PRIMARY. HEALTHCHECK FAILED!");
         } else {
-            boolean healthy = postgresHealthcheckService.get().checkPostgresLiveliness(currentPrimary.getAdapter().getInstanceAddress(), currentPrimary.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT);
+            boolean healthy = postgresHealthcheckService.get().checkPostgresLiveliness(
+                    currentPrimary.getAdapter().getInstanceAddress(),
+                    currentPrimary.getAdapter().getInstancePort(),
+                    HEALTHCHECK_TIMEOUT
+            );
             if (!currentPrimary.getAdapter().isActive() || !healthy) {
                 healthcheckFailedCount++;
                 primaryUnhealthy.set(true);
@@ -504,44 +424,22 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         // mark orchestrator as not ready, to prevent any other changes during failover
         orchestratorReady.set(false);
 
-        newPrimaryInstanceInfo = selectNewPrimary(availableInstances);
-        if (newPrimaryInstanceInfo == null) {
+        SelectedForPromotionStandby selectedForPromotionStandby = postgresStandbyOrchestrationService.selectStandbyForPromotion();
+        if (selectedForPromotionStandby == null) {
             log.error("FATAL ERROR. POSTGRES PRIMARY IS UNHEALTHY BUT NO ALIVE AND ACTIVE STANDBY FOUND. CAN NOT FAILOVER IMMEDIATELY!");
-
-            if (!orchestrationProperties.postgresClusterRestore().autoRestoreLostCluster()) {
-                log.error("WILL NOT TRY TO RESTORE CLUSTER FROM BACKUP, BECAUSE CONFIGURATION PROHIBITS THIS ACTION! RESTORE PRIMARY MANUALLY AND RESTART PGFACADE IN 'RECOVERY' MODE!");
-                // keep orchestrator inactive.
-                return;
-            } else {
-                UUID switchoverEventId = UUID.randomUUID();
-
-                log.error("RESTORING PRIMARY USING LATEST AVAILABLE VERSION FROM ARCHIVE.");
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverStarted(new SwitchoverStartedEvent(switchoverEventId));
-
-                PostgresCombinedInstanceInfo combinedInstanceInfo = restoreClusterFromBackup(false);
-                if (combinedInstanceInfo == null) {
-                    raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, false));
-                    log.error("FAILED TO RESTORE PRIMARY FROM BACKUP!");
-                    orchestratorReady.set(true);
-                    return;
-                }
-
-                raftFunctionalityCombinator.notifyAllClusterAboutSwitchoverCompleted(new SwitchoverCompletedEvent(switchoverEventId, true));
-
-                log.info("SUCCESSFULLY RESTORED LOST CLUSTER FROM BACKUP!");
-                healthcheckFailedCount = 0;
-                primaryUnhealthy.set(false);
-            }
         } else {
             log.info("FAILOVER STARTED. STANDBY WILL SWITCHOVER PRIMARY.");
 
-            boolean switchoverSucceeded = switchover(newPrimaryInstanceInfo, currentPrimary);
+            boolean switchoverSucceeded = switchover(selectedForPromotionStandby, currentPrimary);
+            selectedForPromotionStandby.freeResources();
             if (!switchoverSucceeded) {
                 log.error("FATAL ERROR. TRIED TO PROMOTE STANDBY BUT FAILED. FAILOVER FAILED!!!");
                 orchestratorReady.set(true);
                 return;
             } else {
-                PostgresAdapterInstanceInfo adapterInstanceInfo = orchestratorUtils.waitUntilPostgresInstanceHealthy(newPrimaryInstanceInfo.getAdapter().getAdapterInstanceId());
+                PostgresAdapterInstanceInfo adapterInstanceInfo = orchestratorUtils.waitUntilPostgresInstanceHealthy(
+                        selectedForPromotionStandby.getStandbyInfo().getAdapter().getAdapterInstanceId()
+                );
                 if (adapterInstanceInfo == null) {
                     log.error("FAILED TO ACHIEVE HEALTH PRIMARY AFTER SWITCHOVER!");
                     orchestratorReady.set(true);
@@ -555,21 +453,6 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         orchestratorReady.set(true);
     }
 
-    private PostgresCombinedInstanceInfo selectNewPrimary(List<PostgresCombinedInstanceInfo> availableInstances) {
-        //TODO maybe add some better logic to select new primary. By LSN?
-        return availableInstances
-                .stream()
-                .parallel()
-                .filter(info ->
-                        info.getAdapter().isActive()
-                                && Boolean.FALSE.equals(info.getPersisted().isPrimary())
-                                && postgresHealthcheckService.get().checkPostgresLiveliness(info.getAdapter().getInstanceAddress(), info.getAdapter().getInstancePort(), HEALTHCHECK_TIMEOUT)
-                )
-                .filter(info -> !restartingStandbyInstanceIds.contains(info.getPersisted().getInstanceId()))
-                .findFirst()
-                .orElse(null);
-    }
-
     private void removeStandby(PostgresPersistedInstanceInfo standbyInstanceInfo) {
         try {
             raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getInstanceId());
@@ -581,7 +464,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     }
 
     @Synchronized("switchoverLock")
-    private boolean switchover(PostgresCombinedInstanceInfo newPrimaryInstanceInfo, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
+    private boolean switchover(SelectedForPromotionStandby selectedForPromotionStandby, PostgresCombinedInstanceInfo currentPrimaryInstanceInfo) {
         UUID switchoverEventId = UUID.randomUUID();
 
         switchoverInProgress.set(true);
@@ -595,22 +478,22 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
         }
 
         // not using try-catch-with resources to guarantee that exception on close() wont affect method return result
-        Connection standbyConnection = null;
+        Connection standbyConnection = selectedForPromotionStandby.getConnection();
         Statement promoteStatement = null;
 
         try {
-            standbyConnection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(
+            PostgresCombinedInstanceInfo newPrimaryInstanceInfo = selectedForPromotionStandby.getStandbyInfo();
+            log.info("SWITCHOVER STARTED. SWITCHING TO INSTANCE WITH IP {} AND PORT {}",
                     newPrimaryInstanceInfo.getAdapter().getInstanceAddress(),
                     newPrimaryInstanceInfo.getAdapter().getInstancePort()
             );
-
-            log.info("SWITCHOVER STARTED. SWITCHING TO INSTANCE WITH IP {} AND PORT {}", newPrimaryInstanceInfo.getAdapter().getInstanceAddress(), newPrimaryInstanceInfo.getAdapter().getInstancePort());
 
             promoteStatement = standbyConnection.createStatement();
             ResultSet promoteResultSet = promoteStatement.executeQuery("SELECT pg_promote()");
             promoteResultSet.next();
             boolean promoteSuccessful = promoteResultSet.getBoolean(1);
             if (!promoteSuccessful) {
+                // TODO check if this server is already a primary
                 log.error("ERROR DURING SWITCHOVER. STANDBY CANT COMPLETE PROMOTE REQUEST.");
                 return false;
             }

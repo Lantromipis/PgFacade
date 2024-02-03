@@ -1,12 +1,10 @@
 package com.lantromipis.orchestration.orchestrator.api;
 
-import com.lantromipis.orchestration.exception.OrchestratorNotFoundException;
 import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
 import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
 import com.lantromipis.orchestration.model.PostgresClusterSettingsChangeResult;
 
 import java.util.Map;
-import java.util.UUID;
 
 public interface PostgresOrchestrator {
 
@@ -24,8 +22,6 @@ public interface PostgresOrchestrator {
      * Stop orchestrator with an ability to reinitialize in later
      */
     void stopOrchestrator(boolean shutdownPostgres);
-
-    boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException;
 
     PostgresClusterSettingsChangeResult changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws OrchestratorNotReadyException, OrchestratorOperationExecutionException;
 }

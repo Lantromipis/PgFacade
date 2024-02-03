@@ -35,7 +35,6 @@ pg-facade:
   orchestration:
     adapter: docker
     postgres-cluster-restore:
-      auto-restore-lost-cluster: false
       remove-failed-to-restore-instance: false
     common:
       external-load-balancer:

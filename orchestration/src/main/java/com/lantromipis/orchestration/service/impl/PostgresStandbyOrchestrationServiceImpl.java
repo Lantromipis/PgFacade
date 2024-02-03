@@ -14,6 +14,7 @@ import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
 import com.lantromipis.orchestration.service.api.PostgresConfigurationService;
 import com.lantromipis.orchestration.service.api.PostgresHealthcheckService;
 import com.lantromipis.orchestration.service.api.PostgresStandbyOrchestrationService;
+import com.lantromipis.orchestration.util.JdbcUtils;
 import com.lantromipis.orchestration.util.OrchestratorUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
@@ -207,7 +208,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
     public SelectedForPromotionStandby selectStandbyForPromotion() {
         List<PostgresCombinedInstanceInfo> availableStandbys = orchestratorUtils.getCombinedInfosForStandbyInstances();
 
-        // for single standby, just return it
+        // for single standby, just return it if it is healthy
         if (availableStandbys.size() == 1) {
             PostgresCombinedInstanceInfo singleStandbyInfo = availableStandbys.getFirst();
 
@@ -222,10 +223,14 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             }
 
             try {
-                PGProperty.LOGIN_TIMEOUT
+                Properties connectionProperties = new Properties();
+                // timeout for connection
+                connectionProperties.put(PGProperty.LOGIN_TIMEOUT.getName(), "1");
+
                 Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(
                         singleStandbyInfo.getAdapter().getInstanceAddress(),
-                        singleStandbyInfo.getAdapter().getInstancePort()
+                        singleStandbyInfo.getAdapter().getInstancePort(),
+                        connectionProperties
                 );
 
                 return SelectedForPromotionStandby
@@ -260,19 +265,36 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             }
 
             try {
+                Properties connectionProperties = new Properties();
+                // timeout for connection
+                connectionProperties.put(PGProperty.LOGIN_TIMEOUT.getName(), "1");
+
                 Connection connection = runtimePostgresConnectionProducer.createNewPgFacadeUserConnection(
                         standbyInfo.getAdapter().getInstanceAddress(),
-                        standbyInfo.getAdapter().getInstancePort()
+                        standbyInfo.getAdapter().getInstancePort(),
+                        connectionProperties
                 );
+
+                Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery(GET_CURRENT_LSN_QUERY);
+                resultSet.next();
+                String standbyLsnStr = resultSet.getString(1);
+                long standbyLsn = LogSequenceNumberUtils.stringToLsn(standbyLsnStr);
+                if (standbyLsn > latestLsn) {
+                    retStandby = standbyInfo;
+                    retStandbyConnection = connection;
+                    latestLsn = standbyLsn;
+                } else {
+                    JdbcUtils.closeJdbcConnectionSafely(connection);
+                }
             } catch (Exception e) {
                 log.error("Failed to establish JDBC connection for standby while trying to check if can be promoted!", e);
             }
         }
 
-        if (retStandby == null || retStandbyConnection == null) {
+        if (retStandby == null) {
             return null;
         }
-
 
         return SelectedForPromotionStandby
                 .builder()

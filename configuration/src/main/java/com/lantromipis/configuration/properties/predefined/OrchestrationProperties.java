@@ -19,8 +19,6 @@ public interface OrchestrationProperties {
     CommonProperties common();
 
     interface PostgresClusterRestoreProperties {
-        boolean autoRestoreLostCluster();
-
         boolean removeFailedToRestoreInstance();
     }
 
