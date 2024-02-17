@@ -24,7 +24,7 @@ public interface ArchiverStorageAdapter {
      *
      * @throws InitializationException if failed to initialize
      */
-    void initializeAndValidate() throws InitializationException;
+    void initializeAndValidateStorageAvailability() throws InitializationException;
 
     /**
      * Searches for all available backups and their creation time

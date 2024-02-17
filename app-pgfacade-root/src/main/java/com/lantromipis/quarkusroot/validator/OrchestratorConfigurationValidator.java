@@ -22,7 +22,7 @@ public class OrchestratorConfigurationValidator implements ConfigurationValidato
     public boolean validate() {
         boolean flag = true;
 
-        if (orchestrationProperties.common().standby().count() < 1 && !OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
+        if (orchestrationProperties.common().postgres().standby().count() < 1 && !OrchestrationProperties.AdapterType.NO_ADAPTER.equals(orchestrationProperties.adapter())) {
             log.error("Invalid configuration. Standby count must be greater than 1 if any adapter is used. If you are planning to use PgFacade as proxy + connection pool, set orchestration adapter to 'no'.");
             flag = false;
         }

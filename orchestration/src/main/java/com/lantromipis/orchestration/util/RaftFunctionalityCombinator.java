@@ -2,19 +2,16 @@ package com.lantromipis.orchestration.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
-import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.exception.PropertyReadException;
 import com.lantromipis.configuration.properties.predefined.RaftProperties;
 import com.lantromipis.orchestration.exception.RaftException;
-import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
-import com.lantromipis.orchestration.model.raft.PostgresPersistedInstanceInfo;
+import com.lantromipis.orchestration.model.raft.*;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.orchestration.service.api.raft.RaftStorage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.UUID;
@@ -81,24 +78,32 @@ public class RaftFunctionalityCombinator {
         return raftStorage.getArchiveInfo();
     }
 
-    public void notifyAllClusterAboutSwitchoverStarted(SwitchoverStartedEvent switchoverStartedEvent) throws RaftException {
+    public void notifyAllClusterAboutSwitchoverStarted(PostgresSwitchoverStartedNotification switchoverStartedNotification) throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_STARTED,
-                writeAsBytesSafe(switchoverStartedEvent),
+                writeAsBytesSafe(switchoverStartedNotification),
                 raftProperties.commitTimeout().toMillis()
         );
     }
 
-    public void notifyAllClusterAboutSwitchoverCompleted(SwitchoverCompletedEvent switchoverCompletedEvent) throws RaftException {
+    public void notifyAllClusterAboutSwitchoverCompleted(PostgresSwitchoverCompletedNotification switchoverCompletedNotification) throws RaftException {
         raftService.appendToLogAndAwaitCommit(
                 NOTIFY_ALL_CLUSTER_ABOUT_SWITCHOVER_COMPLETED,
-                writeAsBytesSafe(switchoverCompletedEvent),
+                writeAsBytesSafe(switchoverCompletedNotification),
                 raftProperties.commitTimeout().toMillis()
         );
     }
 
     public List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException {
         return raftStorage.getPostgresNodeInfos();
+    }
+
+    public List<PostgresPersistedInstanceInfo> getPostgresStandbyNodeInfos() throws PropertyReadException {
+        List<PostgresPersistedInstanceInfo> nodes = raftStorage.getPostgresNodeInfos();
+        if (CollectionUtils.isEmpty(nodes)) {
+            return nodes;
+        }
+        return nodes.stream().filter(n -> !n.isPrimary()).toList();
     }
 
     public PostgresPersistedInstanceInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException {

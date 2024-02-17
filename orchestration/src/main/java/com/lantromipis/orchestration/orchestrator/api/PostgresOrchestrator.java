@@ -1,31 +1,27 @@
-package com.lantromipis.orchestration.service.api;
+package com.lantromipis.orchestration.orchestrator.api;
 
-import com.lantromipis.orchestration.exception.OrchestratorNotFoundException;
 import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
 import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
 import com.lantromipis.orchestration.model.PostgresClusterSettingsChangeResult;
 
 import java.util.Map;
-import java.util.UUID;
 
 public interface PostgresOrchestrator {
 
     /**
      * Start orchestration of running cluster
      */
-    void initializeFastWhenClusterRunning() throws Exception;
+    void initializeWhenClusterRunning() throws Exception;
 
     /**
      * Initializes orchestrator AND Postgres cluster. Should be used only when initializing after full shutdown
      */
-    void initializeFull() throws Exception;
+    void initializeWhenClusterStopped() throws Exception;
 
     /**
      * Stop orchestrator with an ability to reinitialize in later
      */
     void stopOrchestrator(boolean shutdownPostgres);
-
-    boolean switchover(UUID newPrimaryInstanceId) throws OrchestratorNotReadyException, OrchestratorNotFoundException, OrchestratorOperationExecutionException;
 
     PostgresClusterSettingsChangeResult changePostgresSettings(Map<String, String> newSettingNamesAndValuesMap) throws OrchestratorNotReadyException, OrchestratorOperationExecutionException;
 }

@@ -28,10 +28,10 @@ public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService
     private static final String SIMPLE_HEALTHCHECK_QUERY = ";";
 
     @Override
-    public boolean checkPostgresLiveliness(String address, int port, long timeout) {
+    public boolean checkPostgresLiveliness(String address, int port, long timeoutMs) {
         Channel pgChannel = null;
         try {
-            pgChannel = runtimePostgresConnectionProducer.createNewNettyChannelToInstanceUsingPgFacadeUser(address, port, timeout);
+            pgChannel = runtimePostgresConnectionProducer.createNewNettyChannelToInstanceUsingPgFacadeUser(address, port, timeoutMs);
             if (pgChannel == null) {
                 log.error("Failed to execute Postgres liveliness check because connection attempt failed!");
                 return false;
@@ -48,7 +48,7 @@ public class PostgresHealtcheckServiceImpl implements PostgresHealthcheckService
                 return true;
             }
 
-            PgChannelSimpleQueryExecutorHandler.CommandExecutionResult executionResult = queryExecutor.executeQueryBlocking(SIMPLE_HEALTHCHECK_QUERY, timeout);
+            PgChannelSimpleQueryExecutorHandler.CommandExecutionResult executionResult = queryExecutor.executeQueryBlocking(SIMPLE_HEALTHCHECK_QUERY, timeoutMs);
             DecoderUtils.freeMessageInfos(executionResult.getMessageInfos());
             switch (executionResult.getStatus()) {
                 case SUCCESS -> {

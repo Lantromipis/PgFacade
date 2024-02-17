@@ -1,6 +1,6 @@
 package com.lantromipis.rest.controller;
 
-import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
+import com.lantromipis.orchestration.orchestrator.api.PgFacadeOrchestrator;
 import com.lantromipis.rest.constant.ApiConstants;
 import com.lantromipis.rest.filter.namebinding.CheckNotInRecoveryState;
 import com.lantromipis.rest.model.api.shutdown.ForceShutdownRequestDto;

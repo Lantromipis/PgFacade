@@ -53,7 +53,7 @@ public class S3ArchiverStorageAdapter implements ArchiverStorageAdapter {
     private boolean initialized = false;
 
     @Override
-    public void initializeAndValidate() throws InitializationException {
+    public void initializeAndValidateStorageAvailability() throws InitializationException {
         if (initialized) {
             return;
         }

@@ -5,9 +5,9 @@ import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.model.PgFacadeWorkMode;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
-import com.lantromipis.orchestration.service.api.LoadBalancerOrchestrator;
-import com.lantromipis.orchestration.service.api.PgFacadeOrchestrator;
-import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
+import com.lantromipis.orchestration.orchestrator.api.LoadBalancerOrchestrator;
+import com.lantromipis.orchestration.orchestrator.api.PgFacadeOrchestrator;
+import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.pgfacadeprotocol.model.api.RaftRole;
 import com.lantromipis.pgfacadeprotocol.server.api.RaftEventListener;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -67,11 +67,11 @@ public class RaftEventListenerImpl implements RaftEventListener {
                 log.info("This PgFacade node is leader now! Starting orchestration...");
                 if (synced) {
                     // This node became leader and was synced with leader on startup. Means that this node was just promoted to leader now and previously was follower.
-                    postgresOrchestrator.initializeFastWhenClusterRunning();
+                    postgresOrchestrator.initializeWhenClusterRunning();
                 } else {
                     // This node became leader but was NOT synced with leader on startup. Means that this node is alone in cluster and elected itself to manage cluster.
                     // It is this node's responsibility to start Postgres cluster.
-                    postgresOrchestrator.initializeFull();
+                    postgresOrchestrator.initializeWhenClusterStopped();
                 }
                 pgFacadeOrchestrator.startOrchestration();
                 loadBalancerOrchestrator.startOrchestration();

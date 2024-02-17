@@ -12,8 +12,8 @@ import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeP
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
-import com.lantromipis.orchestration.service.api.PostgresOrchestrator;
 import com.lantromipis.proxy.service.impl.PgProxyServiceImpl;
 import com.lantromipis.quarkusroot.validator.ConfigurationValidator;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
@@ -219,7 +219,7 @@ public class QuarkusStartupAndShutdownHandler {
         // Initialize archiver adapter if required
         if (archivingProperties.enabled()) {
             try {
-                archiverStorageAdapter.get().initializeAndValidate();
+                archiverStorageAdapter.get().initializeAndValidateStorageAvailability();
             } catch (Exception e) {
                 log.error("Failed to initialize archiver adapter!", e);
                 return false;

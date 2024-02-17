@@ -20,12 +20,14 @@ import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.MapUtils;
+import org.postgresql.PGProperty;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -75,12 +77,22 @@ public class RuntimePostgresConnectionProducer {
     }
 
     public Connection createNewPgFacadeUserConnection(String address, int port) throws SQLException {
+        return createNewPgFacadeUserConnection(address, port, null);
+    }
+
+    public Connection createNewPgFacadeUserConnection(String address, int port, Properties properties) throws SQLException {
+        if (properties == null) {
+            properties = new Properties();
+        }
+
         String jdbcUrl = "jdbc:postgresql://" + address + ":" + port + "/" + postgresProperties.users().pgFacade().database();
+
+        properties.put(PGProperty.USER.getName(), postgresProperties.users().pgFacade().username());
+        properties.put(PGProperty.PASSWORD.getName(), postgresProperties.users().pgFacade().password());
 
         return DriverManager.getConnection(
                 jdbcUrl,
-                postgresProperties.users().pgFacade().username(),
-                postgresProperties.users().pgFacade().password()
+                properties
         );
     }
 

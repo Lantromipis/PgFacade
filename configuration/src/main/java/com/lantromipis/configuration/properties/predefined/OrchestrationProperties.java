@@ -19,20 +19,14 @@ public interface OrchestrationProperties {
     CommonProperties common();
 
     interface PostgresClusterRestoreProperties {
-        boolean autoRestoreLostCluster();
-
         boolean removeFailedToRestoreInstance();
     }
 
     interface CommonProperties {
 
-        PostgresStartupCheckProperties postgresStartupCheck();
-
-        PostgresDeadCheckProperties postgresDeadCheck();
-
-        StandbyProperties standby();
-
         ExternalLoadBalancerProperties externalLoadBalancer();
+
+        PostgresCommonProperties postgres();
 
         interface ExternalLoadBalancerProperties {
             boolean deploy();
@@ -46,24 +40,59 @@ public interface OrchestrationProperties {
             int healthcheckRetries();
         }
 
-        interface StandbyProperties {
-            int count();
+        interface PostgresCommonProperties {
 
-            Duration countCheckInterval();
-        }
+            CommonPostgresProperties common();
 
-        interface PostgresStartupCheckProperties {
-            long startPeriod();
+            PrimaryPostgresProperties primary();
 
-            long interval();
+            StandbyPostgresProperties standby();
 
-            long retries();
-        }
+            interface CommonPostgresProperties {
 
-        interface PostgresDeadCheckProperties {
-            Duration interval();
+                CommonPostgresReadinessProperties readiness();
 
-            int retries();
+                SynchronousStandbyStrategy synchronousStandbyStrategy();
+
+                interface CommonPostgresReadinessProperties {
+                    Duration delay();
+
+                    Duration interval();
+
+                    int retries();
+                }
+
+                enum SynchronousStandbyStrategy {
+                    DISABLED,
+                    SINGLE,
+                    ALL
+                }
+            }
+
+            interface PrimaryPostgresProperties {
+
+                PrimaryHealthcheckPostgresProperties healthcheck();
+
+                interface PrimaryHealthcheckPostgresProperties {
+                    Duration interval();
+
+                    int retries();
+
+                    Duration timeout();
+                }
+            }
+
+            interface StandbyPostgresProperties {
+                int count();
+
+                StandbyHealthcheckPostgresProperties healthcheck();
+
+                interface StandbyHealthcheckPostgresProperties {
+                    Duration interval();
+
+                    Duration timeout();
+                }
+            }
         }
     }
 

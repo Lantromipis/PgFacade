@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
@@ -151,6 +152,18 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
+    public void deleteArchiveInfo() throws PropertyModificationException {
+        try {
+            postgresArchiveInfoFileModificationLock.lock();
+            new FileOutputStream(postgresArchiveInfoFile).close();
+        } catch (Exception e) {
+            throw new PropertyModificationException("Error while saving archive info to file", e);
+        } finally {
+            postgresArchiveInfoFileModificationLock.unlock();
+        }
+    }
+
+    @Override
     public List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException {
         try {
             postgresNodeInfoFileModificationLock.lock();
@@ -197,7 +210,12 @@ public class RaftFileBasedStorage implements RaftStorage {
     }
 
     @Override
-    public PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
+    public void deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException {
+        deletePostgresNodeInfo(List.of(instanceId));
+    }
+
+    @Override
+    public void deletePostgresNodeInfo(Iterable<UUID> instanceIds) throws PropertyModificationException {
         try {
             postgresNodeInfoFileModificationLock.lock();
             Map<UUID, PostgresPersistedInstanceInfo> savedMap;
@@ -208,12 +226,17 @@ public class RaftFileBasedStorage implements RaftStorage {
                 savedMap = new HashMap<>();
             }
 
-            PostgresPersistedInstanceInfo ret = savedMap.remove(instanceId);
-            if (ret != null) {
-                objectMapper.writeValue(postgresNodeInfoFile, savedMap);
+            boolean anyRemoved = false;
+            for (UUID id : instanceIds) {
+                PostgresPersistedInstanceInfo ret = savedMap.remove(id);
+                if (ret != null) {
+                    anyRemoved = true;
+                }
             }
 
-            return ret;
+            if (anyRemoved) {
+                objectMapper.writeValue(postgresNodeInfoFile, savedMap);
+            }
         } catch (Exception e) {
             throw new PropertyModificationException("Error while saving nodes info to file", e);
         } finally {

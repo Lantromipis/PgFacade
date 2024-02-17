@@ -11,7 +11,7 @@ import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.BackupCreationException;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
-import com.lantromipis.orchestration.service.api.PostgresArchiver;
+import com.lantromipis.orchestration.service.api.PostgresArchivingService;
 import com.lantromipis.orchestration.service.api.PostgresContinuousArchivingService;
 import com.lantromipis.orchestration.util.RaftFunctionalityCombinator;
 import io.quarkus.scheduler.Scheduled;
@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @ApplicationScoped
-public class PostgresArchiverImpl implements PostgresArchiver {
+public class PostgresArchivingServiceImpl implements PostgresArchivingService {
 
     @Inject
     Instance<ArchiverStorageAdapter> archiverAdapter;
@@ -62,7 +62,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
     @Override
     public void initialize() {
         if (!archiverInitialized) {
-            archiverAdapter.get().initializeAndValidate();
+            archiverAdapter.get().initializeAndValidateStorageAvailability();
             archiverInitialized = true;
         }
     }
@@ -229,7 +229,7 @@ public class PostgresArchiverImpl implements PostgresArchiver {
         streamingActiveUnsuccessfulRetries.set(0);
         log.info("Successfully restarted continuous WAL archiving using latest available LSN.");
 
-        if (archivingProperties.walStreaming().faultTolerance().createNewBackupInCaseOfForceRetry()) {
+        if (archivingProperties.walStreaming().faultTolerance().createNewBackupInCaseOfForceRestart()) {
             log.info("Force creating new backup because continuous WAL archiving was restarted for last known LSN");
             // TODO async + guarantee that backup will be created
             try {

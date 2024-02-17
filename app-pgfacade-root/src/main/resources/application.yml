@@ -35,7 +35,6 @@ pg-facade:
   orchestration:
     adapter: docker
     postgres-cluster-restore:
-      auto-restore-lost-cluster: false
       remove-failed-to-restore-instance: false
     common:
       external-load-balancer:
@@ -44,16 +43,23 @@ pg-facade:
         healthcheck-retries: 3
         healthcheck-timeout: PT3S
         startup-duration: PT10S
-      postgres-startup-check:
-        start-period: 2000 #millisecinds
-        interval: 100 #millisecinds
-        retries: 100
-      postgres-dead-check:
-        interval: PT1S #format like in java.time.Duration.parse(CharSequence text) https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-
-        retries: 3
-      standby:
-        count: 1
-        count-check-interval: PT10S
+      postgres:
+        common:
+          synchronous-standby-strategy: disabled
+          readiness:
+            delay: PT2S
+            interval: PT0.1S
+            retries: 100
+        primary:
+          healthcheck:
+            interval: PT1S
+            retries: 3
+            timeout: PT1.5S
+        standby:
+          count: 1
+          healthcheck:
+            interval: PT10S
+            timeout: PT1.5S
     no-adapter:
       primary-host: localhost
       primary-port: 5432
@@ -104,8 +110,8 @@ pg-facade:
         name: pgfacade
       fault-tolerance:
         streaming-active-check-interval: PT5S
-        max-unsuccessful-retries-before-force-restart: 5 # Force restart streaming using latest  Recommended to use with move-wal-after-completion = true
-        create-new-backup-in-case-of-force-retry: true
+        max-unsuccessful-retries-before-force-restart: 5
+        create-new-backup-in-case-of-force-restart: true
     s3:
       protocol: http
       endpoint: http://s3:9000
@@ -116,8 +122,6 @@ pg-facade:
       backups-bucket: pgfacade
       wal-bucket: pgfacade
   postgres:
-    default-settings:
-      max-wal-keep-count: 4  # 'wal_keep_segments' for Postgres < 13 and 'wal_keep_size' for > 13 (count * 16)
     users:
       pg-facade:
         username: pgfacade
@@ -140,11 +144,11 @@ quarkus:
         level: INFO
       "com.lantromipis.proxy.initializer":
         level: INFO
-      "com.lantromipis.connectionpool" :
+      "com.lantromipis.connectionpool":
         level: INFO
       "com.lantromipis.pgfacadeprotocol":
         level: INFO
-      "org.apache.hc" :
+      "org.apache.hc":
         level: WARN
       "org.apache.http":
         level: WARN

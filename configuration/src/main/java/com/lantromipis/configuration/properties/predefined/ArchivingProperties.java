@@ -40,7 +40,7 @@ public interface ArchivingProperties {
 
             int maxUnsuccessfulRetriesBeforeForceRestart();
 
-            boolean createNewBackupInCaseOfForceRetry();
+            boolean createNewBackupInCaseOfForceRestart();
         }
     }
 

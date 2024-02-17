@@ -20,13 +20,17 @@ public interface RaftStorage {
 
     void saveArchiveInfo(PostgresPersistedArchiverInfo info) throws PropertyModificationException;
 
+    void deleteArchiveInfo() throws PropertyModificationException;
+
     List<PostgresPersistedInstanceInfo> getPostgresNodeInfos() throws PropertyReadException;
 
     PostgresPersistedInstanceInfo getPostgresNodeInfo(UUID instanceId) throws PropertyReadException;
 
     void savePostgresNodeInfo(PostgresPersistedInstanceInfo postgresPersistedInstanceInfo) throws PropertyModificationException;
 
-    PostgresPersistedInstanceInfo deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
+    void deletePostgresNodeInfo(UUID instanceId) throws PropertyModificationException;
+
+    void deletePostgresNodeInfo(Iterable<UUID> instanceIds) throws PropertyModificationException;
 
     void clearPostgresNodesInfos() throws PropertyModificationException;
 

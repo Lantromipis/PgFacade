@@ -3,7 +3,7 @@ package com.lantromipis.configuration.properties.runtime;
 import com.lantromipis.configuration.event.PostgresSettingsUpdatedEvent;
 import com.lantromipis.configuration.model.PgSetting;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
-import com.lantromipis.configuration.properties.constant.PostgresConstants;
+import com.lantromipis.configuration.properties.constant.PostgresSettingsConstants;
 import com.lantromipis.configuration.utils.PostgresSettingsUtils;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
@@ -48,10 +48,10 @@ public class PostgresSettingsRuntimeProperties {
             Map<String, PgSetting> settingNameToValue = new HashMap<>();
 
             while (pgSettingsResultSet.next()) {
-                String settingName = pgSettingsResultSet.getString("name");
-                String settingValue = pgSettingsResultSet.getString("setting");
-                String settingContext = pgSettingsResultSet.getString("context");
-                String settingUnit = pgSettingsResultSet.getString("unit");
+                String settingName = pgSettingsResultSet.getString(PostgresSettingsConstants.PG_SETTING_COLUMN_SETTING_NAME);
+                String settingValue = pgSettingsResultSet.getString(PostgresSettingsConstants.PG_SETTING_COLUMN_SETTING_VALUE);
+                String settingContext = pgSettingsResultSet.getString(PostgresSettingsConstants.PG_SETTING_COLUMN_SETTING_CONTEXT);
+                String settingUnit = pgSettingsResultSet.getString(PostgresSettingsConstants.PG_SETTING_COLUMN_SETTING_UNIT);
 
                 settingNameToValue.put(
                         settingName,
@@ -66,15 +66,15 @@ public class PostgresSettingsRuntimeProperties {
             }
 
             // set connection limit
-            int maxConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.MAX_CONNECTIONS_SETTING_NAME).getSettingValue());
-            int superuserReservedConnections = Integer.parseInt(settingNameToValue.get(PostgresConstants.SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME).getSettingValue());
+            int maxConnections = Integer.parseInt(settingNameToValue.get(PostgresSettingsConstants.MAX_CONNECTIONS_SETTING_NAME).getSettingValue());
+            int superuserReservedConnections = Integer.parseInt(settingNameToValue.get(PostgresSettingsConstants.SUPERUSER_RESERVED_CONNECTIONS_SETTING_NAME).getSettingValue());
             maxPostgresConnections = maxConnections - superuserReservedConnections;
 
             // set version in format 150005
-            postgresVersionNum = Integer.parseInt(settingNameToValue.get(PostgresConstants.SERVER_VERSION_NUM_SETTING_NAME).getSettingValue());
+            postgresVersionNum = Integer.parseInt(settingNameToValue.get(PostgresSettingsConstants.SERVER_VERSION_NUM_SETTING_NAME).getSettingValue());
 
             // set wal segment size
-            PgSetting walSegmentSizeSetting = settingNameToValue.get(PostgresConstants.WAL_SEGMENT_SIZE_SETTING_NAME);
+            PgSetting walSegmentSizeSetting = settingNameToValue.get(PostgresSettingsConstants.WAL_SEGMENT_SIZE_SETTING_NAME);
             walSegmentSizeInBytes = PostgresSettingsUtils.convertPgMemoryValueToBytes(
                     Integer.parseInt(walSegmentSizeSetting.getSettingValue()),
                     walSegmentSizeSetting.getUnit()
