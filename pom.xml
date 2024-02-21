@@ -42,7 +42,7 @@
         <postgresql.driver.version>42.7.1</postgresql.driver.version>
         <docker.client.version>3.3.4</docker.client.version>
         <docker.client.transport.version>3.3.4</docker.client.transport.version>
-        <aws.sdk.s3.version>1.12.660</aws.sdk.s3.version>
+        <aws.sdk.s3.version>1.12.663</aws.sdk.s3.version>
         <jakson.jsr310.version>2.16.1</jakson.jsr310.version>
         <jaxb-api.version>2.3.1</jaxb-api.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
