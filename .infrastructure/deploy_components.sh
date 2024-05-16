@@ -1,42 +1,40 @@
 #!/bin/bash
 
-# Переменные для управления запуском контейнеров
-needDeployUpdater=false
+# Variables for start_deploying. You can change it locally for change configuration.
+needDeployUpdater=true
 postgreVersion="15.4-bookworm"
 
-# Развёртывание pgfacade-updater
+# Deploying pgfacade-updater if it needed.
 if [ "${needDeployUpdater}" = true ]; then
-    echo "Процесс запуска контейнера pgfacade-updater..."
+    echo "Starting container with pgfacade-updater..."
     docker run --detach --name "pgfacade-updater" -v /var/run/docker.sock:/var/run/pgfacade/docker.sock -p 9090:8080 "pgfacade-updater"
     if [ $? -ne 0 ]; then
-        echo "Не получилось запустить контейнер с pgfacade-updater, " \
-             "т.к. обнаружен конфликт контейнеров, скорее всего pgfacade-updater уже запущен."
+        echo "Error with starting pgfacade-updater, " \
+             "detected conflicts with docker, maybe pgfacade-updater is already running?"
         exit 1
     fi
-else
-    echo "Запуск контейнера pgfacade-updater не требуется."
 fi
 
-# Проверка наличия и загрузка образа PostgreSQL
-echo "Загрузка образа PostgreSQL версии ${postgreVersion}..."
+# Checking for needed version of image of PostgreSQL
+echo "Downloading PostgreSQL of version -> ${postgreVersion}..."
 docker pull postgres:${postgreVersion}
 if [ $? -ne 0 ]; then
-    echo "Ошибка: Образ PostgreSQL с версией ${postgreVersion} " \
-    "не найден в Docker Hub. Укажите корректную версию образа postgresql."
+    echo "Error: image PostgreSQL ${postgreVersion} " \
+    "not found in the Docker Hub. Please check version."
     exit 1
 else
-    echo "Образ PostgreSQL с версией ${postgreVersion} успешно загружен или уже был на машине."
+    echo "Image PostgreSQL ${postgreVersion} downloaded successfully or was already at the machine."
 fi
 
-# Выполнение запроса для запуска компонентов через pgfacade-updater
-echo "Выполнение запроса для запуска компонентов через pgfacade-updater..."
+# Calling Updater for deploying app
+echo "Call Updater for deploying app..."
 
 curl -L 'http://localhost:9090/docker/install-new-postgres' \
 -H 'Content-Type: application/json' \
 -d '{
     "awaitPgFacadeContainerMs": 15000,
     "pgFacadeImageTag": "pgfacade-pgfacade:latest",
-    "postgresImageTag": "postgres:15.4-bookworm",
+    "postgresImageTag": "postgres:'"${postgreVersion}"'",
     "postgresImagePort": 5432,
     "newSuperuserCredentials": {
         "superuserName": "postgres",
@@ -78,25 +76,25 @@ curl -L 'http://localhost:9090/docker/install-new-postgres' \
 }'
 
 if [ $? -ne 0 ]; then
-    echo "Ошибка выполнения запроса installForNewPostgres, смотрите логи для информации об ошибке"
+    echo "Error with curl installForNewPostgres, watch logs for more..."
     exit 1
 fi
 
-# Поиск ID контейнера PostgreSQL
-echo "Поиск ID контейнера PostgreSQL..."
+# Trying to find master-node container_ID of PostgreSQL
+echo "Watching for container id of master-node PostgreSQL..."
 postgresContainerId=$(docker ps -aqf "name=pg-facade-managed-postgres.*$")
 if [ -z "$postgresContainerId" ]; then
-    echo "Контейнер с именем pg-facade-managed-postgres-... не найден."
+    echo "Error: container pg-facade-managed-postgres-... not found."
     exit 1
 fi
-echo "ID контейнера: ${postgresContainerId}"
+echo "pg-facade-managed-postgres container ID: ${postgresContainerId}"
 
-# Установка роли pgfacade как суперпользователь
-echo "Установка роли pgfacade как суперпользователь..."
+# Grant role pgfacade to superuser
+echo "Grant role pgfacade to superuser..."
 docker exec -e PGPASSWORD=postgres ${postgresContainerId} psql -U postgres -d postgres -c "alter role pgfacade superuser;"
 if [ $? -ne 0 ]; then
-    echo "Ошибка при изменении роли pgfacade на суперпользователя."
+    echo "Error: can't grant user pgfacade to superuser on postgres-master-node. See logs for more..."
     exit 1
 fi
 
-echo "Скрипт завершён успешно."
+echo "Deploy finished successfully."
