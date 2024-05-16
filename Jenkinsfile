@@ -60,11 +60,16 @@ pipeline {
                 }
             }
             steps {
+                // 1. Call steps of building artifacts and deploying it for tests:
                 sh './.infrastructure/build_updater.sh'
                 sh './.infrastructure/build_balancer.sh'
                 sh './.infrastructure/build_pgfacade.sh'
                 sh './.infrastructure/deploy_minio.sh'
                 sh './.infrastructure/deploy_components.sh'
+
+                // 2. Call all tests
+
+                // 3. Deploying new version of app
             }
         }
     }
