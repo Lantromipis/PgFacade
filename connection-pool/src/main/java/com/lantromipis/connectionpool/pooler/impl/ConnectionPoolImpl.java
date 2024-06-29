@@ -226,21 +226,7 @@ public class ConnectionPoolImpl implements ConnectionPool {
                 Channel channel = future.channel();
 
                 channel.pipeline().remove(EmptyNettyHandler.class);
-                AtomicBoolean finished = new AtomicBoolean(false);
-
-                ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
-                            if (finished.compareAndSet(false, true)) {
-                                readyCallback.accept(null);
-                                PostgresHandlerUtils.closeOnFlush(channel);
-                                log.warn("Timeout reached for real Postgres connection auth.");
-                                storage.cancelReservation();
-                            } else {
-                                log.debug("Postgres connection acquired. Canceling scheduled...");
-                            }
-                        },
-                        proxyProperties.connectionPool().realConnectionAuthTimeout().toMillis(),
-                        TimeUnit.MILLISECONDS
-                );
+                AtomicBoolean cancelFutureSynchronizationPoint = new AtomicBoolean(false);
 
                 channel.pipeline().addLast(
                         //new LoggingHandler(this.getClass(), LogLevel.DEBUG),
@@ -248,9 +234,10 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                 pgAuthInfo,
                                 startupMessageInfo.getParameters(),
                                 result -> {
-                                    if (finished.compareAndSet(false, true)) {
-                                        cancelFuture.cancel(false);
+                                    if (cancelFutureSynchronizationPoint.compareAndSet(false, true)) {
+                                        log.debug("Successfully got connection for Postgres before timeout reached.");
                                     } else {
+                                        log.debug("Got connection for Postgres after timeout reached.");
                                         return;
                                     }
 
@@ -291,6 +278,20 @@ public class ConnectionPoolImpl implements ConnectionPool {
                                     }
                                 }
                         )
+                );
+
+                ScheduledFuture<?> cancelFuture = workerGroup.schedule(() -> {
+                            if (cancelFutureSynchronizationPoint.compareAndSet(false, true)) {
+                                readyCallback.accept(null);
+                                PostgresHandlerUtils.closeOnFlush(channel);
+                                log.warn("Timeout reached for real Postgres connection auth.");
+                                storage.cancelReservation();
+                            } else {
+                                log.debug("Postgres connection acquired. Canceling scheduled...");
+                            }
+                        },
+                        proxyProperties.connectionPool().realConnectionAuthTimeout().toMillis(),
+                        TimeUnit.MILLISECONDS
                 );
             } else {
                 log.debug("Failed to acquire real postgres connection.");
