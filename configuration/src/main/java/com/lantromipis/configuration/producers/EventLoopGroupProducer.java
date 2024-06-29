@@ -1,4 +1,4 @@
-package com.lantromipis.quarkusroot.producer;
+package com.lantromipis.configuration.producers;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.epoll.Epoll;
