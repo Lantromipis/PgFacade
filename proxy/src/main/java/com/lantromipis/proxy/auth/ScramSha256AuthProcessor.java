@@ -9,6 +9,7 @@ import com.lantromipis.postgresprotocol.model.protocol.SaslResponse;
 import com.lantromipis.postgresprotocol.utils.PostgresErrorMessageUtils;
 import com.lantromipis.postgresprotocol.utils.PostgresHandlerUtils;
 import com.lantromipis.postgresprotocol.utils.ScramUtils;
+import com.lantromipis.usermanagement.model.ScramSha256UserAuthInfo;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -50,17 +51,17 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
     private String username;
     private SaslAuthStatus saslAuthStatus;
 
-    public ScramSha256AuthProcessor(String username, String passwd) {
-        this.username = username;
+    public ScramSha256AuthProcessor(ScramSha256UserAuthInfo scramSha256UserAuthInfo) {
+        this.username = scramSha256UserAuthInfo.getUsername();
         this.saslAuthStatus = SaslAuthStatus.NOT_STARTED;
 
-        Matcher passwdMatcher = PostgresProtocolScramConstants.SCRAM_SHA_256_PASSWD_FORMAT_PATTERN.matcher(passwd);
-        passwdMatcher.matches();
+        this.iterationCount = scramSha256UserAuthInfo.getIterationCount();
+        this.salt = scramSha256UserAuthInfo.getSalt();
+        this.storedKey = scramSha256UserAuthInfo.getStoredKey();
+        this.serverKey = scramSha256UserAuthInfo.getServerKey();
 
-        this.iterationCount = Integer.parseInt(passwdMatcher.group(1));
-        this.salt = passwdMatcher.group(2);
-        this.storedKey = passwdMatcher.group(3);
-        this.serverKey = passwdMatcher.group(4);
+        this.storedKeyDecodedBytes = scramSha256UserAuthInfo.getStoredKeyDecodedBytes();
+        this.serverKeyDecodedBytes = scramSha256UserAuthInfo.getServerKeyDecodedBytes();
 
         this.serverNonce = UUID.randomUUID().toString();
     }
@@ -110,9 +111,6 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         clientFirstMessageBare = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_MATCHER_GROUP);
 
         authMessageWithoutFinalMessage = clientFirstMessageBare + "," + serverFirstMessage + ",";
-
-        storedKeyDecodedBytes = Base64.getDecoder().decode(storedKey);
-        serverKeyDecodedBytes = Base64.getDecoder().decode(serverKey);
 
         saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
     }
@@ -175,7 +173,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
                 .builder()
                 .passwordKnown(false)
                 .clientKey(computedClientKey)
-                .storedKeyBase64(storedKey)
+                .storedKey(storedKeyDecodedBytes)
                 .build();
     }
 

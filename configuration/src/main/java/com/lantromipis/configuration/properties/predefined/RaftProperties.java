@@ -6,6 +6,9 @@ import java.time.Duration;
 
 @ConfigMapping(prefix = "pg-facade.raft")
 public interface RaftProperties {
+
+    int serverWorkThreads();
+
     int nodesCount();
 
     Duration nodesCheckInterval();

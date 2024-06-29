@@ -11,15 +11,21 @@ import com.lantromipis.proxy.auth.ProxyAuthProcessor;
 import com.lantromipis.proxy.auth.ScramSha256AuthProcessor;
 import com.lantromipis.proxy.handler.proxy.AbstractClientChannelHandler;
 import com.lantromipis.proxy.producer.ProxyChannelHandlersProducer;
+import com.lantromipis.usermanagement.model.ScramSha256UserAuthInfo;
 import com.lantromipis.usermanagement.model.UserAuthInfo;
 import com.lantromipis.usermanagement.provider.api.UserAuthInfoProvider;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class StartupClientChannelHandler extends AbstractClientChannelHandler {
+    private final static ByteBuf ENCRYPTION_NOT_SUPPORTED_MESSAGE_BYTE_BUF = Unpooled.unreleasableBuffer(
+            Unpooled.directBuffer(1)
+                    .writeBytes(PostgresProtocolGeneralConstants.ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE)
+    );
 
     private final UserAuthInfoProvider userAuthInfoProvider;
     private final ProxyChannelHandlersProducer proxyChannelHandlersProducer;
@@ -79,9 +85,7 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
         //means initial message was GSSENCRequest or SSLRequest
         if (firstInt == PostgresProtocolGeneralConstants.INITIAL_ENCRYPTION_REQUEST_MESSAGE_FIRST_INT) {
-            ctx.channel().writeAndFlush(
-                    ctx.alloc().buffer(1).writeBytes(PostgresProtocolGeneralConstants.ENCRYPTION_NOT_SUPPORTED_RESPONSE_MESSAGE)
-            );
+            ctx.channel().writeAndFlush(ENCRYPTION_NOT_SUPPORTED_MESSAGE_BYTE_BUF);
         } else {
             message.resetReaderIndex();
             startupMessage = ClientPostgresProtocolMessageDecoder.decodeStartupMessage(message);
@@ -114,16 +118,19 @@ public class StartupClientChannelHandler extends AbstractClientChannelHandler {
 
             switch (userAuthInfo.getAuthenticationMethod()) {
                 case PLAIN_TEXT -> {
+                    log.error("Unsupported \"Plain text\" auth method requested by user!");
                     //TODO done
                     break;
                 }
                 case MD5 -> {
                     //TODO done
+                    log.error("Unsupported \"MD5\" auth method requested by user!");
                     break;
                 }
                 case SCRAM_SHA256 -> {
                     ctx.channel().writeAndFlush(ServerPostgresProtocolMessageEncoder.createAuthenticationSASLMessage(ctx.alloc()));
-                    proxyAuthProcessor = new ScramSha256AuthProcessor(username, userAuthInfo.getPasswd());
+                    ScramSha256UserAuthInfo scramSha256UserAuthInfo = (ScramSha256UserAuthInfo) userAuthInfo;
+                    proxyAuthProcessor = new ScramSha256AuthProcessor(scramSha256UserAuthInfo);
                 }
                 default -> forceCloseConnectionWithAuthError(username);
             }

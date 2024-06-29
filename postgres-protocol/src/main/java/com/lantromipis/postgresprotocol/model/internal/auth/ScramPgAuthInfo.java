@@ -18,7 +18,7 @@ public class ScramPgAuthInfo implements PgAuthInfo {
 
     // when password is NOT known
     private byte[] clientKey;
-    private String storedKeyBase64;
+    private byte[] storedKey;
 
     @Override
     public PostgresProtocolAuthenticationMethod getExpectedAuthMethod() {

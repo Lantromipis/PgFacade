@@ -7,6 +7,8 @@ import com.lantromipis.postgresprotocol.handler.frontend.AbstractPgFrontendChann
 import com.lantromipis.postgresprotocol.model.internal.PgMessageInfo;
 import com.lantromipis.postgresprotocol.utils.DecoderUtils;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +23,13 @@ import java.util.function.Consumer;
 @Slf4j
 public class PgChannelCleaningHandler extends AbstractPgFrontendChannelHandler {
 
+    private final static ByteBuf ROLLBACK_SIMPLE_QUERY_MESSAGE_BYTE_BUF = Unpooled.unreleasableBuffer(
+            ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage(
+                    "rollback;",
+                    UnpooledByteBufAllocator.DEFAULT
+            )
+    );
+
     private Consumer<PgChannelCleanResult> callback;
     private ByteBuf leftovers = null;
     private Deque<PgMessageInfo> pgMessageInfos;
@@ -34,7 +43,7 @@ public class PgChannelCleaningHandler extends AbstractPgFrontendChannelHandler {
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        ctx.channel().writeAndFlush(ClientPostgresProtocolMessageEncoder.encodeSimpleQueryMessage("rollback;", ctx.alloc()));
+        ctx.channel().writeAndFlush(ROLLBACK_SIMPLE_QUERY_MESSAGE_BYTE_BUF);
         super.handlerAdded(ctx);
     }
 

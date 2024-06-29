@@ -1,5 +1,6 @@
 package com.lantromipis.configuration.producers;
 
+import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollEventLoopGroup;
@@ -7,12 +8,16 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
+import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @ApplicationScoped
 public class EventLoopGroupProducer {
+
+    @Inject
+    ProxyProperties proxyProperties;
 
     @PostConstruct
     public void checkEpoll() {
@@ -28,9 +33,9 @@ public class EventLoopGroupProducer {
     @ApplicationScoped
     public EventLoopGroup produceWorkerGroup() {
         if (Epoll.isAvailable()) {
-            return new EpollEventLoopGroup();
+            return new EpollEventLoopGroup(proxyProperties.workThreads());
         } else {
-            return new NioEventLoopGroup();
+            return new NioEventLoopGroup(proxyProperties.workThreads());
         }
     }
 

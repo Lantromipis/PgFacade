@@ -1,5 +1,6 @@
 pg-facade:
   raft:
+    server-work-threads: 1
     nodes-count: 3
     nodes-check-interval: PT5S
     app-checks-retry-before-kill: 3
@@ -18,6 +19,7 @@ pg-facade:
     primary-port: 5433
     standby-port: 5434
     max-connections: 200000
+    work-threads: 2 # 0 for default
     connection-pool:
       enabled: true
       await-connection-when-pool-empty: true
@@ -159,6 +161,9 @@ quarkus:
     name: PgFacade
 
 "%dev":
+  pg-facade:
+    proxy:
+      work-threads: 2
   quarkus:
     log:
       category:
