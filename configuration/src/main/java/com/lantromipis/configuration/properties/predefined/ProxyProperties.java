@@ -6,6 +6,8 @@ import java.time.Duration;
 
 @ConfigMapping(prefix = "pg-facade.proxy")
 public interface ProxyProperties {
+    int workThreads();
+
     int primaryPort();
 
     int standbyPort();

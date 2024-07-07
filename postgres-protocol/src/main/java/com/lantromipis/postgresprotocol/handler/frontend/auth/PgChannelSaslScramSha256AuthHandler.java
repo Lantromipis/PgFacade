@@ -119,7 +119,7 @@ public class PgChannelSaslScramSha256AuthHandler extends AbstractPgFrontendChann
                 storedKey = MessageDigest.getInstance(PostgresProtocolScramConstants.SHA256_DIGEST_NAME).digest(clientKey);
             } else {
                 clientKey = scramAuthInfo.getClientKey();
-                storedKey = Base64.getDecoder().decode(scramAuthInfo.getStoredKeyBase64());
+                storedKey = scramAuthInfo.getStoredKey();
             }
 
             byte[] clientSignature = ScramUtils.computeHmac(

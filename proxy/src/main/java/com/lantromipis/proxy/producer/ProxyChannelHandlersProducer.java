@@ -5,7 +5,6 @@ import com.lantromipis.configuration.properties.predefined.OrchestrationProperti
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.connectionpool.model.StartupMessageInfo;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
-import com.lantromipis.postgresprotocol.constant.PostgresProtocolGeneralConstants;
 import com.lantromipis.postgresprotocol.model.internal.auth.PgAuthInfo;
 import com.lantromipis.postgresprotocol.model.protocol.StartupMessage;
 import com.lantromipis.proxy.handler.general.StartupClientChannelHandler;
@@ -55,8 +54,6 @@ public class ProxyChannelHandlersProducer {
     ) {
         StartupMessageInfo startupMessageInfo = StartupMessageInfo
                 .builder()
-                .username(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_USER))
-                .database(startupMessage.getParameters().get(PostgresProtocolGeneralConstants.STARTUP_PARAMETER_DATABASE))
                 .parameters(startupMessage.getParameters())
                 .build();
 

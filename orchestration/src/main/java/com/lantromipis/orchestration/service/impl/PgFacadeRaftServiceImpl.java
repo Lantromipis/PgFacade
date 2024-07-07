@@ -3,6 +3,7 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
+import com.lantromipis.configuration.properties.predefined.RaftProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
 import com.lantromipis.orchestration.exception.InitializationException;
@@ -44,6 +45,9 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     @Inject
     PgFacadeRaftStateMachine raftStateMachine;
 
+    @Inject
+    RaftProperties raftProperties;
+
     private RaftServer raftServer;
 
     @Override
@@ -81,7 +85,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
         try {
             raftServer = new RaftServerImpl(
                     Epoll.isAvailable() ? new EpollEventLoopGroup(1) : new NioEventLoopGroup(1),
-                    Epoll.isAvailable() ? new EpollEventLoopGroup() : new NioEventLoopGroup(),
+                    Epoll.isAvailable() ? new EpollEventLoopGroup(raftProperties.serverWorkThreads()) : new NioEventLoopGroup(raftProperties.serverWorkThreads()),
                     raftGroup,
                     selfNodeInfo.getPlatformAdapterIdentifier(),
                     new RaftServerProperties(),
