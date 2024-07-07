@@ -13,8 +13,6 @@ import java.util.Objects;
 @NoArgsConstructor
 @AllArgsConstructor
 public class StartupMessageInfo {
-    private String username;
-    private String database;
     private Map<String, String> parameters;
 
     @Override
@@ -23,17 +21,11 @@ public class StartupMessageInfo {
         if (o == null || getClass() != o.getClass()) return false;
 
         StartupMessageInfo that = (StartupMessageInfo) o;
-
-        if (!Objects.equals(username, that.username)) return false;
-        if (!Objects.equals(database, that.database)) return false;
         return Objects.equals(parameters, that.parameters);
     }
 
     @Override
     public int hashCode() {
-        int result = username != null ? username.hashCode() : 0;
-        result = 31 * result + (database != null ? database.hashCode() : 0);
-        result = 31 * result + (parameters != null ? parameters.hashCode() : 0);
-        return result;
+        return Objects.hashCode(parameters);
     }
 }

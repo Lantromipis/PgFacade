@@ -15,6 +15,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 
+import javax.crypto.Mac;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -35,20 +36,21 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
     //server props
     private final int iterationCount;
     private final String salt;
-    private final String storedKey;
-    private byte[] storedKeyDecodedBytes;
-    private final String serverKey;
-    private byte[] serverKeyDecodedBytes;
+    private final byte[] storedKeyDecodedBytes;
+    private final byte[] serverKeyDecodedBytes;
     private final String serverNonce;
     private String serverFirstMessage;
     private String authMessageWithoutFinalMessage;
+    // one-times Mac. Initialized while waiting for client response for performance reasons.
+    private Mac storedKeyMac;
+    private Mac serverKeyMac;
 
     //client props
     private String gs2Header;
     private String clientFirstMessageBare;
     private String clientNonce;
 
-    private String username;
+    private final String username;
     private SaslAuthStatus saslAuthStatus;
 
     public ScramSha256AuthProcessor(ScramSha256UserAuthInfo scramSha256UserAuthInfo) {
@@ -57,8 +59,6 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
 
         this.iterationCount = scramSha256UserAuthInfo.getIterationCount();
         this.salt = scramSha256UserAuthInfo.getSalt();
-        this.storedKey = scramSha256UserAuthInfo.getStoredKey();
-        this.serverKey = scramSha256UserAuthInfo.getServerKey();
 
         this.storedKeyDecodedBytes = scramSha256UserAuthInfo.getStoredKeyDecodedBytes();
         this.serverKeyDecodedBytes = scramSha256UserAuthInfo.getServerKeyDecodedBytes();
@@ -80,7 +80,7 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         return null;
     }
 
-    private void processFirstMessage(ChannelHandlerContext ctx, ByteBuf msg) {
+    private void processFirstMessage(ChannelHandlerContext ctx, ByteBuf msg) throws NoSuchAlgorithmException, InvalidKeyException {
         SaslInitialResponse saslInitialResponse = ClientPostgresProtocolMessageDecoder.decodeSaslInitialResponse(msg);
 
         if (!saslInitialResponse.getNameOfSaslAuthMechanism().equals(PostgresProtocolScramConstants.SASL_SHA_256_AUTH_MECHANISM_NAME)) {
@@ -111,6 +111,9 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         clientFirstMessageBare = firstClientMessageMatcher.group(PostgresProtocolScramConstants.CLIENT_FIRST_MESSAGE_BARE_MATCHER_GROUP);
 
         authMessageWithoutFinalMessage = clientFirstMessageBare + "," + serverFirstMessage + ",";
+
+        storedKeyMac = ScramUtils.createHmac(storedKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME);
+        serverKeyMac = ScramUtils.createHmac(serverKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME);
 
         saslAuthStatus = SaslAuthStatus.FIRST_CLIENT_MESSAGE_RECEIVED;
     }
@@ -149,8 +152,8 @@ public class ScramSha256AuthProcessor implements ProxyAuthProcessor {
         String authMessage = authMessageWithoutFinalMessage + finalMessageWithoutProof;
         byte[] authMessageBytes = authMessage.getBytes(StandardCharsets.US_ASCII);
 
-        byte[] clientSignature = ScramUtils.computeHmac(storedKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
-        byte[] serverSignature = ScramUtils.computeHmac(serverKeyDecodedBytes, PostgresProtocolScramConstants.SHA256_HMAC_NAME, authMessageBytes);
+        byte[] clientSignature = ScramUtils.computeHmac(storedKeyMac, authMessageBytes);
+        byte[] serverSignature = ScramUtils.computeHmac(serverKeyMac, authMessageBytes);
         byte[] proofBytes = Base64.getDecoder().decode(clientProof);
 
         byte[] computedClientKey = clientSignature.clone();

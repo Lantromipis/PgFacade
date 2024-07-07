@@ -1,20 +1,26 @@
 package com.lantromipis.postgresprotocol.utils;
 
+import lombok.extern.slf4j.Slf4j;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 
+@Slf4j
 public class ScramUtils {
 
     private static final byte[] INT_1 = new byte[]{0, 0, 0, 1};
 
     public static byte[] computeHmac(final byte[] keyBytes, String hmacName, byte[] stringAsciiBytes) throws InvalidKeyException, NoSuchAlgorithmException {
-        SecretKeySpec key = new SecretKeySpec(keyBytes, hmacName);
-        Mac mac = Mac.getInstance(hmacName);
-        mac.init(key);
+        Mac mac = createHmac(keyBytes, hmacName);
 
+        mac.update(stringAsciiBytes);
+        return mac.doFinal();
+    }
+
+    public static byte[] computeHmac(Mac mac, byte[] stringAsciiBytes) {
         mac.update(stringAsciiBytes);
         return mac.doFinal();
     }
@@ -23,8 +29,6 @@ public class ScramUtils {
                                                 byte[] salt,
                                                 int iterationsCount,
                                                 String hmacName) throws InvalidKeyException, NoSuchAlgorithmException {
-
-
         Mac mac = createHmac(password.getBytes(StandardCharsets.US_ASCII), hmacName);
 
         mac.update(salt);
@@ -45,7 +49,6 @@ public class ScramUtils {
 
     public static Mac createHmac(final byte[] keyBytes, String hmacName) throws NoSuchAlgorithmException,
             InvalidKeyException {
-
         SecretKeySpec key = new SecretKeySpec(keyBytes, hmacName);
         Mac mac = Mac.getInstance(hmacName);
         mac.init(key);
