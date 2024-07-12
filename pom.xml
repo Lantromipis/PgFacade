@@ -40,7 +40,7 @@
         <netty.version>4.1.111.Final</netty.version>
         <postgresql.driver.version>42.7.3</postgresql.driver.version>
         <docker.client.version>3.3.6</docker.client.version>
-        <docker.client.transport.version>3.3.6</docker.client.transport.version>
+        <docker.client.transport.version>3.4.0</docker.client.transport.version>
         <aws.sdk.s3.version>1.12.752</aws.sdk.s3.version>
         <jakson.jsr310.version>2.17.1</jakson.jsr310.version>
         <jaxb-api.version>2.3.1</jaxb-api.version>
