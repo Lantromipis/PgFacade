@@ -28,7 +28,7 @@ pipeline {
 
         stage('Build application') {
             agent { docker {
-                    image 'maven:3.9.4-eclipse-temurin-17-alpine'
+                    image 'maven:eclipse-temurin-21-alpine'
                     // Run the container on the node specified at the
                     // top-level of the Pipeline, in the same workspace,
                     // rather than on a new node entirely:
@@ -80,7 +80,7 @@ pipeline {
                 script {
                     env.GIT_URL = env.GIT_URL_1
                     notifyRocketChat(
-                        channelName: 'PgFacade',
+                        channelName: 'system_notifications_pgfacade',
                         minioCredentialsId: 'jenkins-minio-credentials',
                         minioHostUrl: 'https://minio.cloud.cosm-lab.science'
                     )
