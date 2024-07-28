@@ -1,26 +1,17 @@
 package com.lantromipis.orchestration.adapter.impl;
 
-import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.Volume;
-import com.github.dockerjava.core.DefaultDockerClientConfig;
-import com.github.dockerjava.core.DockerClientConfig;
-import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
-import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
-import com.github.dockerjava.transport.DockerHttpClient;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
-import com.lantromipis.configuration.properties.predefined.ProxyProperties;
-import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
-import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
@@ -69,78 +60,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
     PgFacadeIOUtils pgFacadeIOUtils;
 
     @Inject
-    PgFacadeRuntimeProperties pgFacadeRuntimeProperties;
-
-    @Inject
-    ProxyProperties proxyProperties;
-
-    private DockerClient dockerClient;
-
-    public void initializeAndValidate() {
-        log.info("Docker is selected as platform adapter.");
-
-        try {
-            OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
-
-            DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                    .withDockerHost(dockerProperties.host())
-/*                .withDockerTlsVerify(true)
-                .withDockerCertPath("/home/user/.docker")
-                .withRegistryUsername(registryUser)
-                .withRegistryPassword(registryPass)
-                .withRegistryEmail(registryMail)
-                .withRegistryUrl(registryUrl)*/
-                    .build();
-
-            DockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()
-                    .dockerHost(config.getDockerHost())
-                    .sslConfig(config.getSSLConfig())
-                    .build();
-
-            dockerClient = DockerClientImpl.getInstance(config, httpClient);
-
-            // validate Postgres network exist
-            try {
-                dockerClient.inspectNetworkCmd()
-                        .withNetworkId(orchestrationProperties.docker().postgres().networkName())
-                        .exec();
-            } catch (NotFoundException e) {
-                throw new InitializationException("Docker network for Postgres not found. Expected network name: '" + orchestrationProperties.docker().postgres().networkName() + "'. Create this network or/and change PgFacade configuration.");
-            }
-
-            // validate PgFacade internal network exist
-            try {
-                dockerClient.inspectNetworkCmd()
-                        .withNetworkId(orchestrationProperties.docker().pgFacade().internalNetworkName())
-                        .exec();
-            } catch (NotFoundException e) {
-                throw new InitializationException("Docker network for PgFacade internal needs not found. Expected network name: '" + orchestrationProperties.docker().pgFacade().internalNetworkName() + "'. Create this network or/and change PgFacade configuration.");
-            }
-
-            // validate PgFacade external network exist
-            try {
-                dockerClient.inspectNetworkCmd()
-                        .withNetworkId(orchestrationProperties.docker().pgFacade().externalNetworkName())
-                        .exec();
-            } catch (NotFoundException e) {
-                throw new InitializationException("Docker networks for PgFacade external usage not found. Expected network name: '" + orchestrationProperties.docker().pgFacade().externalNetworkName() + "'. Create this network or/and change PgFacade configuration.");
-            }
-        } catch (InitializationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new InitializationException("Failed to initialize Docker platform adapter! Unexpected error ", e);
-        }
-
-        log.info("Successfully created Docker client for cluster management.");
-    }
-
-    @Override
-    public void shutdown() {
-        try {
-            dockerClient.close();
-        } catch (Exception ignored) {
-        }
-    }
+    DockerClientManager dockerClientManager;
 
     @Override
     public String createNewPostgresStandbyInstance(PostgresInstanceCreationRequest request) throws PlatformAdapterOperationExecutionException {
@@ -190,7 +110,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
         }
 
         try {
-            dockerClient.startContainerCmd(adapterInstanceId).exec();
+            dockerClientManager.getDockerClient().startContainerCmd(adapterInstanceId).exec();
             return true;
         } catch (NotFoundException notFoundException) {
             throw new PlatformAdapterNotFoundException("Failed to start Postgres container. Container with ID " + adapterInstanceId + " not found.");
@@ -209,7 +129,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
         }
 
         try {
-            dockerClient.stopContainerCmd(adapterInstanceId).exec();
+            dockerClientManager.getDockerClient().stopContainerCmd(adapterInstanceId).exec();
             return true;
         } catch (NotFoundException notFoundException) {
             throw new PlatformAdapterNotFoundException("Failed to stop Postgres container. Container with ID " + adapterInstanceId + " not found.");
@@ -228,7 +148,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
         }
 
         try {
-            dockerClient.restartContainerCmd(adapterInstanceId).exec();
+            dockerClientManager.getDockerClient().restartContainerCmd(adapterInstanceId).exec();
         } catch (NotFoundException notFoundException) {
             throw new PlatformAdapterNotFoundException("Failed to restart Postgres container. Container with ID " + adapterInstanceId + " not found.");
         } catch (Exception e) {
@@ -240,7 +160,9 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
     @Override
     public PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException {
         try {
-            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(adapterInstanceId).exec();
+            InspectContainerResponse inspectResponse = dockerClientManager.getDockerClient()
+                    .inspectContainerCmd(adapterInstanceId)
+                    .exec();
 
             return PostgresAdapterInstanceInfo
                     .builder()
@@ -264,18 +186,20 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
         }
 
         try {
-            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(adapterInstanceId).exec();
+            InspectContainerResponse inspectContainerResponse = dockerClientManager.getDockerClient()
+                    .inspectContainerCmd(adapterInstanceId)
+                    .exec();
 
             try {
-                dockerClient.stopContainerCmd(adapterInstanceId).exec();
+                dockerClientManager.getDockerClient().stopContainerCmd(adapterInstanceId).exec();
             } catch (Exception ignored) {
             }
 
-            dockerClient.removeContainerCmd(adapterInstanceId).withForce(true).withRemoveVolumes(true).exec();
+            dockerClientManager.getDockerClient().removeContainerCmd(adapterInstanceId).withForce(true).withRemoveVolumes(true).exec();
 
             for (var bind : inspectContainerResponse.getHostConfig().getBinds()) {
                 try {
-                    dockerClient.removeVolumeCmd(bind.getPath()).exec();
+                    dockerClientManager.getDockerClient().removeVolumeCmd(bind.getPath()).exec();
                 } catch (Exception ignored) {
                     log.warn("Failed to remove volume {}", bind.getPath());
                 }
@@ -295,7 +219,8 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
     public BaseBackupCreationResult createBaseBackupAndGetAsStream() {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
-        CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+        CreateContainerResponse tempCreateContainerResponse = dockerClientManager.getDockerClient()
+                .createContainerCmd(dockerProperties.postgres().imageTag())
                 .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
                 .withHostConfig(
                         HostConfig.newHostConfig()
@@ -306,7 +231,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
                 .exec();
 
         String containerId = tempCreateContainerResponse.getId();
-        dockerClient.startContainerCmd(containerId).exec();
+        dockerClientManager.getDockerClient().startContainerCmd(containerId).exec();
 
         try {
             String commandToExecute = postgresUtils.getCommandToCreatePgPassFileForPrimary(postgresProperties.users().replication())
@@ -322,7 +247,11 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
 
             if (!baseBackupCommandExecutionResult.isSuccess()) {
                 log.error("Failed to create backup as stream. Cause from CMD: {}", baseBackupCommandExecutionResult.getStderr());
-                dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
+                dockerClientManager.getDockerClient()
+                        .removeContainerCmd(containerId)
+                        .withForce(true)
+                        .withRemoveVolumes(true)
+                        .exec();
                 return BaseBackupCreationResult
                         .builder()
                         .success(false)
@@ -330,7 +259,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
             }
 
             ObservableInputStream ret = new ObservableInputStream(
-                    dockerClient.copyArchiveFromContainerCmd(
+                    dockerClientManager.getDockerClient().copyArchiveFromContainerCmd(
                                     containerId,
                                     DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH + "/"
                             )
@@ -386,13 +315,13 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
         String recoveryContainerId = null, volumeName = null;
 
         try {
-            CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
+            CreateVolumeResponse createVolumeResponse = dockerClientManager.getDockerClient().createVolumeCmd()
                     .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().volumeName(), containerNamePostfix))
                     .exec();
 
             volumeName = createVolumeResponse.getName();
 
-            CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+            CreateContainerResponse tempCreateContainerResponse = dockerClientManager.getDockerClient().createContainerCmd(dockerProperties.postgres().imageTag())
                     .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
                     .withHostConfig(
                             HostConfig.newHostConfig()
@@ -413,11 +342,11 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
 
             recoveryContainerId = tempCreateContainerResponse.getId();
 
-            dockerClient.startContainerCmd(recoveryContainerId).exec();
+            dockerClientManager.getDockerClient().startContainerCmd(recoveryContainerId).exec();
 
             // copy backup
             try (basebackupTarInputStream) {
-                dockerClient.copyArchiveToContainerCmd(recoveryContainerId)
+                dockerClientManager.getDockerClient().copyArchiveToContainerCmd(recoveryContainerId)
                         .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_BACKUP_PATH)
                         .withTarInputStream(basebackupTarInputStream)
                         .exec();
@@ -456,7 +385,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
                                      walFileInputStreamFunction.apply(walFilename)
                              )
                 ) {
-                    dockerClient.copyArchiveToContainerCmd(recoveryContainerId)
+                    dockerClientManager.getDockerClient().copyArchiveToContainerCmd(recoveryContainerId)
                             .withRemotePath(DockerConstants.HELP_CONTAINER_RESTORE_WAL_PATH)
                             .withTarInputStream(inputStream)
                             .exec();
@@ -497,7 +426,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
                 throw new PostgresRestoreException("Recovery failed! Failed to stop recovered postgres! Cause from container shell: " + stopRecoveredPostgresResult.getStderr());
             }
 
-            dockerClient.stopContainerCmd(recoveryContainerId);
+            dockerClientManager.getDockerClient().stopContainerCmd(recoveryContainerId);
             forceDeleteContainerSafe(recoveryContainerId);
 
             log.info("Recovery completed successfully!");
@@ -535,7 +464,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
     private void forceDeleteContainerSafe(String containerId) {
         if (containerId != null) {
             try {
-                dockerClient.removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
+                dockerClientManager.getDockerClient().removeContainerCmd(containerId).withForce(true).withRemoveVolumes(true).exec();
             } catch (Exception ex) {
                 log.error("Failed to remove unneeded container. Remove it manually. Container id {}", containerId);
             }
@@ -545,7 +474,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
     private void deleteVolumeSafe(String volumeName) {
         if (volumeName != null) {
             try {
-                dockerClient.removeVolumeCmd(volumeName).exec();
+                dockerClientManager.getDockerClient().removeVolumeCmd(volumeName).exec();
             } catch (Exception ex) {
                 log.error("Failed to remove unneeded volume. Remove it manually. Volume name {}", volumeName);
             }
@@ -558,13 +487,13 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
         String volumeName = null, containerId = null;
 
         try {
-            CreateVolumeResponse createVolumeResponse = dockerClient.createVolumeCmd()
+            CreateVolumeResponse createVolumeResponse = dockerClientManager.getDockerClient().createVolumeCmd()
                     .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().volumeName(), containerPostfix))
                     .exec();
 
             volumeName = createVolumeResponse.getName();
 
-            CreateContainerResponse tempCreateContainerResponse = dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+            CreateContainerResponse tempCreateContainerResponse = dockerClientManager.getDockerClient().createContainerCmd(dockerProperties.postgres().imageTag())
                     .withName(dockerUtils.createUniqueObjectName(dockerProperties.helperObjectName()))
                     .withHostConfig(
                             HostConfig.newHostConfig()
@@ -582,7 +511,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
 
             containerId = tempCreateContainerResponse.getId();
 
-            dockerClient.startContainerCmd(containerId).exec();
+            dockerClientManager.getDockerClient().startContainerCmd(containerId).exec();
 
             String commandToExecute = postgresUtils.getCommandToCreatePgPassFileForPrimary(postgresProperties.users().replication())
                     + " ; " + postgresUtils.createPgBaseBackupCommand(DockerConstants.HELP_CONTAINER_BASE_BACKUP_PATH)
@@ -625,7 +554,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
     private CreateContainerCmd getPostgresDefaultCreateContainerCmdRequest(String containerNamePostfix) {
         OrchestrationProperties.DockerProperties dockerProperties = orchestrationProperties.docker();
 
-        return dockerClient.createContainerCmd(dockerProperties.postgres().imageTag())
+        return dockerClientManager.getDockerClient().createContainerCmd(dockerProperties.postgres().imageTag())
                 .withName(dockerUtils.createUniqueObjectName(dockerProperties.postgres().containerName(), containerNamePostfix))
                 .withHostConfig(
                         HostConfig.newHostConfig()
@@ -635,7 +564,7 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
 
     private AdapterShellCommandExecutionResult executeCmdInContainer(String containerId, String shellCommand, List<Long> okExitCodes, String user) {
         try {
-            ExecCreateCmd backupExecCreateCmd = dockerClient.execCreateCmd(containerId)
+            ExecCreateCmd backupExecCreateCmd = dockerClientManager.getDockerClient().execCreateCmd(containerId)
                     .withAttachStdout(true)
                     .withAttachStderr(true)
                     .withCmd("/bin/sh", "-c", shellCommand);
@@ -649,12 +578,12 @@ public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
             ByteArrayOutputStream stdOut = new ByteArrayOutputStream();
             ByteArrayOutputStream stdErr = new ByteArrayOutputStream();
 
-            dockerClient.execStartCmd(backupExecCreateResponse.getId())
+            dockerClientManager.getDockerClient().execStartCmd(backupExecCreateResponse.getId())
                     .withDetach(false)
                     .exec(new ExecStartResultCallback(stdOut, stdErr))
                     .awaitCompletion();
 
-            InspectExecResponse inspectBackupExecResponse = dockerClient.inspectExecCmd(backupExecCreateResponse.getId()).exec();
+            InspectExecResponse inspectBackupExecResponse = dockerClientManager.getDockerClient().inspectExecCmd(backupExecCreateResponse.getId()).exec();
 
             boolean success;
 

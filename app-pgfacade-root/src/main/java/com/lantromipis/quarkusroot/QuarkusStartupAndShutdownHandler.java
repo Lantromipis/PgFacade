@@ -11,7 +11,7 @@ import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimePropertie
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
-import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PlatformAdaptersManager;
 import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.proxy.service.impl.PgProxyServiceImpl;
@@ -69,7 +69,7 @@ public class QuarkusStartupAndShutdownHandler {
     List<ConfigurationValidator> configurationValidators;
 
     @Inject
-    Instance<PostgresPlatformAdapter> platformAdapter;
+    Instance<PlatformAdaptersManager> platformAdaptersManagers;
 
     @Inject
     Instance<ArchiverStorageAdapter> archiverStorageAdapter;
@@ -161,7 +161,7 @@ public class QuarkusStartupAndShutdownHandler {
         }
 
         postgresOrchestrator.stopOrchestrator(false);
-        platformAdapter.get().shutdown();
+        platformAdaptersManagers.get().shutdown();
 
         try {
             bossGroup.shutdownGracefully().sync();
@@ -210,7 +210,7 @@ public class QuarkusStartupAndShutdownHandler {
 
         // Initialize platform adapter
         try {
-            platformAdapter.get().initializeAndValidate();
+            platformAdaptersManagers.get().initializeAndValidate();
         } catch (Exception e) {
             log.error("Failed to initialize platform adapter!", e);
             return false;

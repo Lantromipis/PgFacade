@@ -1,6 +1,5 @@
 package com.lantromipis.orchestration.adapter.api;
 
-import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
@@ -17,19 +16,6 @@ import java.util.function.Function;
  * The main concept is to use some adapter-specific identifier for any existing instance. For example, Docker adapter is using container ID as such identifier.
  */
 public interface PostgresPlatformAdapter {
-
-    /**
-     * Initializes adapter and performs basic calls to check if initialized successfully and if configuration is valid.
-     *
-     * @throws InitializationException if failed to initialize
-     */
-    void initializeAndValidate() throws InitializationException;
-
-    /**
-     * Shutdown adapter and free all used resources.
-     */
-    void shutdown();
-
     /**
      * Creates new Postgres instance.
      * For primary, this will be empty new database created with initdb
