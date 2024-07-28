@@ -4,7 +4,7 @@ import com.lantromipis.configuration.event.SwitchoverCompletedEvent;
 import com.lantromipis.configuration.event.SwitchoverStartedEvent;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
 import com.lantromipis.orchestration.model.raft.*;
@@ -23,7 +23,7 @@ import java.util.UUID;
 public class RaftCommitUtils {
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     OrchestratorUtils orchestratorUtils;

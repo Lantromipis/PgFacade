@@ -4,7 +4,7 @@ import com.lantromipis.configuration.event.RaftLogSyncedOnStartupEvent;
 import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.LoadBalancerPlatformAdapter;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.ExternalLoadBalancerAdapterInfo;
 import com.lantromipis.orchestration.model.raft.ExternalLoadBalancerRaftInfo;
@@ -39,7 +39,7 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
     RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<LoadBalancerPlatformAdapter> platformAdapter;
 
     @Inject
     DynamicRestClientUtils dynamicRestClientUtils;
@@ -184,7 +184,7 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
         ExternalLoadBalancerRaftInfo raftInfo = raftFunctionalityCombinator.getPgFacadeLoadBalancerInfo();
         raftFunctionalityCombinator.savePgFacadeLoadBalancerInfo(ExternalLoadBalancerRaftInfo.builder().adapterIdentifier(null).build());
 
-        platformAdapter.get().deleteInstance(raftInfo.getAdapterIdentifier());
+        platformAdapter.get().deleteExternalLoadBalancerInstance(raftInfo.getAdapterIdentifier());
 
         dynamicRestClientUtils.closeClient(cachedRestClient);
         cachedRestClient = null;
@@ -205,7 +205,7 @@ public class LoadBalancerOrchestratorImpl implements LoadBalancerOrchestrator {
             raftFunctionalityCombinator.savePgFacadeLoadBalancerInfo(raftInfo);
         } catch (RaftException e) {
             // failed to safe, means this is not leader
-            platformAdapter.get().deleteInstance(adapterIdentifier);
+            platformAdapter.get().deleteExternalLoadBalancerInstance(adapterIdentifier);
             log.error("Failed to save external load balancer info in Raft! Is this PgFacade node a Raft leader?", e);
             return false;
         }

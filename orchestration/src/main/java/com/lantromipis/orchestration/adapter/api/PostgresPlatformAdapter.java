@@ -4,7 +4,9 @@ import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
-import com.lantromipis.orchestration.model.*;
+import com.lantromipis.orchestration.model.BaseBackupCreationResult;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 
 import java.io.InputStream;
 import java.util.List;
@@ -14,7 +16,7 @@ import java.util.function.Function;
  * Interface for adapters which allow PgFacade to work on multiple platforms.
  * The main concept is to use some adapter-specific identifier for any existing instance. For example, Docker adapter is using container ID as such identifier.
  */
-public interface PlatformAdapter {
+public interface PostgresPlatformAdapter {
 
     /**
      * Initializes adapter and performs basic calls to check if initialized successfully and if configuration is valid.
@@ -78,22 +80,12 @@ public interface PlatformAdapter {
     PostgresAdapterInstanceInfo getPostgresInstanceInfo(String adapterInstanceId) throws PlatformAdapterNotFoundException, PlatformAdapterOperationExecutionException;
 
     /**
-     * Delete Postgres, PgFacade or external load balancer instance
-     *
-     * @param adapterInstanceId adapter identifier of existing Postgres, PgFacade or external load balancer instance
-     * @return true if successfully deleted instance or if it is already deleted. False if failed to delete.
-     */
-    boolean deleteInstance(String adapterInstanceId);
-
-    /**
-     * Executes shell command for Postgres instance
+     * Delete Postgres instance
      *
      * @param adapterInstanceId adapter identifier of existing Postgres instance
-     * @param shellCommand      shell command to execute
-     * @param okExitCodes       list of exit codes indicating success
-     * @return object containing execution result
+     * @return true if successfully deleted instance or if it is already deleted. False if failed to delete.
      */
-    AdapterShellCommandExecutionResult executeShellCommandForInstance(String adapterInstanceId, String shellCommand, List<Long> okExitCodes);
+    boolean deletePostgresInstance(String adapterInstanceId);
 
     //TODO Better to implement Postgres replication protocol https://www.postgresql.org/docs/current/protocol-replication.html
     BaseBackupCreationResult createBaseBackupAndGetAsStream();
@@ -108,56 +100,4 @@ public interface PlatformAdapter {
      * @throws PostgresRestoreException when something went wrong and restore failed
      */
     String restorePrimaryFromBackup(InputStream basebackupTarInputStream, List<String> walFileNames, Function<String, InputStream> walFileInputStreamFunction) throws PostgresRestoreException;
-
-    /**
-     * Return list of active PgFacade instances. List must not contain inactive instances or instances that will be suspended.
-     * Whether the instance is suspended or not is determined by the adapter. For example, for Docker suspended PgFacade containers will have some special prefix in name.
-     *
-     * @return list containing info about raft nodes
-     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
-     */
-    List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException;
-
-    PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException;
-
-    /**
-     * Create and start new PgFacade instance.
-     *
-     * @return object containing raft node info for new instance
-     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
-     */
-    PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException;
-
-    List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() throws PlatformAdapterOperationExecutionException;
-
-    PgFacadeNodeExternalConnectionsInfo getSelfExternalConnectionInfo() throws PlatformAdapterOperationExecutionException;
-
-    /**
-     * Create and start new external load balancer instance.
-     *
-     * @return adapter identifier
-     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
-     */
-    String createExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException;
-
-    /**
-     * Get adapter info about external load balancer
-     *
-     * @param adapterIdentifier adapter identifier of existing external load balancer instance
-     * @return object containing adapter info about external load balancer
-     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
-     */
-    ExternalLoadBalancerAdapterInfo getExternalLoadBalancerInstanceInfo(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
-
-    /**
-     * Start existing external load balancer instance.
-     *
-     * @return object containing info for created load balancer
-     * @throws PlatformAdapterOperationExecutionException if something went wrong and operation failed
-     */
-    ExternalLoadBalancerAdapterInfo startExternalLoadBalancerInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
-
-    boolean stopExternalLoadBalancerInstance(String adapterIdentifier);
-
-    void suspendPgFacadeInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException;
 }

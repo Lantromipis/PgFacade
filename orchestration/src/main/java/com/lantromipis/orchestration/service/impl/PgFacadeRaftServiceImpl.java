@@ -5,7 +5,7 @@ import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.RaftProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PgFacadePlatformAdapter;
 import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
@@ -37,7 +37,7 @@ public class PgFacadeRaftServiceImpl implements PgFacadeRaftService {
     OrchestrationProperties orchestrationProperties;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PgFacadePlatformAdapter> platformAdapter;
 
     @Inject
     RaftEventListener raftEventListener;

@@ -2,7 +2,7 @@ package com.lantromipis.orchestration.service.impl;
 
 import com.lantromipis.configuration.producers.FilesPathsProducer;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
 import com.lantromipis.orchestration.model.BaseBackupDownload;
 import com.lantromipis.orchestration.service.api.PostgresArchivingService;
@@ -28,7 +28,7 @@ public class PostgresRestorationServiceImpl implements PostgresRestorationServic
     RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     Instance<ArchiverStorageAdapter> archiverAdapter;

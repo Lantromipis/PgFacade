@@ -5,7 +5,7 @@ import com.lantromipis.configuration.event.StandbyRemovedEvent;
 import com.lantromipis.configuration.model.RuntimePostgresInstanceInfo;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
@@ -33,7 +33,7 @@ public class OrchestratorUtils {
     RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;

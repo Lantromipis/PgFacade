@@ -1,6 +1,6 @@
 package com.lantromipis.orchestration.service.impl;
 
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.exception.NoPrimaryException;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
 import com.lantromipis.orchestration.model.PostgresCombinedInstanceInfo;
@@ -21,7 +21,7 @@ public class PostgresPrimaryOrchestrationServiceImpl implements PostgresPrimaryO
     RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     OrchestratorUtils orchestratorUtils;

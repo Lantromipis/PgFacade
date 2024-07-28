@@ -7,7 +7,7 @@ import com.lantromipis.configuration.properties.predefined.ArchivingProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.exception.BackupCreationException;
 import com.lantromipis.orchestration.model.BaseBackupCreationResult;
 import com.lantromipis.orchestration.model.raft.PostgresPersistedArchiverInfo;
@@ -36,7 +36,7 @@ public class PostgresArchivingServiceImpl implements PostgresArchivingService {
     Instance<ArchiverStorageAdapter> archiverAdapter;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     ArchivingProperties archivingProperties;

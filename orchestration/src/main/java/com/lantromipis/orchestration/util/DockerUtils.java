@@ -84,4 +84,8 @@ public class DockerUtils {
     public List<String> getPossibleMemoryUnits() {
         return List.of(BYTES, KILOBYTES, MEGABYTES, GIGABYTES);
     }
+
+    public String createEnvValueForRequest(String varName, String value) {
+        return varName + "=" + value;
+    }
 }

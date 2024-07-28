@@ -3,7 +3,7 @@ package com.lantromipis.orchestration.service.impl;
 import com.lantromipis.configuration.producers.RuntimePostgresConnectionProducer;
 import com.lantromipis.configuration.properties.constant.PostgresSettingsConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
@@ -42,7 +42,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
     RaftFunctionalityCombinator raftFunctionalityCombinator;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     RuntimePostgresConnectionProducer runtimePostgresConnectionProducer;
@@ -97,7 +97,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
                 if (standbyAdapterInstanceInfo == null) {
                     log.error("Failed to start inactive standby with name {}. Will remove it.", persistedStandbyInfo.getServerName());
                     raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(persistedStandbyInfo.getInstanceId());
-                    platformAdapter.get().deleteInstance(persistedStandbyInfo.getAdapterIdentifier());
+                    platformAdapter.get().deletePostgresInstance(persistedStandbyInfo.getAdapterIdentifier());
                     continue;
                 }
             }
@@ -113,7 +113,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
             if (!configuredSuccessfully) {
                 log.error("Failed to configure standby with name {}. Will remove it.", persistedStandbyInfo.getServerName());
                 raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(persistedStandbyInfo.getInstanceId());
-                platformAdapter.get().deleteInstance(adapterStandbyInfo.getAdapterInstanceId());
+                platformAdapter.get().deletePostgresInstance(adapterStandbyInfo.getAdapterInstanceId());
             }
 
             log.info("Standby with name {} is up ad running!", persistedStandbyInfo.getServerName());
@@ -185,7 +185,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
                     log.info("Standby is up and running!");
                 } catch (Exception e) {
                     log.error("Standby was created, but PgFacade failed to safe it's info in Raft! Removing standby...", e);
-                    platformAdapter.get().deleteInstance(combinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                    platformAdapter.get().deletePostgresInstance(combinedInstanceInfo.getAdapter().getAdapterInstanceId());
                     postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(combinedInstanceInfo.getPersisted().getReplicationSlotName());
                 }
 
@@ -322,7 +322,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
     private void removeStandby(PostgresPersistedInstanceInfo standbyInstanceInfo) {
         try {
             raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getInstanceId());
-            platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapterIdentifier());
+            platformAdapter.get().deletePostgresInstance(standbyInstanceInfo.getAdapterIdentifier());
             postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(standbyInstanceInfo.getReplicationSlotName());
         } catch (RaftException e) {
             log.error("Failed to delete instance with name {} in raft!", standbyInstanceInfo.getServerName(), e);
@@ -434,7 +434,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
         PostgresAdapterInstanceInfo postgresAdapterInstanceInfo = orchestratorUtils.startPostgresInstanceAndWaitToBeReady(adapterIdentifier);
         if (postgresAdapterInstanceInfo == null) {
             log.error("Newly created standby failed to start!");
-            platformAdapter.get().deleteInstance(adapterIdentifier);
+            platformAdapter.get().deletePostgresInstance(adapterIdentifier);
             postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(physicalSlotName);
             return null;
         }
@@ -447,7 +447,7 @@ public class PostgresStandbyOrchestrationServiceImpl implements PostgresStandbyO
 
         if (!settingsChanged) {
             log.error("Failed to set default settings for new Postgres instance!");
-            platformAdapter.get().deleteInstance(adapterIdentifier);
+            platformAdapter.get().deletePostgresInstance(adapterIdentifier);
             postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(physicalSlotName);
             return null;
         }

@@ -11,7 +11,7 @@ import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimePropertie
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
 import com.lantromipis.orchestration.adapter.api.ArchiverStorageAdapter;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.orchestrator.api.PostgresOrchestrator;
 import com.lantromipis.orchestration.service.api.PgFacadeRaftService;
 import com.lantromipis.proxy.service.impl.PgProxyServiceImpl;
@@ -69,7 +69,7 @@ public class QuarkusStartupAndShutdownHandler {
     List<ConfigurationValidator> configurationValidators;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     Instance<ArchiverStorageAdapter> archiverStorageAdapter;

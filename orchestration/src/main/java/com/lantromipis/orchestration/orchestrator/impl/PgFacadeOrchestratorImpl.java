@@ -5,7 +5,7 @@ import com.lantromipis.configuration.model.PgFacadeRaftRole;
 import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
 import com.lantromipis.configuration.properties.predefined.RaftProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PgFacadePlatformAdapter;
 import com.lantromipis.orchestration.exception.RaftException;
 import com.lantromipis.orchestration.model.PgFacadeRaftNodeInfo;
 import com.lantromipis.orchestration.orchestrator.api.LoadBalancerOrchestrator;
@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PgFacadePlatformAdapter> platformAdapter;
 
     @Inject
     PgFacadeRaftService pgFacadeRaftService;
@@ -319,7 +319,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 );
             } catch (Exception e) {
                 if (raftNodeInfo != null) {
-                    platformAdapter.get().deleteInstance(raftNodeInfo.getPlatformAdapterIdentifier());
+                    platformAdapter.get().deletePgFacadeInstance(raftNodeInfo.getPlatformAdapterIdentifier());
                 }
                 log.error("Failed to create and start new PgFacade instance!", e);
             }
@@ -333,7 +333,7 @@ public class PgFacadeOrchestratorImpl implements PgFacadeOrchestrator {
                 .ifPresent(dynamicRestClientUtils::closeClient);
         pgFacadeRaftService.removeNode(id);
         pgFacadeInstances.remove(id);
-        platformAdapter.get().deleteInstance(id);
+        platformAdapter.get().deletePgFacadeInstance(id);
     }
 
     private void awaitNewRaftNodeReadiness(PgFacadeRaftNodeInfo raftNodeInfo) throws RaftException {

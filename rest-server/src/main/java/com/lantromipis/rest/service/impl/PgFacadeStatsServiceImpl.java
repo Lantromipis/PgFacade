@@ -2,7 +2,7 @@ package com.lantromipis.rest.service.impl;
 
 import com.lantromipis.connectionpool.model.stats.ConnectionPoolStats;
 import com.lantromipis.connectionpool.pooler.api.ConnectionPool;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PgFacadePlatformAdapter;
 import com.lantromipis.orchestration.model.PgFacadeNodeExternalConnectionsInfo;
 import com.lantromipis.orchestration.model.PgFacadeNodeHttpConnectionsInfo;
 import com.lantromipis.rest.model.api.stats.*;
@@ -23,7 +23,7 @@ public class PgFacadeStatsServiceImpl implements PgFacadeStatsService {
     ConnectionPool connectionPool;
 
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PgFacadePlatformAdapter> platformAdapter;
 
     @Override
     public PgFacadeSelfInfoResponseDto getSelfNodeStats() {

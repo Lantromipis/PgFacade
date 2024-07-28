@@ -8,7 +8,7 @@ import com.lantromipis.configuration.properties.predefined.OrchestrationProperti
 import com.lantromipis.configuration.properties.runtime.ClusterRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
 import com.lantromipis.configuration.properties.runtime.PostgresSettingsRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.exception.OrchestratorNotReadyException;
 import com.lantromipis.orchestration.exception.OrchestratorOperationExecutionException;
 import com.lantromipis.orchestration.exception.RaftException;
@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     @Inject
-    Instance<PlatformAdapter> platformAdapter;
+    Instance<PostgresPlatformAdapter> platformAdapter;
 
     @Inject
     ClusterRuntimeProperties clusterRuntimeProperties;
@@ -226,7 +226,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 if (!PostgresInstanceSettingsChangeResult.Status.SUCCESS.equals(changeResult.getStatus()) && i == 0) {
                     // delete if rollback failed
                     if (changeResult.isRollbackWasRequired() && CollectionUtils.isNotEmpty(changeResult.getNotRollbackedSettings())) {
-                        platformAdapter.get().deleteInstance(info.getAdapter().getAdapterInstanceId());
+                        platformAdapter.get().deletePostgresInstance(info.getAdapter().getAdapterInstanceId());
                     }
 
                     return PostgresClusterSettingsChangeResult
@@ -305,7 +305,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 // delete if rollback failed
                 if (primaryChangeResult.isRollbackWasRequired() && CollectionUtils.isNotEmpty(primaryChangeResult.getNotRollbackedSettings())) {
                     log.error("FAILED TO ROLLBACK SOME POSTGRES PRIMARY SETTINGS! WILL REMOVE POSTGRES PRIMARY!");
-                    platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                    platformAdapter.get().deletePostgresInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
                 }
 
                 return PostgresClusterSettingsChangeResult
@@ -320,7 +320,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
             if (adapterInstanceInfo == null) {
                 // most likely we faced config parameter issue, so primary can not start.
                 // Because of that, there is no ability to revert settings (for non-running instance), so instance must be deleted
-                platformAdapter.get().deleteInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
+                platformAdapter.get().deletePostgresInstance(primaryCombinedInstanceInfo.getAdapter().getAdapterInstanceId());
                 log.error("PRIMARY FAILED TO RESTART AFTER SETTINGS WAS CHANGED. ARE NEW SETTINGS CORRECT? WILL TRY TO RECOVER.");
                 return PostgresClusterSettingsChangeResult
                         .builder()
@@ -565,7 +565,7 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
     private void removeStandby(PostgresPersistedInstanceInfo standbyInstanceInfo) {
         try {
             raftFunctionalityCombinator.deletePostgresNodeInfoInRaft(standbyInstanceInfo.getInstanceId());
-            platformAdapter.get().deleteInstance(standbyInstanceInfo.getAdapterIdentifier());
+            platformAdapter.get().deletePostgresInstance(standbyInstanceInfo.getAdapterIdentifier());
             postgresUtils.dropPhysicalReplicationSlotOnPrimarySafely(standbyInstanceInfo.getReplicationSlotName());
         } catch (RaftException e) {
             log.error("Failed to delete instance with name {} in raft!", standbyInstanceInfo.getServerName(), e);
@@ -621,13 +621,13 @@ public class PostgresOrchestratorImpl implements PostgresOrchestrator {
                 for (var entry : standbyElectionForPromotionResult.getOtherStandbys().entrySet()) {
                     instancesToRemove.add(entry.getKey());
                     // no need to remove replication slot on primary!
-                    platformAdapter.get().deleteInstance(entry.getValue().getAdapter().getAdapterInstanceId());
+                    platformAdapter.get().deletePostgresInstance(entry.getValue().getAdapter().getAdapterInstanceId());
                 }
             }
 
             if (currentPrimaryInstanceInfo != null) {
                 instancesToRemove.add(currentPrimaryInstanceInfo.getPersisted().getInstanceId());
-                managedExecutor.runAsync(() -> platformAdapter.get().deleteInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId()));
+                managedExecutor.runAsync(() -> platformAdapter.get().deletePostgresInstance(currentPrimaryInstanceInfo.getAdapter().getAdapterInstanceId()));
             }
 
             PostgresSwitchoverCompletedNotification switchoverCompletedNotification =

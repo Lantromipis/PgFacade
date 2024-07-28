@@ -4,28 +4,30 @@ import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.exception.NotModifiedException;
-import com.github.dockerjava.api.model.*;
+import com.github.dockerjava.api.model.Bind;
+import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
-import com.lantromipis.configuration.properties.constant.ExternalLoadBalancerConstants;
-import com.lantromipis.configuration.properties.constant.PgFacadeConstants;
-import com.lantromipis.configuration.properties.constant.QuarkusConstants;
 import com.lantromipis.configuration.properties.predefined.OrchestrationProperties;
 import com.lantromipis.configuration.properties.predefined.PostgresProperties;
 import com.lantromipis.configuration.properties.predefined.ProxyProperties;
 import com.lantromipis.configuration.properties.runtime.PgFacadeRuntimeProperties;
-import com.lantromipis.orchestration.adapter.api.PlatformAdapter;
+import com.lantromipis.orchestration.adapter.api.PostgresPlatformAdapter;
 import com.lantromipis.orchestration.constant.CommandsConstants;
 import com.lantromipis.orchestration.constant.DockerConstants;
 import com.lantromipis.orchestration.exception.InitializationException;
 import com.lantromipis.orchestration.exception.PlatformAdapterNotFoundException;
 import com.lantromipis.orchestration.exception.PlatformAdapterOperationExecutionException;
 import com.lantromipis.orchestration.exception.PostgresRestoreException;
-import com.lantromipis.orchestration.model.*;
+import com.lantromipis.orchestration.model.AdapterShellCommandExecutionResult;
+import com.lantromipis.orchestration.model.BaseBackupCreationResult;
+import com.lantromipis.orchestration.model.PostgresAdapterInstanceInfo;
+import com.lantromipis.orchestration.model.PostgresInstanceCreationRequest;
 import com.lantromipis.orchestration.util.DockerUtils;
 import com.lantromipis.orchestration.util.PgFacadeIOUtils;
 import com.lantromipis.orchestration.util.PostgresUtils;
@@ -40,17 +42,16 @@ import org.apache.commons.lang3.StringUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.time.Instant;
-import java.util.*;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.regex.Matcher;
-import java.util.stream.Collectors;
 
 @Slf4j
 @ApplicationScoped
 @LookupIfProperty(name = "pg-facade.orchestration.adapter", stringValue = "docker")
-public class DockerBasedPlatformAdapter implements PlatformAdapter {
+public class DockerPostgresPlatformAdapter implements PostgresPlatformAdapter {
 
     @Inject
     OrchestrationProperties orchestrationProperties;
@@ -257,7 +258,7 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
     }
 
     @Override
-    public boolean deleteInstance(String adapterInstanceId) {
+    public boolean deletePostgresInstance(String adapterInstanceId) {
         if (adapterInstanceId == null) {
             return true;
         }
@@ -288,18 +289,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             return false;
         }
 
-    }
-
-    @Override
-    public AdapterShellCommandExecutionResult executeShellCommandForInstance(String adapterInstanceId, String shellCommand, List<Long> okExitCodes) {
-        if (adapterInstanceId == null) {
-            return AdapterShellCommandExecutionResult
-                    .builder()
-                    .success(false)
-                    .build();
-        }
-
-        return executeCmdInContainer(adapterInstanceId, shellCommand, okExitCodes, null);
     }
 
     @Override
@@ -543,338 +532,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
         }
     }
 
-    @Override
-    public List<PgFacadeRaftNodeInfo> getActiveRaftNodeInfos() throws PlatformAdapterOperationExecutionException {
-        try {
-            List<Container> containers = listPgFacadeUnsuspendedContainers();
-
-            if (CollectionUtils.isEmpty(containers)) {
-                return Collections.emptyList();
-            }
-
-            return containers
-                    .stream()
-                    .map(this::containerToPgFacadeRaftNodeInfo)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Failed to get Raft nodes info. ", e);
-        }
-    }
-
-    @Override
-    public PgFacadeRaftNodeInfo getSelfRaftNodeInfo() throws PlatformAdapterOperationExecutionException {
-        String hostname = System.getenv(DockerConstants.DOCKER_ENV_VAR_HOSTNAME);
-
-        if (hostname == null) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
-        }
-
-        InspectContainerResponse inspectContainerResponse;
-
-        try {
-            inspectContainerResponse = dockerClient
-                    .inspectContainerCmd(hostname)
-                    .exec();
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Failed to insect self container.", e);
-        }
-
-        return Optional.ofNullable(inspectContainerResponseToPgFacadeRaftNodeInfo(inspectContainerResponse))
-                .orElseThrow(() -> new PlatformAdapterOperationExecutionException("Can not define self IP address. Does container have HOSTNAME env var configured properly AND is connected to PgFacade network? This env var must contain short Docker container ID"));
-    }
-
-    @Override
-    public PgFacadeRaftNodeInfo createAndStartNewPgFacadeInstance() throws PlatformAdapterOperationExecutionException {
-        PgFacadeRaftNodeInfo self = getSelfRaftNodeInfo();
-        InspectContainerResponse inspectSelfResponse = dockerClient.inspectContainerCmd(self.getPlatformAdapterIdentifier()).exec();
-
-        UUID instanceId = UUID.randomUUID();
-
-        CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(inspectSelfResponse.getImageId())
-                .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().pgFacade().containerName(), instanceId.toString()))
-                .withLabels(Map.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL, "true"));
-
-        HostConfig newHostConfig = HostConfig.newHostConfig();
-
-        if (inspectSelfResponse.getHostConfig().getBinds() != null) {
-            for (var bind : inspectSelfResponse.getHostConfig().getBinds()) {
-                if (bind.getVolume().getPath().contains(orchestrationProperties.docker().pgFacade().expectedDockerSockFileName())) {
-                    newHostConfig
-                            .withBinds(
-                                    new Bind(
-                                            bind.getPath(),
-                                            new Volume(bind.getVolume().getPath())
-                                    )
-                            );
-                    break;
-                }
-            }
-        }
-
-        // propagate env vars == propagate settings
-        if (inspectSelfResponse.getConfig().getEnv() != null) {
-            createContainerCmd
-                    .withEnv(inspectSelfResponse.getConfig().getEnv());
-        }
-
-        newHostConfig.withNanoCPUs(
-                dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().pgFacade().resources().cpuLimit())
-        );
-        newHostConfig.withMemory(
-                dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().pgFacade().resources().memoryLimit())
-        );
-
-        createContainerCmd.withHostConfig(newHostConfig);
-        CreateContainerResponse createContainerResponse = createContainerCmd.exec();
-
-        for (var selfNetwork : inspectSelfResponse.getNetworkSettings().getNetworks().keySet()) {
-            dockerClient.connectToNetworkCmd()
-                    .withContainerId(createContainerResponse.getId())
-                    .withNetworkId(selfNetwork)
-                    .exec();
-        }
-
-        dockerClient.startContainerCmd(createContainerResponse.getId()).exec();
-        InspectContainerResponse inspectNewContainerResponse = dockerClient.inspectContainerCmd(createContainerResponse.getId()).exec();
-
-        return inspectContainerResponseToPgFacadeRaftNodeInfo(inspectNewContainerResponse);
-    }
-
-    @Override
-    public List<PgFacadeNodeHttpConnectionsInfo> getActivePgFacadeHttpNodesInfos() {
-        List<Container> containers = listPgFacadeUnsuspendedContainers();
-
-        if (CollectionUtils.isEmpty(containers)) {
-            return Collections.emptyList();
-        }
-
-        return containers
-                .stream()
-                .map(this::containerToHttpNodeInfo)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public PgFacadeNodeExternalConnectionsInfo getSelfExternalConnectionInfo() {
-        String hostname = System.getenv(DockerConstants.DOCKER_ENV_VAR_HOSTNAME);
-
-        if (hostname == null) {
-            throw new PlatformAdapterOperationExecutionException("Docker error. PgFacade container has no HOSTNAME env var. Container with PgFacade must have it, and this env var must contain Docker container ID start symbols.");
-        }
-
-        List<Container> containers = dockerClient.listContainersCmd()
-                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
-                .withIdFilter(List.of(hostname))
-                .exec();
-
-        return containerToExternalConnectionsInfo(containers.get(0));
-    }
-
-    @Override
-    public String createExternalLoadBalancerInstance() throws PlatformAdapterOperationExecutionException {
-        try {
-            PgFacadeNodeExternalConnectionsInfo selfInfo = getSelfExternalConnectionInfo();
-
-            CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(orchestrationProperties.docker().externalLoadBalancer().imageTag())
-                    .withName(dockerUtils.createUniqueObjectName(orchestrationProperties.docker().externalLoadBalancer().containerName(), UUID.randomUUID().toString()))
-                    .withLabels(Map.of(PgFacadeConstants.DOCKER_SPECIFIC_EXTERNAL_LOAD_BALANCER_CONTAINER_LABEL, "true"))
-                    .withEnv(
-                            List.of(
-                                    createEnvValueForRequest(ExternalLoadBalancerConstants.ENV_INITIAL_HTTP_HOST, selfInfo.getAddress()),
-                                    createEnvValueForRequest(ExternalLoadBalancerConstants.ENV_INITIAL_HTTP_PORT, String.valueOf(selfInfo.getHttpPort())),
-                                    createEnvValueForRequest(QuarkusConstants.ENV_QUARKUS_HTTP_PORT, String.valueOf(QuarkusConstants.DEFAULT_HTTP_PORT))
-                            )
-                    ).withHostConfig(
-                            HostConfig.newHostConfig()
-                                    .withNanoCPUs(dockerUtils.getNanoCpusFromDecimalCpus(orchestrationProperties.docker().externalLoadBalancer().resources().cpuLimit()))
-                                    .withMemory(dockerUtils.getMemoryBytesFromString(orchestrationProperties.docker().externalLoadBalancer().resources().memoryLimit()))
-                    );
-
-            CreateContainerResponse createContainerResponse = createContainerCmd.exec();
-
-            dockerClient.connectToNetworkCmd()
-                    .withContainerId(createContainerResponse.getId())
-                    .withNetworkId(orchestrationProperties.docker().pgFacade().externalNetworkName())
-                    .withContainerNetwork(
-                            new ContainerNetwork()
-                                    .withAliases(orchestrationProperties.docker().externalLoadBalancer().dnsAlias())
-                    )
-                    .exec();
-
-            dockerClient.connectToNetworkCmd()
-                    .withContainerId(createContainerResponse.getId())
-                    .withNetworkId(orchestrationProperties.docker().externalLoadBalancer().networkForEndClients())
-                    .withContainerNetwork(
-                            new ContainerNetwork()
-                                    .withAliases(orchestrationProperties.docker().externalLoadBalancer().dnsAlias())
-                    )
-                    .exec();
-
-            return createContainerResponse.getId();
-        } catch (PlatformAdapterOperationExecutionException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Failed to create container with load balancer!", e);
-        }
-    }
-
-    @Override
-    public ExternalLoadBalancerAdapterInfo getExternalLoadBalancerInstanceInfo(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
-        try {
-            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(adapterIdentifier).exec();
-            return from(inspectContainerResponse);
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Failed to get info about external load balancer.", e);
-        }
-    }
-
-    @Override
-    public ExternalLoadBalancerAdapterInfo startExternalLoadBalancerInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
-        try {
-            dockerClient.startContainerCmd(adapterIdentifier).exec();
-            InspectContainerResponse inspectContainerResponse = dockerClient.inspectContainerCmd(adapterIdentifier).exec();
-            return from(inspectContainerResponse);
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Failed to start external load balancer.", e);
-        }
-    }
-
-    @Override
-    public boolean stopExternalLoadBalancerInstance(String adapterIdentifier) {
-        if (adapterIdentifier == null) {
-            throw new PlatformAdapterNotFoundException("Can not stop container with load balancer because container ID is null.");
-        }
-
-        try {
-            dockerClient.stopContainerCmd(adapterIdentifier).exec();
-            return true;
-        } catch (NotFoundException notFoundException) {
-            log.warn("Failed to stop load balancer. Container with ID " + adapterIdentifier + " not found.");
-            return true;
-        } catch (NotModifiedException notModifiedException) {
-            return true;
-        } catch (Exception e) {
-            log.error("Unexpected error while stopping load balancer with container ID {}", adapterIdentifier, e);
-            return false;
-        }
-    }
-
-    @Override
-    public void suspendPgFacadeInstance(String adapterIdentifier) throws PlatformAdapterOperationExecutionException {
-        try {
-            dockerClient.renameContainerCmd(adapterIdentifier)
-                    .withName(dockerUtils.createUniqueObjectName(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
-                    .exec();
-        } catch (Exception e) {
-            throw new PlatformAdapterOperationExecutionException("Failed to suspend container!", e);
-        }
-    }
-
-    private ExternalLoadBalancerAdapterInfo from(InspectContainerResponse inspectContainerResponse) {
-        return ExternalLoadBalancerAdapterInfo
-                .builder()
-                .running(Boolean.TRUE.equals(inspectContainerResponse.getState().getRunning()))
-                .adapterIdentifier(inspectContainerResponse.getId())
-                .httpPort(QuarkusConstants.DEFAULT_HTTP_PORT)
-                .address(dockerUtils.getContainerAddress(inspectContainerResponse, orchestrationProperties.docker().pgFacade().externalNetworkName()))
-                .build();
-    }
-
-    private List<Container> listPgFacadeUnsuspendedContainers() {
-        List<Container> containers = dockerClient.listContainersCmd()
-                .withLabelFilter(List.of(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_CONTAINER_LABEL))
-                .withStatusFilter(List.of(DockerConstants.ContainerState.RUNNING.getValue()))
-                .exec();
-
-        if (CollectionUtils.isEmpty(containers)) {
-            return Collections.emptyList();
-        }
-
-        return containers.stream()
-                .filter(container -> Arrays
-                        .stream(container.getNames())
-                        .noneMatch(name -> name.contains(DockerConstants.SUSPENDED_PG_FACADE_CONTAINER_NAME_PREFIX))
-                )
-                .collect(Collectors.toList());
-    }
-
-    private PgFacadeNodeExternalConnectionsInfo containerToExternalConnectionsInfo(Container container) {
-        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
-
-        if (address == null) {
-            return null;
-        }
-
-        return PgFacadeNodeExternalConnectionsInfo
-                .builder()
-                .address(address)
-                .httpPort(pgFacadeRuntimeProperties.getHttpPort())
-                .primaryPort(proxyProperties.primaryPort())
-                .standbyPort(proxyProperties.standbyPort())
-                .build();
-    }
-
-    private PgFacadeNodeHttpConnectionsInfo containerToHttpNodeInfo(Container container) {
-        if (container == null) {
-            return null;
-        }
-
-        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
-
-        if (address == null) {
-            return null;
-        }
-
-        return PgFacadeNodeHttpConnectionsInfo
-                .builder()
-                .address(address)
-                .port(pgFacadeRuntimeProperties.getHttpPort())
-                .build();
-    }
-
-    private PgFacadeRaftNodeInfo inspectContainerResponseToPgFacadeRaftNodeInfo(InspectContainerResponse inspectContainerResponse) {
-        if (inspectContainerResponse == null) {
-            return null;
-        }
-
-        String address = dockerUtils.getContainerAddress(inspectContainerResponse, orchestrationProperties.docker().pgFacade().internalNetworkName());
-
-        if (address == null) {
-            return null;
-        }
-
-        return PgFacadeRaftNodeInfo
-                .builder()
-                .platformAdapterIdentifier(inspectContainerResponse.getId())
-                .address(address)
-                .createdWhen(Instant.parse(inspectContainerResponse.getCreated()))
-                .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
-                .build();
-    }
-
-    private PgFacadeRaftNodeInfo containerToPgFacadeRaftNodeInfo(Container container) {
-        if (container == null) {
-            return null;
-        }
-
-        String address = dockerUtils.getContainerAddress(container, orchestrationProperties.docker().pgFacade().externalNetworkName());
-
-        if (address == null) {
-            return null;
-        }
-
-        return PgFacadeRaftNodeInfo
-                .builder()
-                .platformAdapterIdentifier(container.getId())
-                .address(address)
-                .createdWhen(Instant.ofEpochMilli(container.getCreated()))
-                .port(PgFacadeConstants.DOCKER_SPECIFIC_PGFACADE_RAFT_PORT)
-                .build();
-    }
-
     private void forceDeleteContainerSafe(String containerId) {
         if (containerId != null) {
             try {
@@ -963,10 +620,6 @@ public class DockerBasedPlatformAdapter implements PlatformAdapter {
             deleteVolumeSafe(volumeName);
             throw new PlatformAdapterOperationExecutionException("Error while creating volume with backup.", e);
         }
-    }
-
-    private String createEnvValueForRequest(String varName, String value) {
-        return varName + "=" + value;
     }
 
     private CreateContainerCmd getPostgresDefaultCreateContainerCmdRequest(String containerNamePostfix) {
